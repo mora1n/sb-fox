@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -47,7 +48,7 @@ type Options struct {
 	Version           string
 	Purge             bool
 	RegMode           string
-	RegExplicit       bool
+	LogLevel          string
 	Stdin             io.Reader
 	Stdout            io.Writer
 	HTTPClient        *http.Client
@@ -70,6 +71,9 @@ func (o Options) withDefaults() Options {
 	}
 	if o.RegMode == "" {
 		o.RegMode = "off"
+	}
+	if o.LogLevel == "" {
+		o.LogLevel = "info"
 	}
 	if o.Stdin == nil {
 		o.Stdin = os.Stdin
@@ -108,24 +112,17 @@ func InstallDaemon(opts Options) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(opts.rooted("/etc/sb-fox"), 0o755); err != nil {
-		return fmt.Errorf("create config directory: %w", err)
-	}
 	if err := os.MkdirAll(opts.rooted(filepath.Join(opts.DataDir, "templates")), 0o755); err != nil {
 		return fmt.Errorf("create data directory: %w", err)
 	}
 	if err := seedTemplates(opts); err != nil {
 		return err
 	}
-	envPath := opts.rooted("/etc/sb-fox/sb-fox.env")
-	if err := writeEnvFile(opts, envPath); err != nil {
-		return err
-	}
 	servicePath := opts.rooted("/etc/systemd/system/sb-fox.service")
 	if err := os.MkdirAll(filepath.Dir(servicePath), 0o755); err != nil {
 		return fmt.Errorf("create service directory: %w", err)
 	}
-	if err := os.WriteFile(servicePath, []byte(serviceContent(binaryPath)), 0o644); err != nil {
+	if err := os.WriteFile(servicePath, []byte(serviceContent(binaryPath, opts)), 0o644); err != nil {
 		return fmt.Errorf("write service file: %w", err)
 	}
 	if err := runSystemctl(opts, "daemon-reload"); err != nil {
@@ -287,52 +284,7 @@ func HealthCheck(opts Options, addr string) error {
 	return lastErr
 }
 
-func envContent(opts Options) string {
-	reg := opts.RegMode
-	if reg == "" {
-		reg = "off"
-	}
-	return fmt.Sprintf("SB_FOX_ADDR=%s\nSB_FOX_DATA_DIR=%s\nSB_FOX_KERNEL=%s\nSB_FOX_REG=%s\n",
-		opts.Addr, opts.DataDir, opts.KernelPath, reg)
-}
-
-func writeEnvFile(opts Options, envPath string) error {
-	values := map[string]string{}
-	if data, err := os.ReadFile(envPath); err == nil {
-		values = parseEnv(data)
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("read env file: %w", err)
-	}
-	values["SB_FOX_ADDR"] = opts.Addr
-	values["SB_FOX_DATA_DIR"] = opts.DataDir
-	values["SB_FOX_KERNEL"] = opts.KernelPath
-	if opts.RegExplicit || values["SB_FOX_REG"] == "" {
-		values["SB_FOX_REG"] = opts.RegMode
-	}
-	content := fmt.Sprintf("SB_FOX_ADDR=%s\nSB_FOX_DATA_DIR=%s\nSB_FOX_KERNEL=%s\nSB_FOX_REG=%s\n",
-		values["SB_FOX_ADDR"], values["SB_FOX_DATA_DIR"], values["SB_FOX_KERNEL"], values["SB_FOX_REG"])
-	if err := os.WriteFile(envPath, []byte(content), 0o644); err != nil {
-		return fmt.Errorf("write env file: %w", err)
-	}
-	return nil
-}
-
-func parseEnv(data []byte) map[string]string {
-	values := map[string]string{}
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		key, value, ok := strings.Cut(line, "=")
-		if ok {
-			values[strings.TrimSpace(key)] = strings.TrimSpace(value)
-		}
-	}
-	return values
-}
-
-func serviceContent(binaryPath string) string {
+func serviceContent(binaryPath string, opts Options) string {
 	return fmt.Sprintf(`[Unit]
 Description=sb-fox
 After=network-online.target
@@ -340,16 +292,30 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-Environment=SB_FOX_DAEMON=1
-EnvironmentFile=-/etc/sb-fox/sb-fox.env
-WorkingDirectory=/var/lib/sb-fox
+%s%s%s%s%s%s
+WorkingDirectory=%s
 ExecStart=%s
 Restart=on-failure
 RestartSec=3
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sb-fox
 
 [Install]
 WantedBy=multi-user.target
-`, binaryPath)
+`,
+		systemdEnv("SB_FOX_DAEMON", "1"),
+		systemdEnv("SB_FOX_ADDR", opts.Addr),
+		systemdEnv("SB_FOX_DATA_DIR", opts.DataDir),
+		systemdEnv("SB_FOX_KERNEL", opts.KernelPath),
+		systemdEnv("SB_FOX_REG", opts.RegMode),
+		systemdEnv("SB_FOX_LOG", opts.LogLevel),
+		opts.DataDir,
+		binaryPath)
+}
+
+func systemdEnv(key, value string) string {
+	return "Environment=" + strconv.Quote(key+"="+value) + "\n"
 }
 
 func (o Options) rooted(path string) string {
@@ -630,20 +596,53 @@ func restartAndCheck(opts Options) error {
 }
 
 func envAddr(opts Options) string {
-	envPath := opts.rooted("/etc/sb-fox/sb-fox.env")
-	file, err := os.Open(envPath)
+	if addr, ok := serviceEnvValue(opts, "SB_FOX_ADDR"); ok {
+		return addr
+	}
+	if addr, ok := legacyEnvValue(opts, "SB_FOX_ADDR"); ok {
+		return addr
+	}
+	return opts.Addr
+}
+
+func serviceEnvValue(opts Options, key string) (string, bool) {
+	file, err := os.Open(opts.rooted("/etc/systemd/system/sb-fox.service"))
 	if err != nil {
-		return opts.Addr
+		return "", false
 	}
 	defer file.Close()
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "SB_FOX_ADDR=") {
-			return strings.TrimPrefix(line, "SB_FOX_ADDR=")
+		if !strings.HasPrefix(line, "Environment=") {
+			continue
+		}
+		value := strings.TrimPrefix(line, "Environment=")
+		if unquoted, err := strconv.Unquote(value); err == nil {
+			value = unquoted
+		}
+		if envKey, envValue, ok := strings.Cut(value, "="); ok && envKey == key {
+			return envValue, true
 		}
 	}
-	return opts.Addr
+	return "", false
+}
+
+func legacyEnvValue(opts Options, key string) (string, bool) {
+	file, err := os.Open(opts.rooted("/etc/sb-fox/sb-fox.env"))
+	if err != nil {
+		return "", false
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	prefix := key + "="
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimPrefix(line, prefix), true
+		}
+	}
+	return "", false
 }
 
 func healthURL(addr string) (string, error) {

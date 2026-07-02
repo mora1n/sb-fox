@@ -21,6 +21,7 @@ const (
 	defaultServeDataDir  = "./data"
 	defaultDaemonDataDir = "/var/lib/sb-fox"
 	defaultDaemonSocket  = "/var/run/sb-fox.sock"
+	defaultLogLevel      = "info"
 )
 
 var currentEUID = os.Geteuid
@@ -48,6 +49,7 @@ type Config struct {
 	Purge               bool   // uninstall removes config/data without prompting
 	RegMode             string // on or off
 	RegExplicit         bool   // --reg/-r was provided
+	LogLevel            string // error, warn, info or debug
 	RegistrationEnabled bool
 	Dev                 bool // dev mode: serve API only, skip embedded frontend requirement
 	ShowVersion         bool // print version and exit
@@ -95,6 +97,7 @@ func Parse(args []string) (*Config, error) {
 	dataDir := dataDirDefault
 	kernel := envOr("SB_FOX_KERNEL", "sing-box")
 	reg := envOr("SB_FOX_REG", "off")
+	logLevel := envOr("SB_FOX_LOG", defaultLogLevel)
 	regExplicit := flagPresent(args, "--reg", "-r")
 	var installDaemon, update, uninstall, resetAdmin, purge, dev, showVersion bool
 	fs.Usage = func() {
@@ -116,6 +119,8 @@ func Parse(args []string) (*Config, error) {
 		fmt.Fprintln(out, "\tremove config and data during uninstall")
 		fmt.Fprintln(out, "  --reg, -r on|off")
 		fmt.Fprintf(out, "\tpublic registration switch (default %q)\n", reg)
+		fmt.Fprintln(out, "  --log, -l error|warn|info|debug")
+		fmt.Fprintf(out, "\tlog level (default %q)\n", logLevel)
 		fmt.Fprintln(out, "  --reset-admin, -P")
 		fmt.Fprintln(out, "\treset admin password and print a new random password")
 		fmt.Fprintln(out, "  --dev")
@@ -139,6 +144,8 @@ func Parse(args []string) (*Config, error) {
 	fs.BoolVar(&purge, "p", false, "remove config and data during uninstall")
 	fs.StringVar(&reg, "reg", reg, "public registration switch (on|off)")
 	fs.StringVar(&reg, "r", reg, "public registration switch (on|off)")
+	fs.StringVar(&logLevel, "log", logLevel, "log level (error|warn|info|debug)")
+	fs.StringVar(&logLevel, "l", logLevel, "log level (error|warn|info|debug)")
 	fs.BoolVar(&resetAdmin, "reset-admin", false, "reset admin password and print a new random password")
 	fs.BoolVar(&resetAdmin, "P", false, "reset admin password and print a new random password")
 	fs.BoolVar(&dev, "dev", false, "dev mode (serve API only)")
@@ -159,6 +166,10 @@ func Parse(args []string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	normalizedLogLevel, err := normalizeLogLevel(logLevel)
+	if err != nil {
+		return nil, err
+	}
 	if mode == ModeDaemon && action != ActionServe {
 		return nil, errors.New("management flags cannot be used inside daemon runtime")
 	}
@@ -173,6 +184,7 @@ func Parse(args []string) (*Config, error) {
 		Purge:               purge,
 		RegMode:             regMode,
 		RegExplicit:         regExplicit,
+		LogLevel:            normalizedLogLevel,
 		RegistrationEnabled: regMode == "on",
 		Dev:                 dev,
 		ShowVersion:         showVersion,
@@ -224,6 +236,21 @@ func normalizeReg(value string) (string, error) {
 		return value, nil
 	default:
 		return "", fmt.Errorf("--reg must be on or off")
+	}
+}
+
+func normalizeLogLevel(value string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "error":
+		return "error", nil
+	case "warn":
+		return "warn", nil
+	case "info":
+		return "info", nil
+	case "debug":
+		return "debug", nil
+	default:
+		return "", fmt.Errorf("--log must be one of error, warn, info or debug")
 	}
 }
 

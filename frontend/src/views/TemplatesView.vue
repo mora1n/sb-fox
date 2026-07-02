@@ -203,6 +203,21 @@ function toggleOutbound(g: TemplateStructureGroup, tag: string) {
   if (g.default && !g.outbounds.includes(g.default)) g.default = ''
 }
 
+function allOutboundsSelected(g: TemplateStructureGroup) {
+  const options = outboundOptions(g)
+  return options.length > 0 && options.every((tag) => g.outbounds.includes(tag))
+}
+
+function selectAllOutbounds(g: TemplateStructureGroup) {
+  g.outbounds = outboundOptions(g)
+  if (g.default && !g.outbounds.includes(g.default)) g.default = ''
+}
+
+function clearOutbounds(g: TemplateStructureGroup) {
+  g.outbounds = []
+  g.default = ''
+}
+
 function localDeletable(g: TemplateStructureGroup) {
   if (!structure.value) return false
   if (structure.value.final === g.tag) return false
@@ -330,8 +345,28 @@ async function remove(t: Template) {
                   <option value="urltest">urltest</option>
                 </select>
               </label>
-              <label class="form-control">
-                <span class="label-text mb-1">{{ i18n.t('出口') }}</span>
+              <div class="form-control">
+                <span class="label-text mb-1 flex items-center justify-between gap-2">
+                  <span>{{ i18n.t('出口') }}</span>
+                  <span class="flex gap-1">
+                    <button
+                      class="btn btn-xs min-h-0 h-5 px-1.5 text-[10px]"
+                      type="button"
+                      :disabled="!outboundOptions(g).length || allOutboundsSelected(g)"
+                      @click="selectAllOutbounds(g)"
+                    >
+                      {{ i18n.t('全选') }}
+                    </button>
+                    <button
+                      class="btn btn-xs min-h-0 h-5 px-1.5 text-[10px]"
+                      type="button"
+                      :disabled="!g.outbounds.length"
+                      @click="clearOutbounds(g)"
+                    >
+                      {{ i18n.t('全不选') }}
+                    </button>
+                  </span>
+                </span>
                 <div class="border border-base-300 rounded-box max-h-28 overflow-y-auto divide-y divide-base-200 bg-base-100">
                   <label
                     v-for="tag in outboundOptions(g)"
@@ -350,7 +385,7 @@ async function remove(t: Template) {
                     {{ i18n.t('无可选出口') }}
                   </div>
                 </div>
-              </label>
+              </div>
               <label class="form-control">
                 <span class="label-text mb-1">{{ i18n.t('默认出口') }}</span>
                 <select v-model="g.default" class="select select-bordered select-sm" :disabled="g.outbounds.length <= 1">

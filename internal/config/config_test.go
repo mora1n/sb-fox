@@ -9,6 +9,7 @@ func clearEnv(t *testing.T) {
 	t.Setenv("SB_FOX_KERNEL", "")
 	t.Setenv("SB_FOX_DAEMON", "")
 	t.Setenv("SB_FOX_REG", "")
+	t.Setenv("SB_FOX_LOG", "")
 }
 
 func setEUID(t *testing.T, id int) {
@@ -42,6 +43,9 @@ func TestParseServeDefaults(t *testing.T) {
 	}
 	if cfg.SocketPath != "" {
 		t.Fatalf("socket path = %q, want empty", cfg.SocketPath)
+	}
+	if cfg.LogLevel != defaultLogLevel {
+		t.Fatalf("log level = %q, want %q", cfg.LogLevel, defaultLogLevel)
 	}
 }
 
@@ -152,6 +156,40 @@ func TestParseRegistrationSwitch(t *testing.T) {
 
 	if _, err := Parse([]string{"--reg", "maybe"}); err == nil {
 		t.Fatal("expected invalid --reg value")
+	}
+}
+
+func TestParseLogLevel(t *testing.T) {
+	clearEnv(t)
+
+	cfg, err := Parse([]string{"--log", "debug"})
+	if err != nil {
+		t.Fatalf("Parse long: %v", err)
+	}
+	if cfg.LogLevel != "debug" {
+		t.Fatalf("log level = %q, want debug", cfg.LogLevel)
+	}
+
+	cfg, err = Parse([]string{"-l", "warn"})
+	if err != nil {
+		t.Fatalf("Parse short: %v", err)
+	}
+	if cfg.LogLevel != "warn" {
+		t.Fatalf("log level = %q, want warn", cfg.LogLevel)
+	}
+
+	clearEnv(t)
+	t.Setenv("SB_FOX_LOG", "error")
+	cfg, err = Parse(nil)
+	if err != nil {
+		t.Fatalf("Parse env: %v", err)
+	}
+	if cfg.LogLevel != "error" {
+		t.Fatalf("env log level = %q, want error", cfg.LogLevel)
+	}
+
+	if _, err := Parse([]string{"--log", "noisy"}); err == nil {
+		t.Fatal("expected invalid --log value")
 	}
 }
 

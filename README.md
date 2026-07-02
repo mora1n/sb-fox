@@ -74,6 +74,12 @@ sudo sb-fox --daemon --reg on
 sudo sb-fox --daemon --reg off
 ```
 
+查看守护进程日志：
+
+```sh
+journalctl -u sb-fox -f
+```
+
 ## 模板
 
 随包提供的模板是：
@@ -100,6 +106,7 @@ data/templates/fakeip.json
 | `--uninstall`, `-U` |  | 卸载服务和二进制 |
 | `--purge`, `-p` |  | 卸载时同时删除配置和数据 |
 | `--reg on\|off`, `-r on\|off` | `SB_FOX_REG` | `off` |
+| `--log error\|warn\|info\|debug`, `-l ...` | `SB_FOX_LOG` | `info` |
 | `--reset-admin`, `-P` |  | 重置 admin 密码并打印新随机密码 |
 
 如果希望自行指定首次启动的管理员密码，可以在启动前设置 `SB_FOX_ADMIN_PASSWORD`。

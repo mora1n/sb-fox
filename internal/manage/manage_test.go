@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-func TestInstallDaemonWritesServiceAndEnv(t *testing.T) {
+func TestInstallDaemonWritesServiceConfig(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("systemd management is Linux-only")
 	}
@@ -46,7 +46,7 @@ func TestInstallDaemonWritesServiceAndEnv(t *testing.T) {
 		DataDir:           DefaultDataDir,
 		KernelPath:        "sing-box",
 		RegMode:           "on",
-		RegExplicit:       true,
+		LogLevel:          "debug",
 		TemplateSourceDir: source,
 		HTTPClient:        server.Client(),
 		Runner: func(name string, args ...string) ([]byte, error) {
@@ -63,22 +63,31 @@ func TestInstallDaemonWritesServiceAndEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(service)
-	if !strings.Contains(content, "Environment=SB_FOX_DAEMON=1") {
+	if !strings.Contains(content, `Environment="SB_FOX_DAEMON=1"`) {
 		t.Fatalf("service missing daemon env:\n%s", content)
+	}
+	for _, want := range []string{
+		`Environment="SB_FOX_ADDR=` + server.URL + `"`,
+		`Environment="SB_FOX_DATA_DIR=/var/lib/sb-fox"`,
+		`Environment="SB_FOX_KERNEL=sing-box"`,
+		`Environment="SB_FOX_REG=on"`,
+		`Environment="SB_FOX_LOG=debug"`,
+		"StandardOutput=journal",
+		"StandardError=journal",
+		"SyslogIdentifier=sb-fox",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("service missing %q:\n%s", want, content)
+		}
+	}
+	if strings.Contains(content, "EnvironmentFile=") {
+		t.Fatalf("service should not reference env file:\n%s", content)
 	}
 	if strings.Contains(content, "--socket") {
 		t.Fatalf("service exposes socket:\n%s", content)
 	}
-	env, err := os.ReadFile(filepath.Join(root, "etc/sb-fox/sb-fox.env"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	envText := string(env)
-	if !strings.Contains(envText, "SB_FOX_DATA_DIR=/var/lib/sb-fox") {
-		t.Fatalf("env missing data dir:\n%s", env)
-	}
-	if !strings.Contains(envText, "SB_FOX_REG=on") {
-		t.Fatalf("env missing registration switch:\n%s", env)
+	if _, err := os.Stat(filepath.Join(root, "etc/sb-fox/sb-fox.env")); !os.IsNotExist(err) {
+		t.Fatalf("env file should not be generated: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "var/lib/sb-fox/templates/fakeip.json")); err != nil {
 		t.Fatalf("seed template not copied: %v", err)
@@ -295,6 +304,28 @@ func TestUninstallPurgeRemovesConfigAndData(t *testing.T) {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("%s should be removed, stat err=%v", path, err)
 		}
+	}
+}
+
+func TestEnvAddrReadsServiceEnvironment(t *testing.T) {
+	root := t.TempDir()
+	servicePath := filepath.Join(root, "etc/systemd/system/sb-fox.service")
+	if err := os.MkdirAll(filepath.Dir(servicePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(servicePath, []byte(serviceContent("/usr/local/bin/sb-fox", Options{
+		Addr:       "localhost:19090",
+		DataDir:    DefaultDataDir,
+		KernelPath: "sing-box",
+		RegMode:    "off",
+		LogLevel:   "info",
+	})), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := envAddr(Options{Root: root, Addr: DefaultAddr})
+	if got != "localhost:19090" {
+		t.Fatalf("envAddr = %q, want service address", got)
 	}
 }
 

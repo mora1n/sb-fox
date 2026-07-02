@@ -34,6 +34,17 @@ import (
 // version is set at build time via -ldflags "-X main.version=vX.Y.Z".
 var version = "dev"
 
+type runtimeLogLevel int
+
+const (
+	levelError runtimeLogLevel = iota
+	levelWarn
+	levelInfo
+	levelDebug
+)
+
+var activeLogLevel = levelInfo
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -48,13 +59,14 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
+	setLogLevel(cfg.LogLevel)
 	if cfg.ShowVersion {
 		fmt.Printf("sb-fox %s\n", version)
 		return nil
 	}
 	switch cfg.Action {
 	case config.ActionInstallDaemon:
-		return manage.InstallDaemon(manage.Options{Addr: cfg.Addr, DataDir: cfg.DataDir, KernelPath: cfg.KernelPath, RegMode: cfg.RegMode, RegExplicit: cfg.RegExplicit})
+		return manage.InstallDaemon(manage.Options{Addr: cfg.Addr, DataDir: cfg.DataDir, KernelPath: cfg.KernelPath, RegMode: cfg.RegMode, LogLevel: cfg.LogLevel})
 	case config.ActionUpdate:
 		return manage.Update(manage.Options{Addr: cfg.Addr, DataDir: cfg.DataDir, KernelPath: cfg.KernelPath, Version: version})
 	case config.ActionUninstall:
@@ -120,8 +132,9 @@ func run(args []string) error {
 	if cfg.Dev || !assets.HasDist() {
 		uiState = "API only (no embedded UI)"
 	}
-	log.Printf("sb-fox version=%s listening on %s (%s), data-dir=%s, kernel=%q, registration=%s",
+	logInfo("sb-fox version=%s listening on %s (%s), data-dir=%s, kernel=%q, registration=%s",
 		version, cfg.Addr, uiState, cfg.DataDir, kernelPath, cfg.RegMode)
+	logDebug("runtime mode=%s db=%s daemon_socket=%s", cfg.Mode, cfg.DBPath, cfg.SocketPath)
 	return serveHTTP(httpSrv)
 }
 
@@ -142,7 +155,7 @@ func serveHTTP(srv *http.Server) error {
 		}
 		return err
 	case sig := <-sigCh:
-		log.Printf("received %s, shutting down", sig)
+		logInfo("received %s, shutting down", sig)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		return srv.Shutdown(ctx)
@@ -189,7 +202,7 @@ func acquireDaemonSocket(path string) (func(), error) {
 				case <-done:
 					return
 				default:
-					log.Printf("daemon socket accept error: %v", err)
+					logWarn("daemon socket accept error: %v", err)
 					return
 				}
 			}
@@ -238,7 +251,7 @@ func seedTemplates(db *store.Store, dataDir string) error {
 			}
 		}
 	}
-	log.Printf("template seed scanned=%d users=%d inserted=%d from %s", scanned, len(users), inserted, templateDir)
+	logInfo("template seed scanned=%d users=%d inserted=%d from %s", scanned, len(users), inserted, templateDir)
 	return nil
 }
 
@@ -312,6 +325,37 @@ func resetAdminPassword(cfg *config.Config) error {
 
 func resetAdminDataDirError(dataDir string, err error) error {
 	return fmt.Errorf("create data dir %s: %w; local data: ./sb-fox -P -D ./data; daemon data: sudo sb-fox -P", dataDir, err)
+}
+
+func setLogLevel(value string) {
+	switch value {
+	case "error":
+		activeLogLevel = levelError
+	case "warn":
+		activeLogLevel = levelWarn
+	case "debug":
+		activeLogLevel = levelDebug
+	default:
+		activeLogLevel = levelInfo
+	}
+}
+
+func logWarn(format string, args ...any) {
+	logAt(levelWarn, format, args...)
+}
+
+func logInfo(format string, args ...any) {
+	logAt(levelInfo, format, args...)
+}
+
+func logDebug(format string, args ...any) {
+	logAt(levelDebug, format, args...)
+}
+
+func logAt(level runtimeLogLevel, format string, args ...any) {
+	if level <= activeLogLevel {
+		log.Printf(format, args...)
+	}
 }
 
 // sessionSecret returns the stored HMAC session secret, creating one on first

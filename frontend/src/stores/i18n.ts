@@ -74,6 +74,7 @@ const en: Record<string, string> = {
   '全部国家': 'All Countries',
   '全部类型': 'All Types',
   '全选': 'Select All',
+  '全不选': 'Deselect All',
   '取消全选': 'Clear Selection',
   '已选': 'Selected',
   '清空': 'Clear',
