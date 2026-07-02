@@ -1,0 +1,177 @@
+{
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "hosts",
+        "tag": "hosts",
+        "predefined": {
+          "dns.alidns.com": [
+            "223.5.5.5",
+            "223.6.6.6",
+            "2400:3200::1",
+            "2400:3200:baba::1"
+          ]
+        }
+      },
+      {
+        "type": "local",
+        "tag": "dns_local"
+      },
+      {
+        "type": "quic",
+        "tag": "dns_ali",
+        "domain_resolver": "hosts",
+        "server": "dns.alidns.com"
+      },
+      {
+        "type": "fakeip",
+        "tag": "dns_fakeip",
+        "inet4_range": "198.18.0.0/15",
+        "inet6_range": "fc00::/18"
+      }
+    ],
+    "rules": [
+      {
+        "clash_mode": "direct",
+        "server": "dns_ali"
+      },
+      {
+        "query_type": [
+          "A",
+          "AAAA"
+        ],
+        "clash_mode": "global",
+        "server": "dns_fakeip",
+        "rewrite_ttl": 1
+      },
+      {
+        "rule_set": "cn",
+        "server": "dns_ali"
+      },
+      {
+        "query_type": [
+          "A",
+          "AAAA"
+        ],
+        "server": "dns_fakeip",
+        "rewrite_ttl": 1
+      }
+    ],
+    "final": "dns_ali",
+    "strategy": "prefer_ipv4"
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "interface_name": "sbox",
+      "mtu": 1500,
+      "address": [
+        "172.19.0.1/30",
+        "fdfe:dcba:9876::1/126"
+      ],
+      "auto_route": true,
+      "auto_redirect": true,
+      "strict_route": true,
+      "route_exclude_address": [
+        "127.0.0.0/8",
+        "169.254.0.0/16",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "::1/128",
+        "fe80::/10",
+        "fd00::/8"
+      ],
+      "route_exclude_address_set": "cnip",
+      "stack": "mixed"
+    },
+    {
+      "type": "mixed",
+      "tag": "mixed-in",
+      "listen": "127.0.0.1",
+      "listen_port": 7890
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "selector",
+      "tag": "🚀 Proxy",
+      "outbounds": [
+        "🎯 Direct"
+      ]
+    },
+    {
+      "type": "direct",
+      "tag": "🎯 Direct",
+      "domain_resolver": {
+        "server": "dns_ali",
+        "strategy": "prefer_ipv4"
+      }
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "port": 53,
+        "action": "hijack-dns"
+      },
+      {
+        "clash_mode": "direct",
+        "outbound": "🎯 Direct"
+      },
+      {
+        "clash_mode": "global",
+        "outbound": "🚀 Proxy"
+      },
+      {
+        "rule_set": [
+          "cn"
+        ],
+        "outbound": "🎯 Direct"
+      },
+      {
+        "rule_set": "cnip",
+        "outbound": "🎯 Direct"
+      }
+    ],
+    "rule_set": [
+      {
+        "type": "remote",
+        "tag": "cn",
+        "url": "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@sing/geo/geosite/cn.srs",
+        "update_interval": "24h0m0s"
+      },
+      {
+        "type": "remote",
+        "tag": "cnip",
+        "url": "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@sing/geo/geoip/cn.srs",
+        "update_interval": "24h0m0s"
+      }
+    ],
+    "final": "🚀 Proxy",
+    "auto_detect_interface": true,
+    "default_domain_resolver": {
+      "server": "dns_ali",
+      "disable_optimistic_cache": true
+    }
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "path": "cache.db",
+      "store_fakeip": true
+    },
+    "clash_api": {
+      "external_controller": "127.0.0.1:9090",
+      "external_ui": "ui",
+      "external_ui_download_url": "https://testingcf.jsdelivr.net/gh/Zephyruso/zashboard/releases/latest/download/dist.zip",
+      "external_ui_download_detour": "🚀 Proxy",
+      "default_mode": "rule",
+      "access_control_allow_private_network": true
+    }
+  }
+}

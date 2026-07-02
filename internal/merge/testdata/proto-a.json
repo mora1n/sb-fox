@@ -1,0 +1,7 @@
+{
+  "outbounds": [
+    { "type": "shadowsocks", "tag": "Tokyo-1", "server": "jp.example.com" },
+    { "type": "shadowsocks", "tag": "CN Relay 1", "server": "relay.example.com#CN" },
+    { "type": "shadowsocks", "tag": "Mystery-1", "server": "mystery.example.com" }
+  ]
+}

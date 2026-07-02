@@ -1,0 +1,10 @@
+{
+  "outbounds": [
+    { "type": "shadowsocks", "tag": "HKHK", "server": "edge-1.example.com" },
+    { "type": "shadowsocks", "tag": "US-Relay", "server": "edge-2.example.com" },
+    { "type": "shadowsocks", "tag": "Tokyo JP 01", "server": "edge-3.example.com" },
+    { "type": "shadowsocks", "tag": "CN2-US", "server": "edge-4.example.com" },
+    { "type": "shadowsocks", "tag": "HongKong HK", "server": "edge-5.example.com" },
+    { "type": "shadowsocks", "tag": "Germany-US", "server": "edge-6.example.com" }
+  ]
+}

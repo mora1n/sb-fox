@@ -1,0 +1,32 @@
+# Go
+/sb-fox
+/dist/
+/dists/
+*.test
+*.out
+
+# runtime data
+*.db
+*.db-*
+/data/*.db
+/data/*.db-*
+/data/cache.db
+/data/tmp/
+
+# frontend
+frontend/node_modules/
+frontend/.vite/
+
+# embedded build output (produced by `make frontend`)
+internal/assets/dist/
+
+# local reference scripts / generated distributions
+tests/
+
+# editor
+.DS_Store
+
+**/.claude/
+**/.codex/
+**/CLAUDE.md
+**/AGENTS.md

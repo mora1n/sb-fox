@@ -1,0 +1,7 @@
+{
+  "outbounds": [
+    { "type": "trojan", "tag": "Singapore-1", "server": "sg.example.com" },
+    { "type": "trojan", "tag": "Detour-US-1", "server": "detour-us.example.com", "detour": "🏠 Mainland" },
+    { "type": "trojan", "tag": "Others-1", "server": "others.example.com" }
+  ]
+}

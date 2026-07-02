@@ -1,0 +1,6 @@
+{
+  "outbounds": [
+    { "type": "vmess", "tag": "US Node", "server": "us.example.com", "detour": "🏠 Mainland" },
+    { "type": "vmess", "tag": "Unknown Relay", "server": "unknown.example.com" }
+  ]
+}
