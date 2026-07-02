@@ -4,13 +4,13 @@ import { RouterView, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useUiStore } from '../stores/ui'
 import { useSettingsStore } from '../stores/settings'
+import { useI18nStore } from '../stores/i18n'
 import {
   HomeIcon,
   ServerStackIcon,
   DocumentTextIcon,
   UserGroupIcon,
   UsersIcon,
-  EyeIcon,
   Cog6ToothIcon,
   ArrowRightOnRectangleIcon,
   MoonIcon,
@@ -20,16 +20,16 @@ import {
 const auth = useAuthStore()
 const ui = useUiStore()
 const settings = useSettingsStore()
+const i18n = useI18nStore()
 const router = useRouter()
 
 const nav = computed(() => [
-  { name: 'dashboard', label: '仪表盘', icon: HomeIcon },
-  { name: 'nodes', label: '节点', icon: ServerStackIcon },
-  { name: 'templates', label: '模板', icon: DocumentTextIcon },
-  { name: 'profiles', label: '订阅分组', icon: UserGroupIcon },
-  { name: 'preview', label: '预览生成', icon: EyeIcon },
-  ...(auth.isAdmin ? [{ name: 'users', label: '用户', icon: UsersIcon }] : []),
-  { name: 'settings', label: '设置', icon: Cog6ToothIcon },
+  { name: 'dashboard', label: i18n.t('仪表盘'), icon: HomeIcon },
+  { name: 'nodes', label: i18n.t('节点'), icon: ServerStackIcon },
+  { name: 'templates', label: i18n.t('模板'), icon: DocumentTextIcon },
+  { name: 'profiles', label: i18n.t('订阅'), icon: UserGroupIcon },
+  ...(auth.isAdmin ? [{ name: 'users', label: i18n.t('用户'), icon: UsersIcon }] : []),
+  { name: 'settings', label: i18n.t('设置'), icon: Cog6ToothIcon },
 ])
 
 async function logout() {
@@ -54,6 +54,10 @@ async function logout() {
           <span class="text-lg font-bold px-2">{{ settings.appDisplayName }}</span>
         </div>
         <div class="flex-none gap-2">
+          <button class="btn btn-ghost btn-sm min-w-16" :title="i18n.t('语言')" @click="i18n.toggleLocale()">
+            <span aria-hidden="true">🌐</span>
+            <span>{{ i18n.isEnglish ? '中' : 'EN' }}</span>
+          </button>
           <button class="btn btn-ghost btn-sm" @click="ui.toggleTheme()">
             <MoonIcon v-if="ui.theme === 'light-neutral'" class="h-5 w-5" />
             <SunIcon v-else class="h-5 w-5" />

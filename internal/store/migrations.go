@@ -189,4 +189,28 @@ var migrations = []string{
 	CREATE INDEX idx_templates_owner ON templates(owner_user_id);
 	CREATE INDEX idx_sources_owner ON subscription_sources(owner_user_id);
 	CREATE INDEX idx_profiles_owner ON profiles(owner_user_id);`,
+
+	// 9: reusable node groups and ordered profile node-group membership.
+	`CREATE TABLE node_groups (
+		id            INTEGER PRIMARY KEY AUTOINCREMENT,
+		owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		name          TEXT NOT NULL,
+		description   TEXT NOT NULL DEFAULT '',
+		created_at    TEXT NOT NULL,
+		updated_at    TEXT NOT NULL,
+		UNIQUE(owner_user_id, name)
+	);
+	CREATE TABLE node_group_nodes (
+		group_id INTEGER NOT NULL REFERENCES node_groups(id) ON DELETE CASCADE,
+		node_id  INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+		position INTEGER NOT NULL,
+		PRIMARY KEY (group_id, node_id)
+	);
+	CREATE TABLE profile_node_groups (
+		profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+		group_id   INTEGER NOT NULL REFERENCES node_groups(id) ON DELETE CASCADE,
+		position   INTEGER NOT NULL,
+		PRIMARY KEY (profile_id, group_id)
+	);
+	CREATE INDEX idx_node_groups_owner ON node_groups(owner_user_id);`,
 }

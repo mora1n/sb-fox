@@ -4,6 +4,7 @@ import type { Node } from '../api/types'
 import { useNodesStore } from '../stores/nodes'
 import { useSettingsStore } from '../stores/settings'
 import { useUiStore } from '../stores/ui'
+import { useI18nStore } from '../stores/i18n'
 import { errMsg } from '../utils/error'
 import { COUNTRY_CODES, sortCountryOptions } from '../utils/countries'
 
@@ -13,6 +14,7 @@ const emit = defineEmits<{ close: []; saved: [] }>()
 const nodesStore = useNodesStore()
 const settings = useSettingsStore()
 const ui = useUiStore()
+const i18n = useI18nStore()
 const busy = ref(false)
 const parseError = ref('')
 
@@ -91,7 +93,7 @@ async function save() {
 <template>
   <div class="modal modal-open">
     <div class="modal-box max-w-2xl">
-      <h3 class="font-bold text-lg mb-3">{{ node ? '编辑节点' : '新建节点' }}</h3>
+      <h3 class="font-bold text-lg mb-3">{{ node ? i18n.t('编辑节点') : i18n.t('新建节点') }}</h3>
 
       <div v-if="parseError" class="alert alert-error text-sm mb-3">
         <span>{{ parseError }}</span>
@@ -101,36 +103,36 @@ async function save() {
         <!-- header: type / tag / server / port -->
         <div class="grid grid-cols-2 gap-3">
           <label class="form-control">
-            <span class="label-text mb-1">协议类型</span>
+            <span class="label-text mb-1">{{ i18n.t('协议类型') }}</span>
             <select v-model="raw.type" class="select select-bordered select-sm">
               <option v-for="p in PROTOCOLS" :key="p" :value="p">{{ p }}</option>
               <option v-if="!PROTOCOLS.includes(raw.type)" :value="raw.type">{{ raw.type }}</option>
             </select>
           </label>
           <label class="form-control">
-            <span class="label-text mb-1">标签 (tag)</span>
+            <span class="label-text mb-1">{{ i18n.t('标签') }}</span>
             <input v-model="raw.tag" class="input input-bordered input-sm" />
           </label>
           <label class="form-control">
-            <span class="label-text mb-1">服务器 (server)</span>
+            <span class="label-text mb-1">{{ i18n.t('服务器') }}</span>
             <input v-model="raw.server" class="input input-bordered input-sm" />
           </label>
           <label class="form-control">
-            <span class="label-text mb-1">端口 (server_port)</span>
+            <span class="label-text mb-1">{{ i18n.t('端口') }}</span>
             <input v-model.number="raw.server_port" type="number" class="input input-bordered input-sm" />
           </label>
         </div>
 
-        <div class="divider my-0 text-xs opacity-60">协议参数</div>
+        <div class="divider my-0 text-xs opacity-60">{{ i18n.t('协议参数') }}</div>
 
         <!-- shadowsocks -->
         <div v-if="raw.type === 'shadowsocks'" class="grid grid-cols-2 gap-3">
           <label class="form-control">
-            <span class="label-text mb-1">加密方式 (method)</span>
+            <span class="label-text mb-1">{{ i18n.t('加密方式') }}</span>
             <input v-model="raw.method" class="input input-bordered input-sm" />
           </label>
           <label class="form-control">
-            <span class="label-text mb-1">密码 (password)</span>
+            <span class="label-text mb-1">{{ i18n.t('密码') }}</span>
             <input v-model="raw.password" class="input input-bordered input-sm" />
           </label>
         </div>
@@ -170,7 +172,7 @@ async function save() {
         <!-- trojan -->
         <div v-else-if="raw.type === 'trojan'" class="grid grid-cols-2 gap-3">
           <label class="form-control">
-            <span class="label-text mb-1">密码 (password)</span>
+            <span class="label-text mb-1">{{ i18n.t('密码') }}</span>
             <input v-model="raw.password" class="input input-bordered input-sm" />
           </label>
         </div>
@@ -178,11 +180,11 @@ async function save() {
         <!-- hysteria2 -->
         <div v-else-if="raw.type === 'hysteria2'" class="grid grid-cols-2 gap-3">
           <label class="form-control">
-            <span class="label-text mb-1">密码 (password)</span>
+            <span class="label-text mb-1">{{ i18n.t('密码') }}</span>
             <input v-model="raw.password" class="input input-bordered input-sm" />
           </label>
           <label class="form-control">
-            <span class="label-text mb-1">obfs 类型</span>
+            <span class="label-text mb-1">{{ i18n.t('obfs 类型') }}</span>
             <input
               :value="raw.obfs?.type"
               class="input input-bordered input-sm"
@@ -198,7 +200,7 @@ async function save() {
             <input v-model="raw.uuid" class="input input-bordered input-sm" />
           </label>
           <label class="form-control">
-            <span class="label-text mb-1">密码 (password)</span>
+            <span class="label-text mb-1">{{ i18n.t('密码') }}</span>
             <input v-model="raw.password" class="input input-bordered input-sm" />
           </label>
           <label class="form-control">
@@ -216,11 +218,11 @@ async function save() {
             :checked="!!raw.tls?.enabled"
             @change="tls().enabled = ($event.target as HTMLInputElement).checked"
           />
-          <span class="label-text">启用 TLS</span>
+          <span class="label-text">{{ i18n.t('启用 TLS') }}</span>
         </label>
         <div v-if="raw.tls?.enabled" class="grid grid-cols-2 gap-3">
           <label class="form-control">
-            <span class="label-text mb-1">server_name (SNI)</span>
+            <span class="label-text mb-1">{{ i18n.t('服务名') }}</span>
             <input
               :value="raw.tls?.server_name"
               class="input input-bordered input-sm"
@@ -228,7 +230,7 @@ async function save() {
             />
           </label>
           <label class="form-control">
-            <span class="label-text mb-1">ALPN (逗号分隔)</span>
+            <span class="label-text mb-1">ALPN</span>
             <input v-model="alpnText" class="input input-bordered input-sm" placeholder="h2, http/1.1" />
           </label>
           <label class="label cursor-pointer justify-start gap-2">
@@ -238,7 +240,7 @@ async function save() {
               :checked="!!raw.tls?.insecure"
               @change="tls().insecure = ($event.target as HTMLInputElement).checked"
             />
-            <span class="label-text">允许不安全 (insecure)</span>
+            <span class="label-text">{{ i18n.t('允许不安全') }}</span>
           </label>
           <label class="form-control">
             <span class="label-text mb-1">uTLS 指纹</span>
@@ -252,13 +254,13 @@ async function save() {
         </div>
 
         <!-- manual country override -->
-        <div class="divider my-0 text-xs opacity-60">国家</div>
+        <div class="divider my-0 text-xs opacity-60">{{ i18n.t('国家') }}</div>
         <label class="label cursor-pointer justify-start gap-2">
           <input type="checkbox" class="toggle toggle-sm" v-model="manualCountry" />
-          <span class="label-text">手动指定国家 (country_source=manual)</span>
+          <span class="label-text">{{ i18n.t('手动指定国家') }}</span>
         </label>
         <select v-if="manualCountry" v-model="countryCode" class="select select-bordered select-sm">
-          <option value="">（未指定）</option>
+          <option value="">{{ i18n.t('未指定') }}</option>
           <option v-for="c in countryOptions" :key="c.code" :value="c.code">
             {{ c.code }} — {{ c.name }}
           </option>
@@ -266,10 +268,10 @@ async function save() {
       </div>
 
       <div class="modal-action">
-        <button class="btn btn-ghost" @click="emit('close')" :disabled="busy">取消</button>
+        <button class="btn btn-ghost" @click="emit('close')" :disabled="busy">{{ i18n.t('取消') }}</button>
         <button class="btn btn-primary" @click="save" :disabled="busy || !!parseError">
           <span v-if="busy" class="loading loading-spinner loading-sm"></span>
-          保存
+          {{ i18n.t('保存') }}
         </button>
       </div>
     </div>

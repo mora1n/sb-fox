@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useUiStore } from '../stores/ui'
+import { useI18nStore } from '../stores/i18n'
 
 const props = defineProps<{ token: string }>()
 const ui = useUiStore()
+const i18n = useI18nStore()
 
 // Full public subscription URL built from the current origin.
 const url = computed(() => `${window.location.origin}/sub/${props.token}`)
@@ -21,6 +23,6 @@ async function copy() {
 <template>
   <div class="join w-full">
     <input class="input input-bordered input-sm join-item flex-1 mono text-xs" :value="url" readonly />
-    <button class="btn btn-sm join-item" @click="copy">复制</button>
+    <button class="btn btn-sm join-item" @click="copy">{{ i18n.t('复制') }}</button>
   </div>
 </template>

@@ -68,6 +68,9 @@ func (s *Server) mountAuthed(r chi.Router) {
 	r.Put("/templates/{id}", s.handleUpdateTemplate)
 	r.Delete("/templates/{id}", s.handleDeleteTemplate)
 	r.Post("/templates/{id}/inspect", s.handleInspectTemplate)
+	r.Get("/templates/{id}/structure", s.handleGetTemplateStructure)
+	r.Put("/templates/{id}/structure", s.handleUpdateTemplateStructure)
+	r.Get("/templates/{id}/export", s.handleExportTemplate)
 
 	r.Get("/nodes", s.handleListNodes)
 	r.Post("/nodes", s.handleCreateNode)
@@ -79,6 +82,12 @@ func (s *Server) mountAuthed(r chi.Router) {
 	r.Post("/nodes/import/config", s.handleImportConfig)
 	r.Post("/nodes/refresh-country", s.handleRefreshCountry)
 	r.Post("/nodes/export/template", s.handleExportNodeTemplate)
+
+	r.Get("/node-groups", s.handleListNodeGroups)
+	r.Post("/node-groups", s.handleCreateNodeGroup)
+	r.Get("/node-groups/{id}", s.handleGetNodeGroup)
+	r.Put("/node-groups/{id}", s.handleUpdateNodeGroup)
+	r.Delete("/node-groups/{id}", s.handleDeleteNodeGroup)
 
 	r.Get("/sources", s.handleListSources)
 	r.Post("/sources/{id}/refresh", s.handleRefreshSource)

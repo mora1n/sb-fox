@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/mora1n/sb-fox/internal/merge"
@@ -62,17 +63,29 @@ func (s *Server) handleCreateTemplate(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "bad_request", "content is not valid JSON")
 		return
 	}
+	processed, importedNodes, ok := s.processTemplateRequest(w, u, req.Content)
+	if !ok {
+		return
+	}
 	if !s.checkQuota(w, u, quotaTemplates, 1) {
 		return
 	}
-	t := &models.Template{OwnerUserID: u.ID, Name: req.Name, Kind: "user", Content: req.Content, Description: req.Description}
+	t := &models.Template{OwnerUserID: u.ID, Name: req.Name, Kind: "user", Content: processed, Description: req.Description}
 	id, err := s.Store.CreateTemplate(t)
 	if err != nil {
 		respondError(w, http.StatusConflict, "conflict", err.Error())
 		return
 	}
+	if len(importedNodes) > 0 {
+		created, err := s.insertNodes(importedNodes)
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "internal", err.Error())
+			return
+		}
+		importedNodes = created
+	}
 	t.ID = id
-	respondJSON(w, http.StatusCreated, t)
+	respondJSON(w, http.StatusCreated, map[string]any{"template": t, "imported": len(importedNodes), "nodes": importedNodes})
 }
 
 // handleUpdateTemplate updates a user template (builtins are read-only).
@@ -100,11 +113,37 @@ func (s *Server) handleUpdateTemplate(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "bad_request", "content is not valid JSON")
 		return
 	}
-	if err := s.Store.UpdateTemplate(id, req.Content, req.Description); err != nil {
+	u, ok := requireCurrentUser(w, r)
+	if !ok {
+		return
+	}
+	owner := u
+	if t.OwnerUserID != u.ID {
+		owner, err = s.Store.GetUser(t.OwnerUserID)
+		if err == store.ErrNotFound {
+			respondError(w, http.StatusNotFound, "not_found", "template owner not found")
+			return
+		}
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "internal", err.Error())
+			return
+		}
+	}
+	processed, importedNodes, ok := s.processTemplateRequest(w, owner, req.Content)
+	if !ok {
+		return
+	}
+	if err := s.Store.UpdateTemplate(id, processed, req.Description); err != nil {
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	respondJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	if len(importedNodes) > 0 {
+		if _, err := s.insertNodes(importedNodes); err != nil {
+			respondError(w, http.StatusInternalServerError, "internal", err.Error())
+			return
+		}
+	}
+	respondJSON(w, http.StatusOK, map[string]any{"ok": true, "imported": len(importedNodes)})
 }
 
 // handleDeleteTemplate removes a user template.
@@ -209,4 +248,29 @@ func pathInt64(raw string) int64 {
 func validJSON(s string) bool {
 	var v any
 	return json.Unmarshal([]byte(s), &v) == nil
+}
+
+func (s *Server) processTemplateRequest(w http.ResponseWriter, user *models.User, content string) (string, []*models.Node, bool) {
+	processed, proxyOutbounds, err := extractTemplateProxyOutbounds(content)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "bad_request", "template is not valid JSON: "+err.Error())
+		return "", nil, false
+	}
+	nodes := nodesFromOutbounds(user.ID, proxyOutbounds, "config", nil)
+	if len(nodes) > 0 && !s.checkQuota(w, user, quotaNodes, len(nodes)) {
+		return "", nil, false
+	}
+	return processed, nodes, true
+}
+
+func attachmentName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "template.json"
+	}
+	name = strings.NewReplacer("\\", "-", "/", "-", `"`, "").Replace(name)
+	if !strings.HasSuffix(strings.ToLower(name), ".json") {
+		name += ".json"
+	}
+	return name
 }

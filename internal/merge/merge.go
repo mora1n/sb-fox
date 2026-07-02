@@ -21,6 +21,10 @@ type Options struct {
 	// CountryHeatOrder ranks country selectors before the region fallback sort.
 	// Empty means DefaultCountryHeatOrder().
 	CountryHeatOrder []string
+	// ChainProxy adds a selector grouping non-chain options. ChainProxyTag is
+	// the outbound tag used as the detour target by callers.
+	ChainProxy    bool
+	ChainProxyTag string
 }
 
 // DefaultOptions returns options matching merge.js defaults.
@@ -61,6 +65,15 @@ func Generate(config *OrderedMap, nodes []*Node, opts Options) (*OrderedMap, err
 	appendUniqueTags(groups.relay, info.relayDirect)
 
 	if !opts.AutoCountryGroups {
+		if opts.ChainProxy {
+			tags := nonChainProxyTags(info.validProxies, opts.ChainProxyTag)
+			if chainSelector := createChainProxySelector(tags); chainSelector != nil {
+				outbounds = insertAdditionalOutbounds(outbounds, groups.directIdx, []any{chainSelector})
+				config.Set("outbounds", outbounds)
+				appendUniqueTags(groups.proxy, []string{chainSelector.GetString("tag")})
+				appendUniqueTags(groups.auto, []string{chainSelector.GetString("tag")})
+			}
+		}
 		for _, n := range info.validProxies {
 			n.cleanupInternalFields()
 		}
@@ -86,10 +99,18 @@ func Generate(config *OrderedMap, nodes []*Node, opts Options) (*OrderedMap, err
 	if othersSelector != nil {
 		selectableTags = append(selectableTags, othersSelector.GetString("tag"))
 	}
+	var chainSelector *OrderedMap
+	if opts.ChainProxy {
+		chainSelector = createChainProxySelector(selectableTags)
+	}
 	appendUniqueTags(groups.proxy, selectableTags)
 	appendUniqueTags(groups.auto, selectableTags)
+	if chainSelector != nil {
+		appendUniqueTags(groups.proxy, []string{chainSelector.GetString("tag")})
+		appendUniqueTags(groups.auto, []string{chainSelector.GetString("tag")})
+	}
 
-	outbounds = insertCountrySelectors(outbounds, groups.directIdx, countrySelectors, othersSelector)
+	outbounds = insertCountrySelectors(outbounds, groups.directIdx, countrySelectors, othersSelector, chainSelector)
 	config.Set("outbounds", outbounds)
 
 	chinaTag := chinaSelectorTag(countrySelectors)
@@ -104,10 +125,13 @@ func Generate(config *OrderedMap, nodes []*Node, opts Options) (*OrderedMap, err
 
 // insertCountrySelectors ports the splice logic: insert country selectors (and
 // Others) before the Direct outbound, or append when Direct is absent.
-func insertCountrySelectors(outbounds []any, directIdx int, selectors []*OrderedMap, others *OrderedMap) []any {
+func insertCountrySelectors(outbounds []any, directIdx int, selectors []*OrderedMap, others, chain *OrderedMap) []any {
 	inserts := make([]any, 0, len(selectors)+1)
 	for _, s := range selectors {
 		inserts = append(inserts, s)
+	}
+	if chain != nil {
+		inserts = append(inserts, chain)
 	}
 
 	if directIdx != -1 {
@@ -130,6 +154,43 @@ func insertCountrySelectors(outbounds []any, directIdx int, selectors []*Ordered
 		outbounds = append(outbounds, others)
 	}
 	return outbounds
+}
+
+func insertAdditionalOutbounds(outbounds []any, directIdx int, inserts []any) []any {
+	if len(inserts) == 0 {
+		return outbounds
+	}
+	if directIdx == -1 {
+		return append(outbounds, inserts...)
+	}
+	result := make([]any, 0, len(outbounds)+len(inserts))
+	result = append(result, outbounds[:directIdx]...)
+	result = append(result, inserts...)
+	result = append(result, outbounds[directIdx:]...)
+	return result
+}
+
+func createChainProxySelector(tags []string) *OrderedMap {
+	if len(tags) == 0 {
+		return nil
+	}
+	sel := NewOrderedMap()
+	sel.Set("type", "selector")
+	sel.Set("tag", "🔗 Chain Proxy")
+	sel.Set("outbounds", toAnySlice(tags))
+	return sel
+}
+
+func nonChainProxyTags(nodes []*Node, chainTag string) []string {
+	tags := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		tag := n.tag()
+		if tag == "" || tag == chainTag {
+			continue
+		}
+		tags = append(tags, tag)
+	}
+	return tags
 }
 
 func chinaSelectorTag(selectors []*OrderedMap) string {

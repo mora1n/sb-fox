@@ -5,6 +5,7 @@ import { useTemplatesStore } from '../stores/templates'
 import { useProfilesStore } from '../stores/profiles'
 import { useSettingsStore } from '../stores/settings'
 import { useUiStore } from '../stores/ui'
+import { useI18nStore } from '../stores/i18n'
 import { errMsg } from '../utils/error'
 import CountryFlag from '../components/CountryFlag.vue'
 import { compareCountryCodes } from '../utils/countries'
@@ -20,6 +21,7 @@ const templatesStore = useTemplatesStore()
 const profilesStore = useProfilesStore()
 const settingsStore = useSettingsStore()
 const ui = useUiStore()
+const i18n = useI18nStore()
 const loading = ref(true)
 
 onMounted(async () => {
@@ -56,7 +58,7 @@ const kernel = computed(() => settingsStore.kernel)
 
 <template>
   <div class="flex flex-col gap-6">
-    <h1 class="text-2xl font-bold">仪表盘</h1>
+    <h1 class="text-2xl font-bold">{{ i18n.t('仪表盘') }}</h1>
 
     <div v-if="loading" class="flex justify-center py-10">
       <span class="loading loading-spinner loading-lg"></span>
@@ -66,34 +68,34 @@ const kernel = computed(() => settingsStore.kernel)
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div class="stat bg-base-100 rounded-box shadow">
           <div class="stat-figure text-primary"><ServerStackIcon class="h-8 w-8" /></div>
-          <div class="stat-title">节点</div>
+          <div class="stat-title">{{ i18n.t('节点') }}</div>
           <div class="stat-value text-primary">{{ nodesStore.nodes.length }}</div>
         </div>
         <div class="stat bg-base-100 rounded-box shadow">
           <div class="stat-figure text-secondary"><DocumentTextIcon class="h-8 w-8" /></div>
-          <div class="stat-title">模板</div>
+          <div class="stat-title">{{ i18n.t('模板') }}</div>
           <div class="stat-value text-secondary">{{ templatesStore.templates.length }}</div>
         </div>
         <div class="stat bg-base-100 rounded-box shadow">
           <div class="stat-figure text-accent"><UserGroupIcon class="h-8 w-8" /></div>
-          <div class="stat-title">订阅分组</div>
+          <div class="stat-title">{{ i18n.t('订阅分组') }}</div>
           <div class="stat-value text-accent">{{ profilesStore.profiles.length }}</div>
         </div>
         <div class="stat bg-base-100 rounded-box shadow">
           <div class="stat-figure"><CpuChipIcon class="h-8 w-8" /></div>
-          <div class="stat-title">内核状态</div>
+          <div class="stat-title">{{ i18n.t('内核状态') }}</div>
           <div class="stat-value text-lg mt-1">
-            <span v-if="kernel?.available" class="badge badge-success">可用</span>
-            <span v-else class="badge badge-warning">不可用</span>
+            <span v-if="kernel?.available" class="badge badge-success">{{ i18n.t('可用') }}</span>
+            <span v-else class="badge badge-warning">{{ i18n.t('不可用') }}</span>
           </div>
-          <div class="stat-desc mt-1">{{ kernel?.version || kernel?.path || '未配置' }}</div>
+          <div class="stat-desc mt-1">{{ kernel?.version || kernel?.path || i18n.t('未配置') }}</div>
         </div>
       </div>
 
       <div class="card bg-base-100 shadow">
         <div class="card-body">
-          <h2 class="card-title">节点国家分布</h2>
-          <div v-if="!byCountry.length" class="opacity-60 text-sm">暂无节点</div>
+          <h2 class="card-title">{{ i18n.t('节点国家分布') }}</h2>
+          <div v-if="!byCountry.length" class="opacity-60 text-sm">{{ i18n.t('暂无节点') }}</div>
           <div class="flex flex-wrap gap-3">
             <div
               v-for="[code, count] in byCountry"

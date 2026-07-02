@@ -1,8 +1,29 @@
 <!doctype html>
-<html lang="zh-CN" data-theme="light">
+<html lang="zh-CN" data-theme="light-neutral">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      ;(() => {
+        const key = 'sb-fox-theme'
+        const defaultTheme = 'light-neutral'
+        const themes = new Set([defaultTheme, 'dark-neutral'])
+        let theme = defaultTheme
+        try {
+          const stored = localStorage.getItem(key)
+          if (themes.has(stored)) {
+            theme = stored
+          } else {
+            if (stored) console.warn(`sb-fox: unsupported theme "${stored}", reset to ${defaultTheme}`)
+            localStorage.setItem(key, defaultTheme)
+          }
+        } catch (err) {
+          console.warn('sb-fox: unable to read theme preference', err)
+        }
+        document.documentElement.setAttribute('data-theme', theme)
+        document.documentElement.style.colorScheme = theme === 'dark-neutral' ? 'dark' : 'light'
+      })()
+    </script>
     <title>sb-fox</title>
   </head>
   <body>

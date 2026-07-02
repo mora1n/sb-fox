@@ -44,6 +44,27 @@ export interface Template {
   updated_at: string
 }
 
+export interface TemplateSaveResult {
+  template: Template
+  imported: number
+  nodes: Node[]
+}
+
+export interface TemplateStructureGroup {
+  tag: string
+  type: 'selector' | 'urltest'
+  outbounds: string[]
+  default?: string
+  referenced_by?: string[]
+  deletable: boolean
+  delete_reason?: string
+}
+
+export interface TemplateStructure {
+  final: string
+  groups: TemplateStructureGroup[]
+}
+
 export interface SubscriptionSource {
   id: number
   owner_user_id: number
@@ -55,9 +76,26 @@ export interface SubscriptionSource {
   created_at: string
 }
 
+export interface NodeGroup {
+  id: number
+  owner_user_id: number
+  name: string
+  description: string
+  node_ids: number[]
+  created_at: string
+  updated_at: string
+}
+
+export interface NodeGroupPayload {
+  name: string
+  description: string
+  node_ids: number[]
+}
+
 export interface ProfileOptions {
   autoCountryGroups: boolean
   chainProxy: boolean
+  chainProxyNodeId?: number
 }
 
 // Profile.Options is a JSON string on the wire (see models.Profile.Options).
@@ -69,6 +107,7 @@ export interface Profile {
   options: string
   token: string
   node_ids: number[]
+  node_group_ids: number[]
   created_at: string
   updated_at: string
 }
@@ -77,6 +116,7 @@ export interface ProfilePayload {
   name: string
   template_id: number
   node_ids: number[]
+  node_group_ids: number[]
   options: ProfileOptions
 }
 
@@ -135,5 +175,6 @@ export interface PreviewPayload {
   template_id?: number
   template_content?: string
   node_ids: number[]
+  node_group_ids?: number[]
   options: ProfileOptions
 }

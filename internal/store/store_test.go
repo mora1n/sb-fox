@@ -60,7 +60,8 @@ func TestMigrateSingleAdminDataToUsers(t *testing.T) {
 	if _, err := db.Exec(migrations[0]); err != nil {
 		t.Fatal(err)
 	}
-	for i := 1; i < len(migrations)-1; i++ {
+	const multiUserMigrationIndex = 10
+	for i := 1; i < multiUserMigrationIndex; i++ {
 		if _, err := db.Exec(migrations[i]); err != nil {
 			t.Fatalf("old migration %d: %v", i, err)
 		}
@@ -229,6 +230,68 @@ func TestProfileWithNodes(t *testing.T) {
 	after, _ := s.GetProfile(pid)
 	if len(after.NodeIDs) != 2 {
 		t.Errorf("cascade failed, node ids: %v", after.NodeIDs)
+	}
+}
+
+func TestNodeGroupAndProfileMembership(t *testing.T) {
+	s := openTest(t)
+	ownerID := createTestUser(t, s)
+	tid, err := s.CreateTemplate(&models.Template{OwnerUserID: ownerID, Name: "t1", Kind: "user", Content: "{}"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var nodeIDs []int64
+	for i := 0; i < 3; i++ {
+		id, err := s.CreateNode(&models.Node{OwnerUserID: ownerID, Tag: "n", Type: "vmess", Source: "manual", Raw: "{}"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		nodeIDs = append(nodeIDs, id)
+	}
+	gid, err := s.CreateNodeGroup(&models.NodeGroup{
+		OwnerUserID: ownerID,
+		Name:        "g1",
+		NodeIDs:     []int64{nodeIDs[2], nodeIDs[0]},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	group, err := s.GetNodeGroupForUser(gid, ownerID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(group.NodeIDs) != 2 || group.NodeIDs[0] != nodeIDs[2] || group.NodeIDs[1] != nodeIDs[0] {
+		t.Fatalf("group node order = %v", group.NodeIDs)
+	}
+
+	pid, err := s.CreateProfile(&models.Profile{
+		OwnerUserID:  ownerID,
+		Name:         "p1",
+		TemplateID:   tid,
+		Options:      "{}",
+		Token:        "tok-groups",
+		NodeIDs:      []int64{nodeIDs[1]},
+		NodeGroupIDs: []int64{gid},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, err := s.GetProfile(pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(profile.NodeGroupIDs) != 1 || profile.NodeGroupIDs[0] != gid {
+		t.Fatalf("profile groups = %v", profile.NodeGroupIDs)
+	}
+	if err := s.DeleteNodeGroup(gid); err != nil {
+		t.Fatal(err)
+	}
+	profile, err = s.GetProfile(pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(profile.NodeGroupIDs) != 0 {
+		t.Fatalf("group cascade failed: %v", profile.NodeGroupIDs)
 	}
 }
 

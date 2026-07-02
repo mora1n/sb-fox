@@ -2,9 +2,11 @@
 import { computed, ref } from 'vue'
 import type { Node } from '../api/types'
 import CountryFlag from './CountryFlag.vue'
+import { useI18nStore } from '../stores/i18n'
 
 const props = defineProps<{ nodes: Node[]; modelValue: number[] }>()
 const emit = defineEmits<{ 'update:modelValue': [number[]] }>()
+const i18n = useI18nStore()
 
 const search = ref('')
 const filtered = computed(() => {
@@ -34,9 +36,9 @@ function clearAll() {
 <template>
   <div class="flex flex-col gap-2">
     <div class="flex items-center gap-2">
-      <input v-model="search" class="input input-bordered input-sm flex-1" placeholder="搜索节点..." />
-      <button type="button" class="btn btn-xs" @click="selectAllFiltered">全选</button>
-      <button type="button" class="btn btn-xs" @click="clearAll">清空</button>
+      <input v-model="search" class="input input-bordered input-sm flex-1" :placeholder="i18n.t('搜索节点...')" />
+      <button type="button" class="btn btn-xs" @click="selectAllFiltered">{{ i18n.t('全选') }}</button>
+      <button type="button" class="btn btn-xs" @click="clearAll">{{ i18n.t('清空') }}</button>
       <span class="badge badge-primary">{{ modelValue.length }}</span>
     </div>
     <div class="border border-base-300 rounded-box max-h-64 overflow-y-auto divide-y divide-base-200">
@@ -55,7 +57,7 @@ function clearAll() {
         <span class="truncate flex-1 text-sm">{{ n.tag }}</span>
         <span class="badge badge-ghost badge-sm">{{ n.type }}</span>
       </label>
-      <div v-if="!filtered.length" class="px-3 py-4 text-sm opacity-60 text-center">无匹配节点</div>
+      <div v-if="!filtered.length" class="px-3 py-4 text-sm opacity-60 text-center">{{ i18n.t('无匹配节点') }}</div>
     </div>
   </div>
 </template>

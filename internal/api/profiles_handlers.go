@@ -35,10 +35,11 @@ func (s *Server) handleGetProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 type profileRequest struct {
-	Name       string                `json:"name"`
-	TemplateID int64                 `json:"template_id"`
-	NodeIDs    []int64               `json:"node_ids"`
-	Options    models.ProfileOptions `json:"options"`
+	Name         string                `json:"name"`
+	TemplateID   int64                 `json:"template_id"`
+	NodeIDs      []int64               `json:"node_ids"`
+	NodeGroupIDs []int64               `json:"node_group_ids"`
+	Options      models.ProfileOptions `json:"options"`
 }
 
 // handleCreateProfile creates a profile and generates its public token
@@ -56,11 +57,19 @@ func (s *Server) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "bad_request", "name and template_id are required")
 		return
 	}
+	req.NodeIDs = uniqueInt64s(req.NodeIDs)
+	req.NodeGroupIDs = uniqueInt64s(req.NodeGroupIDs)
 	if _, err := s.Store.GetTemplateForUser(req.TemplateID, u.ID, u.IsAdmin()); err != nil {
 		respondError(w, http.StatusBadRequest, "bad_request", "template not found")
 		return
 	}
 	if !s.validateNodeAccess(w, u, req.NodeIDs) {
+		return
+	}
+	if !s.validateNodeGroupAccess(w, u, req.NodeGroupIDs) {
+		return
+	}
+	if req.Options.ChainProxy && !s.validateNodeAccess(w, u, []int64{req.Options.ChainProxyNodeID}) {
 		return
 	}
 	if !s.checkQuota(w, u, quotaProfiles, 1) {
@@ -72,12 +81,13 @@ func (s *Server) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := &models.Profile{
-		OwnerUserID: u.ID,
-		Name:        req.Name,
-		TemplateID:  req.TemplateID,
-		Options:     marshalOptions(req.Options),
-		Token:       token,
-		NodeIDs:     req.NodeIDs,
+		OwnerUserID:  u.ID,
+		Name:         req.Name,
+		TemplateID:   req.TemplateID,
+		Options:      marshalOptions(req.Options),
+		Token:        token,
+		NodeIDs:      req.NodeIDs,
+		NodeGroupIDs: req.NodeGroupIDs,
 	}
 	id, err := s.Store.CreateProfile(p)
 	if err != nil {
@@ -108,6 +118,12 @@ func (s *Server) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
+	if req.Name == "" || req.TemplateID == 0 {
+		respondError(w, http.StatusBadRequest, "bad_request", "name and template_id are required")
+		return
+	}
+	req.NodeIDs = uniqueInt64s(req.NodeIDs)
+	req.NodeGroupIDs = uniqueInt64s(req.NodeGroupIDs)
 	refOwner := existing.OwnerUserID
 	refAllOwners := u.IsAdmin()
 	if _, err := s.Store.GetTemplateForUser(req.TemplateID, refOwner, refAllOwners); err != nil {
@@ -117,10 +133,17 @@ func (s *Server) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 	if !s.validateNodeAccessForOwner(w, refOwner, refAllOwners, req.NodeIDs) {
 		return
 	}
+	if !s.validateNodeGroupAccessForOwner(w, refOwner, refAllOwners, req.NodeGroupIDs) {
+		return
+	}
+	if req.Options.ChainProxy && !s.validateNodeAccessForOwner(w, refOwner, refAllOwners, []int64{req.Options.ChainProxyNodeID}) {
+		return
+	}
 	existing.Name = req.Name
 	existing.TemplateID = req.TemplateID
 	existing.Options = marshalOptions(req.Options)
 	existing.NodeIDs = req.NodeIDs
+	existing.NodeGroupIDs = req.NodeGroupIDs
 	if err := s.Store.UpdateProfile(existing); err != nil {
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
@@ -181,6 +204,23 @@ func (s *Server) validateNodeAccessForOwner(w http.ResponseWriter, ownerUserID i
 	for _, id := range nodeIDs {
 		if _, err := s.Store.GetNodeForUser(id, ownerUserID, allOwners); err == store.ErrNotFound {
 			respondError(w, http.StatusBadRequest, "bad_request", "node not found")
+			return false
+		} else if err != nil {
+			respondError(w, http.StatusInternalServerError, "internal", err.Error())
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Server) validateNodeGroupAccess(w http.ResponseWriter, u *models.User, groupIDs []int64) bool {
+	return s.validateNodeGroupAccessForOwner(w, u.ID, u.IsAdmin(), groupIDs)
+}
+
+func (s *Server) validateNodeGroupAccessForOwner(w http.ResponseWriter, ownerUserID int64, allOwners bool, groupIDs []int64) bool {
+	for _, id := range groupIDs {
+		if _, err := s.Store.GetNodeGroupForUser(id, ownerUserID, allOwners); err == store.ErrNotFound {
+			respondError(w, http.StatusBadRequest, "bad_request", "node group not found")
 			return false
 		} else if err != nil {
 			respondError(w, http.StatusInternalServerError, "internal", err.Error())

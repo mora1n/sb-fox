@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { useSettingsStore } from '../stores/settings'
 import { useAuthStore } from '../stores/auth'
 import { useUiStore } from '../stores/ui'
+import { useI18nStore } from '../stores/i18n'
 import { errMsg } from '../utils/error'
 import CountryFlag from '../components/CountryFlag.vue'
 import {
@@ -16,6 +17,7 @@ import { Bars3Icon, ChevronDownIcon, ChevronUpIcon } from '@heroicons/vue/24/out
 const settings = useSettingsStore()
 const auth = useAuthStore()
 const ui = useUiStore()
+const i18n = useI18nStore()
 
 const kernelPath = ref('')
 const allowPrivate = ref(false)
@@ -147,16 +149,16 @@ async function changePassword() {
 
 <template>
   <div class="flex flex-col gap-4 max-w-3xl">
-    <h1 class="text-2xl font-bold">设置</h1>
+    <h1 class="text-2xl font-bold">{{ i18n.t('设置') }}</h1>
 
     <div class="card bg-base-100 shadow-sm">
       <div class="card-body gap-3">
-        <h2 class="card-title text-base">显示名称</h2>
+        <h2 class="card-title text-base">{{ i18n.t('显示名称') }}</h2>
         <label class="form-control">
-          <span class="label-text mb-1">名称</span>
+          <span class="label-text mb-1">{{ i18n.t('名称') }}</span>
           <div class="join">
             <input v-model="appName" class="input input-bordered input-sm join-item flex-1" />
-            <button class="btn btn-sm join-item" @click="saveAppName" :disabled="busy">保存</button>
+            <button class="btn btn-sm join-item" @click="saveAppName" :disabled="busy">{{ i18n.t('保存') }}</button>
           </div>
         </label>
       </div>
@@ -164,19 +166,19 @@ async function changePassword() {
 
     <div class="card bg-base-100 shadow-sm">
       <div class="card-body gap-3">
-        <h2 class="card-title text-base">sing-box 内核</h2>
+        <h2 class="card-title text-base">{{ i18n.t('sing-box 内核') }}</h2>
         <div class="flex items-center gap-2">
-          <span class="text-sm">状态:</span>
-          <span v-if="settings.kernel?.available" class="badge badge-success">可用</span>
-          <span v-else class="badge badge-warning">不可用</span>
+          <span class="text-sm">{{ i18n.t('状态:') }}</span>
+          <span v-if="settings.kernel?.available" class="badge badge-success">{{ i18n.t('可用') }}</span>
+          <span v-else class="badge badge-warning">{{ i18n.t('不可用') }}</span>
           <span v-if="settings.kernel?.version" class="text-sm opacity-70">{{ settings.kernel.version }}</span>
         </div>
         <label class="form-control">
-          <span class="label-text mb-1">内核路径 (kernel_path)</span>
+          <span class="label-text mb-1">{{ i18n.t('内核路径') }}</span>
           <div class="join">
             <input v-model="kernelPath" class="input input-bordered input-sm join-item flex-1 mono" placeholder="/usr/local/bin/sing-box" />
-            <button class="btn btn-sm join-item" @click="saveKernel" :disabled="busy">保存</button>
-            <button class="btn btn-sm join-item" @click="testKernel" :disabled="busy">测试</button>
+            <button class="btn btn-sm join-item" @click="saveKernel" :disabled="busy">{{ i18n.t('保存') }}</button>
+            <button class="btn btn-sm join-item" @click="testKernel" :disabled="busy">{{ i18n.t('测试') }}</button>
           </div>
         </label>
       </div>
@@ -185,10 +187,10 @@ async function changePassword() {
     <div class="card bg-base-100 shadow-sm">
       <div class="card-body gap-3">
         <div class="flex items-center justify-between gap-3">
-          <h2 class="card-title text-base">国家热度排序</h2>
+          <h2 class="card-title text-base">{{ i18n.t('国家热度排序') }}</h2>
           <div class="flex gap-2">
-            <button class="btn btn-sm" @click="resetCountryOrder" :disabled="busy">重置</button>
-            <button class="btn btn-sm btn-primary" @click="saveCountryOrder" :disabled="busy">保存</button>
+            <button class="btn btn-sm" @click="resetCountryOrder" :disabled="busy">{{ i18n.t('重置') }}</button>
+            <button class="btn btn-sm btn-primary" @click="saveCountryOrder" :disabled="busy">{{ i18n.t('保存') }}</button>
           </div>
         </div>
         <div class="max-h-96 overflow-y-auto divide-y divide-base-200 border border-base-300 rounded-box">
@@ -209,7 +211,7 @@ async function changePassword() {
             <div class="join">
               <button
                 class="btn btn-xs btn-square join-item"
-                title="上移"
+                :title="i18n.t('上移')"
                 :disabled="index === 0"
                 @click="moveCountry(index, -1)"
               >
@@ -217,7 +219,7 @@ async function changePassword() {
               </button>
               <button
                 class="btn btn-xs btn-square join-item"
-                title="下移"
+                :title="i18n.t('下移')"
                 :disabled="index === countryOrder.length - 1"
                 @click="moveCountry(index, 1)"
               >
@@ -226,29 +228,29 @@ async function changePassword() {
             </div>
           </div>
         </div>
-        <div class="text-xs opacity-60">{{ COUNTRY_CODES.length }} 个国家/地区</div>
+        <div class="text-xs opacity-60">{{ COUNTRY_CODES.length }} {{ i18n.t('个国家/地区') }}</div>
       </div>
     </div>
 
     <div class="card bg-base-100 shadow-sm">
       <div class="card-body gap-3">
-        <h2 class="card-title text-base">订阅抓取</h2>
+        <h2 class="card-title text-base">{{ i18n.t('订阅抓取') }}</h2>
         <label class="label cursor-pointer justify-start gap-2">
           <input type="checkbox" class="toggle" v-model="allowPrivate" @change="saveAllowPrivate" />
-          <span class="label-text">允许抓取私网地址 (subfetch_allow_private)</span>
+          <span class="label-text">{{ i18n.t('允许抓取私网地址') }}</span>
         </label>
-        <p class="text-xs opacity-60">默认关闭以防止 SSRF。仅在受信任的内网环境中开启。</p>
+        <p class="text-xs opacity-60">{{ i18n.t('默认关闭以防止 SSRF。仅在受信任的内网环境中开启。') }}</p>
       </div>
     </div>
 
     <div class="card bg-base-100 shadow-sm">
       <div class="card-body gap-3">
-        <h2 class="card-title text-base">修改密码</h2>
+        <h2 class="card-title text-base">{{ i18n.t('修改密码') }}</h2>
         <form @submit.prevent="changePassword" class="flex flex-col gap-3">
-          <input v-model="oldPw" type="password" class="input input-bordered input-sm" placeholder="当前密码" autocomplete="current-password" required />
-          <input v-model="newPw" type="password" class="input input-bordered input-sm" placeholder="新密码（至少 8 位）" autocomplete="new-password" required />
-          <input v-model="confirmPw" type="password" class="input input-bordered input-sm" placeholder="确认新密码" autocomplete="new-password" required />
-          <button class="btn btn-primary btn-sm self-start" :disabled="busy">修改密码</button>
+          <input v-model="oldPw" type="password" class="input input-bordered input-sm" :placeholder="i18n.t('当前密码')" autocomplete="current-password" required />
+          <input v-model="newPw" type="password" class="input input-bordered input-sm" :placeholder="i18n.t('新密码至少 8 位')" autocomplete="new-password" required />
+          <input v-model="confirmPw" type="password" class="input input-bordered input-sm" :placeholder="i18n.t('确认新密码')" autocomplete="new-password" required />
+          <button class="btn btn-primary btn-sm self-start" :disabled="busy">{{ i18n.t('修改密码') }}</button>
         </form>
       </div>
     </div>

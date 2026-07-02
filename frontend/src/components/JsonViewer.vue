@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useUiStore } from '../stores/ui'
+import { useI18nStore } from '../stores/i18n'
 
 const props = defineProps<{ content: string; maxHeight?: string }>()
 const ui = useUiStore()
+const i18n = useI18nStore()
 
 // Pretty-print JSON when possible; otherwise show raw text.
 const pretty = computed(() => {
@@ -26,7 +28,7 @@ async function copy() {
 
 <template>
   <div class="relative">
-    <button class="btn btn-xs btn-ghost absolute right-2 top-2 z-10" @click="copy">复制</button>
+    <button class="btn btn-xs btn-ghost absolute right-2 top-2 z-10" @click="copy">{{ i18n.t('复制') }}</button>
     <pre
       class="mono text-xs whitespace-pre bg-base-200 rounded p-3 overflow-auto"
       :style="{ maxHeight: maxHeight || '60vh' }"

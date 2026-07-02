@@ -21,10 +21,16 @@ func generateConfig(templateContent string, nodes []*models.Node, opts models.Pr
 	if err != nil {
 		return nil, err
 	}
+	chainTag, err := applyChainProxy(nodes, mergeNodes, opts)
+	if err != nil {
+		return nil, err
+	}
 
 	out, err := merge.Generate(cfg, mergeNodes, merge.Options{
 		AutoCountryGroups: opts.AutoCountryGroups,
 		CountryHeatOrder:  countryHeatOrder,
+		ChainProxy:        opts.ChainProxy,
+		ChainProxyTag:     chainTag,
 	})
 	if err != nil {
 		return nil, err
@@ -35,6 +41,32 @@ func generateConfig(templateContent string, nodes []*models.Node, opts models.Pr
 		return nil, err
 	}
 	return merge.Indent(compact)
+}
+
+func applyChainProxy(nodes []*models.Node, mergeNodes []*merge.Node, opts models.ProfileOptions) (string, error) {
+	if !opts.ChainProxy {
+		return "", nil
+	}
+	if opts.ChainProxyNodeID == 0 {
+		return "", fmt.Errorf("chain proxy node is required")
+	}
+	chainTag := ""
+	for i, n := range nodes {
+		if n.ID == opts.ChainProxyNodeID {
+			chainTag = mergeNodes[i].Raw.GetString("tag")
+			break
+		}
+	}
+	if chainTag == "" {
+		return "", fmt.Errorf("chain proxy node not found")
+	}
+	for i, n := range nodes {
+		if n.ID == opts.ChainProxyNodeID {
+			continue
+		}
+		mergeNodes[i].Raw.Set("detour", chainTag)
+	}
+	return chainTag, nil
 }
 
 // toMergeNodes converts DB node rows into merge.Node values. A node whose
@@ -81,6 +113,7 @@ func parseProfileOptions(blob string) models.ProfileOptions {
 	var probe struct {
 		AutoCountryGroups *bool `json:"autoCountryGroups"`
 		ChainProxy        bool  `json:"chainProxy"`
+		ChainProxyNodeID  int64 `json:"chainProxyNodeId"`
 	}
 	if err := json.Unmarshal([]byte(blob), &probe); err != nil {
 		return opts
@@ -89,5 +122,6 @@ func parseProfileOptions(blob string) models.ProfileOptions {
 		opts.AutoCountryGroups = *probe.AutoCountryGroups
 	}
 	opts.ChainProxy = probe.ChainProxy
+	opts.ChainProxyNodeID = probe.ChainProxyNodeID
 	return opts
 }

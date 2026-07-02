@@ -106,3 +106,26 @@ export async function downloadPost(path: string, body: unknown, filename: string
   a.remove()
   URL.revokeObjectURL(url)
 }
+
+export async function downloadGet(path: string, filename: string): Promise<void> {
+  const res = await fetch(BASE + path, {
+    method: 'GET',
+    credentials: 'include',
+  })
+  if (res.status === 401) {
+    if (onUnauthorized) onUnauthorized()
+    throw new ApiRequestError('未登录或会话已过期', 'unauthorized', 401)
+  }
+  if (!res.ok) {
+    throw new ApiRequestError('下载失败 (HTTP ' + res.status + ')', 'http_error', res.status)
+  }
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}

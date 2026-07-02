@@ -12,6 +12,7 @@ type previewRequest struct {
 	TemplateID      int64                 `json:"template_id"`
 	TemplateContent string                `json:"template_content"` // optional inline override
 	NodeIDs         []int64               `json:"node_ids"`
+	NodeGroupIDs    []int64               `json:"node_group_ids"`
 	Options         models.ProfileOptions `json:"options"`
 }
 
@@ -34,7 +35,7 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 		}
 		content = t.Content
 	}
-	nodes, err := s.getNodesForUser(req.NodeIDs, u.ID, u.IsAdmin())
+	nodes, err := s.resolveNodesForUser(req.NodeIDs, req.NodeGroupIDs, req.Options, u.ID, u.IsAdmin())
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
@@ -108,7 +109,8 @@ func (s *Server) renderProfile(profileID int64) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	nodes, err := s.Store.GetNodes(p.NodeIDs)
+	opts := parseProfileOptions(p.Options)
+	nodes, err := s.resolveNodesForUser(p.NodeIDs, p.NodeGroupIDs, opts, p.OwnerUserID, false)
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +118,7 @@ func (s *Server) renderProfile(profileID int64) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return generateConfig(t.Content, nodes, parseProfileOptions(p.Options), order)
+	return generateConfig(t.Content, nodes, opts, order)
 }
 
 func (s *Server) renderProfileForUser(profileID, ownerUserID int64, allOwners bool) ([]byte, error) {
@@ -128,7 +130,8 @@ func (s *Server) renderProfileForUser(profileID, ownerUserID int64, allOwners bo
 	if err != nil {
 		return nil, err
 	}
-	nodes, err := s.getNodesForUser(p.NodeIDs, p.OwnerUserID, allOwners)
+	opts := parseProfileOptions(p.Options)
+	nodes, err := s.resolveNodesForUser(p.NodeIDs, p.NodeGroupIDs, opts, p.OwnerUserID, allOwners)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +139,7 @@ func (s *Server) renderProfileForUser(profileID, ownerUserID int64, allOwners bo
 	if err != nil {
 		return nil, err
 	}
-	return generateConfig(t.Content, nodes, parseProfileOptions(p.Options), order)
+	return generateConfig(t.Content, nodes, opts, order)
 }
 
 // handleSubscription is the PUBLIC, unauthenticated endpoint returning a
@@ -154,7 +157,8 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request, toke
 		http.Error(w, "template missing", http.StatusInternalServerError)
 		return
 	}
-	nodes, err := s.Store.GetNodes(p.NodeIDs)
+	opts := parseProfileOptions(p.Options)
+	nodes, err := s.resolveNodesForUser(p.NodeIDs, p.NodeGroupIDs, opts, p.OwnerUserID, false)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -164,7 +168,7 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request, toke
 		http.Error(w, "generate error: "+err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
-	config, err := generateConfig(t.Content, nodes, parseProfileOptions(p.Options), order)
+	config, err := generateConfig(t.Content, nodes, opts, order)
 	if err != nil {
 		http.Error(w, "generate error: "+err.Error(), http.StatusUnprocessableEntity)
 		return
@@ -185,6 +189,48 @@ func (s *Server) getNodesForUser(ids []int64, ownerUserID int64, allOwners bool)
 			return nil, err
 		}
 		out = append(out, n)
+	}
+	return out, nil
+}
+
+func (s *Server) resolveNodesForUser(nodeIDs, groupIDs []int64, opts models.ProfileOptions, ownerUserID int64, allOwners bool) ([]*models.Node, error) {
+	var out []*models.Node
+	seen := map[int64]bool{}
+	addNode := func(id int64) error {
+		if id == 0 || seen[id] {
+			return nil
+		}
+		n, err := s.Store.GetNodeForUser(id, ownerUserID, allOwners)
+		if err == store.ErrNotFound {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		seen[id] = true
+		out = append(out, n)
+		return nil
+	}
+	for _, id := range nodeIDs {
+		if err := addNode(id); err != nil {
+			return nil, err
+		}
+	}
+	groups, err := s.Store.GetNodeGroupsForUser(groupIDs, ownerUserID, allOwners)
+	if err != nil {
+		return nil, err
+	}
+	for _, g := range groups {
+		for _, id := range g.NodeIDs {
+			if err := addNode(id); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if opts.ChainProxy {
+		if err := addNode(opts.ChainProxyNodeID); err != nil {
+			return nil, err
+		}
 	}
 	return out, nil
 }

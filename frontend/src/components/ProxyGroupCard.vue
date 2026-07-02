@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import type { ProxyGroup } from '../api/types'
+import { useI18nStore } from '../stores/i18n'
 
 defineProps<{ group: ProxyGroup }>()
+const i18n = useI18nStore()
 </script>
 
 <template>
@@ -20,7 +22,7 @@ defineProps<{ group: ProxyGroup }>()
           class="badge badge-outline badge-sm"
           >{{ o }}</span
         >
-        <span v-if="!group.outbounds.length" class="text-xs opacity-60">（无出口）</span>
+        <span v-if="!group.outbounds.length" class="text-xs opacity-60">{{ i18n.t('无出口') }}</span>
       </div>
     </div>
   </div>

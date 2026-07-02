@@ -51,21 +51,34 @@ type SubscriptionSource struct {
 // Profile ties a template + selected nodes + generation options into a
 // tokenized subscription that renders a full config.json.
 type Profile struct {
-	ID          int64     `json:"id"`
-	OwnerUserID int64     `json:"owner_user_id"`
-	Name        string    `json:"name"`
-	TemplateID  int64     `json:"template_id"`
-	Options     string    `json:"options"` // JSON: {autoCountryGroups, chainProxy, ...}
-	Token       string    `json:"token"`
-	NodeIDs     []int64   `json:"node_ids"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID           int64     `json:"id"`
+	OwnerUserID  int64     `json:"owner_user_id"`
+	Name         string    `json:"name"`
+	TemplateID   int64     `json:"template_id"`
+	Options      string    `json:"options"` // JSON: {autoCountryGroups, chainProxy, ...}
+	Token        string    `json:"token"`
+	NodeIDs      []int64   `json:"node_ids"`
+	NodeGroupIDs []int64   `json:"node_group_ids"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // ProfileOptions is the parsed Profile.Options blob.
 type ProfileOptions struct {
-	AutoCountryGroups bool `json:"autoCountryGroups"`
-	ChainProxy        bool `json:"chainProxy"`
+	AutoCountryGroups bool  `json:"autoCountryGroups"`
+	ChainProxy        bool  `json:"chainProxy"`
+	ChainProxyNodeID  int64 `json:"chainProxyNodeId,omitempty"`
+}
+
+// NodeGroup is a reusable, ordered collection of nodes.
+type NodeGroup struct {
+	ID          int64     `json:"id"`
+	OwnerUserID int64     `json:"owner_user_id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	NodeIDs     []int64   `json:"node_ids"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // Admin is a compatibility view over the first administrative user.

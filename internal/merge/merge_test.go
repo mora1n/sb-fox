@@ -156,6 +156,42 @@ func TestCountryHeatOrderOption(t *testing.T) {
 	}
 }
 
+func TestChainProxySelector(t *testing.T) {
+	cfg := loadTemplate(t, "fakeip")
+	nodes := loadFixtureNodes(t, "proto-a", "protocol")
+	nodes = append(nodes, loadFixtureNodes(t, "proto-b", "protocol")...)
+	chainTag := nodes[0].tag()
+	for _, n := range nodes[1:] {
+		n.Raw.Set("detour", chainTag)
+	}
+
+	out, err := Generate(cfg, nodes, Options{
+		AutoCountryGroups: true,
+		ChainProxy:        true,
+		ChainProxyTag:     chainTag,
+	})
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	outbounds, err := configOutbounds(out)
+	if err != nil {
+		t.Fatalf("outbounds: %v", err)
+	}
+	chainSelector := findTestOutbound(outbounds, "🔗 Chain Proxy")
+	if chainSelector == nil {
+		t.Fatal("missing chain proxy selector")
+	}
+	for _, tag := range outboundTagsForTest(chainSelector) {
+		if tag == chainTag {
+			t.Fatalf("chain selector contains relay node tag %q", chainTag)
+		}
+	}
+	proxy := findTestOutboundMatch(outbounds, "Proxy")
+	if proxy == nil || !containsStringForTest(outboundTagsForTest(proxy), "🔗 Chain Proxy") {
+		t.Fatalf("Proxy selector does not include chain selector: %+v", proxy)
+	}
+}
+
 func mustMarshal(t *testing.T, m *OrderedMap) []byte {
 	t.Helper()
 	b, err := m.MarshalJSON()
@@ -179,4 +215,51 @@ func canonicalEqual(t *testing.T, a, b []byte) bool {
 	ca, _ := json.Marshal(av)
 	cb, _ := json.Marshal(bv)
 	return bytes.Equal(ca, cb)
+}
+
+func findTestOutbound(outbounds []any, tag string) *OrderedMap {
+	for _, ob := range outbounds {
+		om, ok := ob.(*OrderedMap)
+		if ok && om.GetString("tag") == tag {
+			return om
+		}
+	}
+	return nil
+}
+
+func findTestOutboundMatch(outbounds []any, pattern string) *OrderedMap {
+	for _, ob := range outbounds {
+		om, ok := ob.(*OrderedMap)
+		if ok && matchTag(om.GetString("tag"), pattern) {
+			return om
+		}
+	}
+	return nil
+}
+
+func outboundTagsForTest(ob *OrderedMap) []string {
+	raw, ok := ob.Get("outbounds")
+	if !ok {
+		return nil
+	}
+	arr, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(arr))
+	for _, item := range arr {
+		if s, ok := item.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func containsStringForTest(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
 }
