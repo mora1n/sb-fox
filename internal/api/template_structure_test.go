@@ -38,6 +38,9 @@ func TestExtractTemplateProxyOutbounds(t *testing.T) {
 	if len(st.Groups[0].Outbounds) != 1 || st.Groups[0].Outbounds[0] != "Direct" {
 		t.Fatalf("outbounds = %+v", st.Groups[0].Outbounds)
 	}
+	if len(st.AvailableOutbounds) != 2 || st.AvailableOutbounds[0] != "Direct" || st.AvailableOutbounds[1] != "Proxy" {
+		t.Fatalf("available outbounds = %+v", st.AvailableOutbounds)
+	}
 }
 
 func TestWriteTemplateStructureValidation(t *testing.T) {

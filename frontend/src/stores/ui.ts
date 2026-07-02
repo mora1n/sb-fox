@@ -14,6 +14,10 @@ export type UiTheme = 'light-neutral' | 'dark-neutral'
 
 const DEFAULT_THEME: UiTheme = 'light-neutral'
 const DARK_THEME: UiTheme = 'dark-neutral'
+const THEME_COLORS: Record<UiTheme, { bg: string; fg: string; scheme: 'light' | 'dark' }> = {
+  'light-neutral': { bg: '#f5f5f7', fg: '#27272a', scheme: 'light' },
+  'dark-neutral': { bg: '#1a1a1a', fg: '#e5e5e5', scheme: 'dark' },
+}
 
 function isUiTheme(value: string | null): value is UiTheme {
   return value === DEFAULT_THEME || value === DARK_THEME
@@ -41,8 +45,13 @@ function readTheme(): UiTheme {
 }
 
 function applyTheme(next: UiTheme): void {
+  const colors = THEME_COLORS[next]
   document.documentElement.setAttribute('data-theme', next)
-  document.documentElement.style.colorScheme = next === DARK_THEME ? 'dark' : 'light'
+  document.documentElement.style.colorScheme = colors.scheme
+  document.documentElement.style.backgroundColor = colors.bg
+  document.documentElement.style.color = colors.fg
+  document.body.style.backgroundColor = colors.bg
+  document.body.style.color = colors.fg
 }
 
 export const useUiStore = defineStore('ui', () => {

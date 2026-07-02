@@ -10,8 +10,9 @@ import (
 )
 
 type templateStructure struct {
-	Final  string                   `json:"final"`
-	Groups []templateStructureGroup `json:"groups"`
+	Final              string                   `json:"final"`
+	Groups             []templateStructureGroup `json:"groups"`
+	AvailableOutbounds []string                 `json:"available_outbounds"`
 }
 
 type templateStructureGroup struct {
@@ -176,11 +177,23 @@ func readTemplateStructure(content string) (templateStructure, error) {
 	if err != nil {
 		return templateStructure{}, err
 	}
-	groups, err := templateGroups(cfg)
+	raw, ok := cfg.Get("outbounds")
+	if !ok {
+		return templateStructure{}, nil
+	}
+	arr, ok := raw.([]any)
+	if !ok {
+		return templateStructure{}, fmt.Errorf("outbounds must be an array")
+	}
+	groups, err := templateGroups(arr)
 	if err != nil {
 		return templateStructure{}, err
 	}
-	st := templateStructure{Final: routeFinal(cfg), Groups: groups}
+	st := templateStructure{
+		Final:              routeFinal(cfg),
+		Groups:             groups,
+		AvailableOutbounds: availableTemplateOutbounds(arr, groups),
+	}
 	refs := templateGroupRefs(st.Final, groups)
 	for i := range st.Groups {
 		g := &st.Groups[i]
@@ -236,15 +249,7 @@ func writeTemplateStructure(content string, st templateStructure) (string, error
 	return orderedString(cfg)
 }
 
-func templateGroups(cfg *merge.OrderedMap) ([]templateStructureGroup, error) {
-	raw, ok := cfg.Get("outbounds")
-	if !ok {
-		return nil, nil
-	}
-	arr, ok := raw.([]any)
-	if !ok {
-		return nil, fmt.Errorf("outbounds must be an array")
-	}
+func templateGroups(arr []any) ([]templateStructureGroup, error) {
 	var groups []templateStructureGroup
 	for _, ob := range arr {
 		om, ok := ob.(*merge.OrderedMap)
@@ -259,6 +264,30 @@ func templateGroups(cfg *merge.OrderedMap) ([]templateStructureGroup, error) {
 		})
 	}
 	return groups, nil
+}
+
+func availableTemplateOutbounds(arr []any, groups []templateStructureGroup) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(tag string) {
+		tag = strings.TrimSpace(tag)
+		if tag == "" || seen[tag] {
+			return
+		}
+		seen[tag] = true
+		out = append(out, tag)
+	}
+	for _, ob := range arr {
+		om, ok := ob.(*merge.OrderedMap)
+		if !ok || isTemplateGroup(om) {
+			continue
+		}
+		add(om.GetString("tag"))
+	}
+	for _, g := range groups {
+		add(g.Tag)
+	}
+	return out
 }
 
 func classifyTemplateOutbounds(arr []any) (map[string]*merge.OrderedMap, map[string]bool, int) {

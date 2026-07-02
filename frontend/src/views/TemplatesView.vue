@@ -34,6 +34,20 @@ const formContent = ref('')
 const busy = ref(false)
 
 const groupTags = computed(() => structure.value?.groups.map((g) => g.tag).filter(Boolean) ?? [])
+const availableOutbounds = computed(() => {
+  if (!structure.value) return []
+  const seen = new Set<string>()
+  const out: string[] = []
+  const add = (tag: string) => {
+    const clean = tag.trim()
+    if (!clean || seen.has(clean)) return
+    seen.add(clean)
+    out.push(clean)
+  }
+  structure.value.available_outbounds?.forEach(add)
+  structure.value.groups.forEach((g) => add(g.tag))
+  return out
+})
 
 onMounted(load)
 async function load() {
@@ -130,7 +144,7 @@ async function saveStructure() {
   busy.value = true
   try {
     structure.value = await store.saveStructure(structureFor.value.id, structure.value)
-    ui.success('出口分组已保存')
+    ui.success('分组管理已保存')
   } catch (e) {
     ui.error(errMsg(e))
   } finally {
@@ -145,25 +159,47 @@ function uniqueChildTag() {
   return `Selector ${i}`
 }
 
+function defaultOutboundFor(tag: string) {
+  const candidates = availableOutbounds.value.filter((item) => item !== tag)
+  return candidates.find((item) => item.includes('Direct')) || candidates[0] || ''
+}
+
 function addRootGroup() {
   if (!structure.value) return
   const tag = uniqueChildTag()
-  structure.value.groups.push({ tag, type: 'selector', outbounds: [], deletable: true })
+  const firstOutbound = defaultOutboundFor(tag)
+  structure.value.groups.push({
+    tag,
+    type: 'selector',
+    outbounds: firstOutbound ? [firstOutbound] : [],
+    deletable: true,
+  })
   if (!structure.value.final) structure.value.final = tag
 }
 
 function addChildSelector(parent: TemplateStructureGroup) {
   if (!structure.value) return
   const tag = uniqueChildTag()
-  structure.value.groups.push({ tag, type: 'selector', outbounds: [], deletable: true })
+  const firstOutbound = defaultOutboundFor(tag)
+  structure.value.groups.push({
+    tag,
+    type: 'selector',
+    outbounds: firstOutbound ? [firstOutbound] : [],
+    deletable: true,
+  })
   if (!parent.outbounds.includes(tag)) parent.outbounds.push(tag)
 }
 
-function setOutbounds(g: TemplateStructureGroup, value: string) {
-  g.outbounds = value
-    .split(/[\n,]+/)
-    .map((s) => s.trim())
-    .filter(Boolean)
+function outboundOptions(g: TemplateStructureGroup) {
+  return availableOutbounds.value.filter((tag) => tag !== g.tag)
+}
+
+function toggleOutbound(g: TemplateStructureGroup, tag: string) {
+  if (g.outbounds.includes(tag)) {
+    g.outbounds = g.outbounds.filter((item) => item !== tag)
+  } else {
+    g.outbounds = [...g.outbounds, tag]
+  }
   if (g.default && !g.outbounds.includes(g.default)) g.default = ''
 }
 
@@ -184,6 +220,10 @@ function deleteGroup(index: number) {
 
 function onDragStart(index: number) {
   dragIndex.value = index
+}
+
+function onDragEnd() {
+  dragIndex.value = null
 }
 
 function onDrop(index: number) {
@@ -227,7 +267,7 @@ async function remove(t: Template) {
             <td>
               <div class="flex gap-1 justify-end">
                 <button class="btn btn-xs btn-ghost" @click="view(t)" :title="i18n.t('查看')"><EyeIcon class="h-4 w-4" /></button>
-                <button class="btn btn-xs btn-ghost" @click="editStructure(t)" :title="i18n.t('出口分组')"><RectangleGroupIcon class="h-4 w-4" /></button>
+                <button class="btn btn-xs btn-ghost" @click="editStructure(t)" :title="i18n.t('分组管理')"><RectangleGroupIcon class="h-4 w-4" /></button>
                 <button class="btn btn-xs btn-ghost" @click="exportTemplate(t)" :title="i18n.t('导出')"><ArrowDownTrayIcon class="h-4 w-4" /></button>
                 <button v-if="t.kind === 'user'" class="btn btn-xs btn-ghost" @click="openEdit(t)" :title="i18n.t('编辑模板')"><PencilSquareIcon class="h-4 w-4" /></button>
                 <button v-if="t.kind === 'user'" class="btn btn-xs btn-ghost text-error" @click="remove(t)" :title="i18n.t('删除')"><TrashIcon class="h-4 w-4" /></button>
@@ -250,7 +290,7 @@ async function remove(t: Template) {
     <div v-if="structure" class="modal modal-open">
       <div class="modal-box max-w-5xl">
         <div class="flex items-center justify-between gap-2 mb-3">
-          <h3 class="font-bold text-lg">{{ i18n.t('出口分组') }} · {{ structureFor?.name }}</h3>
+          <h3 class="font-bold text-lg">{{ i18n.t('分组管理') }} · {{ structureFor?.name }}</h3>
           <button class="btn btn-sm" @click="addRootGroup"><PlusIcon class="h-4 w-4" /> {{ i18n.t('添加分组') }}</button>
         </div>
         <label class="form-control max-w-sm mb-4">
@@ -265,13 +305,20 @@ async function remove(t: Template) {
             v-for="(g, i) in structure.groups"
             :key="g.tag + ':' + i"
             class="border border-base-300 rounded-box bg-base-100 p-3"
-            draggable="true"
-            @dragstart="onDragStart(i)"
             @dragover.prevent
             @drop="onDrop(i)"
           >
             <div class="grid grid-cols-1 lg:grid-cols-[32px_minmax(160px,1fr)_120px_minmax(180px,1fr)_160px_auto] gap-2 items-start">
-              <button class="btn btn-xs btn-ghost cursor-move" type="button" :title="i18n.t('拖拽排序')"><Bars3Icon class="h-4 w-4" /></button>
+              <button
+                class="btn btn-xs btn-ghost cursor-move"
+                type="button"
+                draggable="true"
+                :title="i18n.t('拖拽排序')"
+                @dragstart="onDragStart(i)"
+                @dragend="onDragEnd"
+              >
+                <Bars3Icon class="h-4 w-4" />
+              </button>
               <label class="form-control">
                 <span class="label-text mb-1">{{ i18n.t('标签') }}</span>
                 <input v-model="g.tag" class="input input-bordered input-sm" />
@@ -285,11 +332,24 @@ async function remove(t: Template) {
               </label>
               <label class="form-control">
                 <span class="label-text mb-1">{{ i18n.t('出口') }}</span>
-                <textarea
-                  class="textarea textarea-bordered h-20 text-xs mono"
-                  :value="g.outbounds.join('\n')"
-                  @input="setOutbounds(g, ($event.target as HTMLTextAreaElement).value)"
-                ></textarea>
+                <div class="border border-base-300 rounded-box max-h-28 overflow-y-auto divide-y divide-base-200 bg-base-100">
+                  <label
+                    v-for="tag in outboundOptions(g)"
+                    :key="tag"
+                    class="flex items-center gap-2 px-2 py-1.5 cursor-pointer hover:bg-base-200"
+                  >
+                    <input
+                      type="checkbox"
+                      class="checkbox checkbox-xs"
+                      :checked="g.outbounds.includes(tag)"
+                      @change="toggleOutbound(g, tag)"
+                    />
+                    <span class="truncate text-xs" :title="tag">{{ tag }}</span>
+                  </label>
+                  <div v-if="!outboundOptions(g).length" class="px-2 py-3 text-xs opacity-60 text-center">
+                    {{ i18n.t('无可选出口') }}
+                  </div>
+                </div>
               </label>
               <label class="form-control">
                 <span class="label-text mb-1">{{ i18n.t('默认出口') }}</span>
@@ -312,9 +372,6 @@ async function remove(t: Template) {
                   <TrashIcon class="h-4 w-4" />
                 </button>
               </div>
-            </div>
-            <div v-if="g.referenced_by?.length" class="text-xs opacity-60 mt-2">
-              {{ i18n.t('引用:') }} {{ g.referenced_by.join(', ') }}
             </div>
           </div>
         </div>

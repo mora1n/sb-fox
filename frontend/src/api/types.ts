@@ -63,6 +63,7 @@ export interface TemplateStructureGroup {
 export interface TemplateStructure {
   final: string
   groups: TemplateStructureGroup[]
+  available_outbounds: string[]
 }
 
 export interface SubscriptionSource {
