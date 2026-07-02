@@ -7,9 +7,9 @@ defineProps<{ node: Node; selected: boolean }>()
 defineEmits<{ edit: []; remove: []; 'toggle-select': [] }>()
 
 const sourceCls: Record<string, string> = {
-  protocol: 'badge-primary',
-  subscription: 'badge-secondary',
-  config: 'badge-accent',
+  protocol: 'badge-neutral',
+  subscription: 'badge-neutral',
+  config: 'badge-neutral',
   manual: 'badge-neutral',
 }
 </script>

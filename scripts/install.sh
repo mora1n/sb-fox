@@ -5,7 +5,7 @@
 # Env:
 #   SB_FOX_VERSION=v0.1.0   pin a specific version (default: latest)
 #   SB_FOX_INSTALL_DIR=...  install location (default: /usr/local/bin, or ~/.local/bin without root)
-#   SB_FOX_DATA_DIR=...     template seed data location (default: ./data)
+#   SB_FOX_DATA_DIR=...     template seed data location (default: /var/lib/sb-fox for root, ~/.local/share/sb-fox otherwise)
 set -eu
 
 REPO="mora1n/sb-fox"
@@ -65,12 +65,16 @@ fi
 mkdir -p "$dir"
 install -m 0755 "${archive_root}/${BINARY}" "${dir}/${BINARY}"
 
-data_dir="${SB_FOX_DATA_DIR:-./data}"
+data_dir="${SB_FOX_DATA_DIR:-}"
+if [ -z "$data_dir" ]; then
+  if [ "$(id -u)" -eq 0 ]; then data_dir="/var/lib/sb-fox"; else data_dir="$HOME/.local/share/sb-fox"; fi
+fi
 mkdir -p "${data_dir}/templates"
 cp -R "${archive_root}/data/templates/." "${data_dir}/templates/"
 
 info "installed ${BINARY} ${version} to ${dir}/${BINARY}"
 info "installed seed templates to ${data_dir}/templates"
+info "run 'sudo ${dir}/${BINARY} --daemon' to install and start the systemd service"
 case ":$PATH:" in
   *":$dir:"*) ;;
   *) printf '\033[1;33mnote:\033[0m %s is not in your PATH; add it or move the binary.\n' "$dir" ;;

@@ -233,8 +233,7 @@
     "final": "🚀 Proxy",
     "auto_detect_interface": true,
     "default_domain_resolver": {
-      "server": "dns_ali",
-      "disable_optimistic_cache": true
+      "server": "dns_ali"
     }
   },
   "experimental": {

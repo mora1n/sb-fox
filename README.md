@@ -26,17 +26,34 @@
 curl -fsSL https://raw.githubusercontent.com/mora1n/sb-fox/main/scripts/install.sh | sh
 ```
 
-安装脚本会下载匹配当前系统的 release 包，安装 `sb-fox` 二进制，并默认把种子模板复制到 `./data/templates`。
+安装脚本会下载匹配当前系统的 release 包，安装 `sb-fox` 二进制，并把种子模板复制到默认数据目录的 `templates` 子目录。
+
+root 用户安装时，种子模板默认复制到 `/var/lib/sb-fox/templates`；普通用户安装时默认复制到 `~/.local/share/sb-fox/templates`。
 
 ## 运行
 
 ```sh
-sb-fox --addr :8080 --data-dir ./data
+sb-fox --addr 127.0.0.1:17890 --data-dir ./data
 ```
 
-启动后打开 `http://127.0.0.1:8080`。
+启动后打开 `http://127.0.0.1:17890`。
 
 首次运行时，`sb-fox` 会创建管理员账号，并在终端打印一次性密码。默认用户名是 `admin`。
+
+## 守护进程模式
+
+```sh
+sudo sb-fox --daemon
+```
+
+该命令会生成 systemd service，执行 `systemctl enable --now sb-fox`，并使用以下默认位置：
+
+- 单实例 socket：`/var/run/sb-fox.sock`
+- 数据目录：`/var/lib/sb-fox`
+- 数据库：`/var/lib/sb-fox/sb-fox.db`
+- 模板目录：`/var/lib/sb-fox/templates`
+
+如果已有守护进程在运行，新的服务启动会直接失败。socket 是内部单实例锁，不提供命令行参数。
 
 ## 模板
 
@@ -56,9 +73,13 @@ data/templates/fakeip.json
 
 | 选项 | 环境变量 | 默认值 |
 |---|---|---|
-| `--addr` | `SB_FOX_ADDR` | `:8080` |
-| `--data-dir` | `SB_FOX_DATA_DIR` | `./data` |
-| `--kernel` | `SB_FOX_KERNEL` | `sing-box` |
+| `--addr`, `-a` | `SB_FOX_ADDR` | `127.0.0.1:17890` |
+| `--data-dir`, `-D` | `SB_FOX_DATA_DIR` | `./data` |
+| `--kernel`, `-k` | `SB_FOX_KERNEL` | `sing-box` |
+| `--daemon`, `-d` |  | 安装、启用并启动 systemd 服务 |
+| `--update`, `-u` |  | 更新已安装版本 |
+| `--uninstall`, `-U` |  | 卸载服务和二进制 |
+| `--purge`, `-p` |  | 卸载时同时删除配置和数据 |
 
 如果希望自行指定首次启动的管理员密码，可以在启动前设置 `SB_FOX_ADMIN_PASSWORD`。
 
@@ -67,7 +88,7 @@ data/templates/fakeip.json
 ```sh
 make frontend
 make build
-./sb-fox --addr :8080 --data-dir ./data
+./sb-fox --addr 127.0.0.1:17890 --data-dir ./data
 ```
 
 常用检查：

@@ -4,15 +4,20 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/mora1n/sb-fox/internal/api"
@@ -20,6 +25,7 @@ import (
 	"github.com/mora1n/sb-fox/internal/auth"
 	"github.com/mora1n/sb-fox/internal/config"
 	"github.com/mora1n/sb-fox/internal/kernel"
+	"github.com/mora1n/sb-fox/internal/manage"
 	"github.com/mora1n/sb-fox/internal/store"
 	"github.com/mora1n/sb-fox/internal/subfetch"
 )
@@ -29,6 +35,9 @@ var version = "dev"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return
+		}
 		log.Fatalf("sb-fox: %v", err)
 	}
 }
@@ -41,6 +50,21 @@ func run(args []string) error {
 	if cfg.ShowVersion {
 		fmt.Printf("sb-fox %s\n", version)
 		return nil
+	}
+	switch cfg.Action {
+	case config.ActionInstallDaemon:
+		return manage.InstallDaemon(manage.Options{Addr: cfg.Addr, DataDir: cfg.DataDir, KernelPath: cfg.KernelPath})
+	case config.ActionUpdate:
+		return manage.Update(manage.Options{Addr: cfg.Addr, DataDir: cfg.DataDir, KernelPath: cfg.KernelPath, Version: version})
+	case config.ActionUninstall:
+		return manage.Uninstall(manage.Options{Addr: cfg.Addr, DataDir: cfg.DataDir, KernelPath: cfg.KernelPath, Purge: cfg.Purge})
+	}
+	if cfg.Mode == config.ModeDaemon {
+		release, err := acquireDaemonSocket(cfg.SocketPath)
+		if err != nil {
+			return err
+		}
+		defer release()
 	}
 	if err := cfg.EnsureDataDir(); err != nil {
 		return fmt.Errorf("create data dir: %w", err)
@@ -92,7 +116,86 @@ func run(args []string) error {
 		uiState = "API only (no embedded UI)"
 	}
 	log.Printf("sb-fox %s listening on %s (%s), data-dir=%s, kernel=%q", version, cfg.Addr, uiState, cfg.DataDir, kernelPath)
-	return httpSrv.ListenAndServe()
+	return serveHTTP(httpSrv)
+}
+
+func serveHTTP(srv *http.Server) error {
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- srv.ListenAndServe()
+	}()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+
+	select {
+	case err := <-errCh:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case sig := <-sigCh:
+		log.Printf("received %s, shutting down", sig)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return srv.Shutdown(ctx)
+	}
+}
+
+func acquireDaemonSocket(path string) (func(), error) {
+	if strings.TrimSpace(path) == "" {
+		return nil, errors.New("daemon socket path is required")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, fmt.Errorf("create daemon socket directory: %w", err)
+	}
+	if _, err := os.Stat(path); err == nil {
+		conn, dialErr := net.DialTimeout("unix", path, 500*time.Millisecond)
+		if dialErr == nil {
+			_ = conn.Close()
+			return nil, fmt.Errorf("sb-fox daemon already running at %s", path)
+		}
+		if err := os.Remove(path); err != nil {
+			return nil, fmt.Errorf("remove stale daemon socket %s: %w", path, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("stat daemon socket %s: %w", path, err)
+	}
+
+	addr := &net.UnixAddr{Name: path, Net: "unix"}
+	ln, err := net.ListenUnix("unix", addr)
+	if err != nil {
+		return nil, fmt.Errorf("listen daemon socket %s: %w", path, err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		_ = ln.Close()
+		_ = os.Remove(path)
+		return nil, fmt.Errorf("chmod daemon socket %s: %w", path, err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				select {
+				case <-done:
+					return
+				default:
+					log.Printf("daemon socket accept error: %v", err)
+					return
+				}
+			}
+			_ = conn.Close()
+		}
+	}()
+
+	return func() {
+		close(done)
+		_ = ln.Close()
+		_ = os.Remove(path)
+	}, nil
 }
 
 // seedTemplates idempotently loads file-backed templates from data/templates.

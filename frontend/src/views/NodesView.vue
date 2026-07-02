@@ -119,7 +119,7 @@ async function exportTemplate() {
         <button class="btn btn-sm" @click="exportTemplate" :disabled="busy || !selected.size">
           <DocumentArrowDownIcon class="h-4 w-4" /> 导出模板
         </button>
-        <button class="btn btn-sm btn-secondary" @click="showImport = true">
+        <button class="btn btn-sm btn-primary" @click="showImport = true">
           <ArrowDownTrayIcon class="h-4 w-4" /> 导入
         </button>
         <button class="btn btn-sm btn-primary" @click="openCreate">
@@ -151,7 +151,7 @@ async function exportTemplate() {
         <button class="btn btn-sm btn-ghost" @click="selectAll">
           {{ selected.size === nodesStore.nodes.length && nodesStore.nodes.length ? '取消全选' : '全选' }}
         </button>
-        <span v-if="selected.size" class="badge badge-primary">已选 {{ selected.size }}</span>
+        <span v-if="selected.size" class="badge badge-neutral">已选 {{ selected.size }}</span>
       </div>
     </div>
 
