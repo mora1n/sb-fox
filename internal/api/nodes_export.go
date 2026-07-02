@@ -19,8 +19,8 @@ func contextWithTimeout(d time.Duration) (context.Context, context.CancelFunc) {
 // over the name. The result is an {"outbounds":[...]} document.
 func (s *Server) handleExportNodeTemplate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		NodeIDs   []int64 `json:"node_ids"`
-		TagCountry bool   `json:"tag_country"` // annotate server with #CC (default true)
+		NodeIDs    []int64 `json:"node_ids"`
+		TagCountry bool    `json:"tag_country"` // annotate server with #CC (default true)
 	}
 	// default TagCountry true
 	req.TagCountry = true
@@ -28,7 +28,8 @@ func (s *Server) handleExportNodeTemplate(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	nodes, err := s.Store.GetNodes(req.NodeIDs)
+	ownerID, allOwners := ownerScope(r)
+	nodes, err := s.getNodesForUser(req.NodeIDs, ownerID, allOwners)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return

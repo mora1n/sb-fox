@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"path/filepath"
 	"testing"
 
@@ -16,6 +17,15 @@ func openTest(t *testing.T) *Store {
 	}
 	t.Cleanup(func() { s.Close() })
 	return s
+}
+
+func createTestUser(t *testing.T, s *Store) int64 {
+	t.Helper()
+	id, err := s.CreateUser(&models.User{Username: "u", PasswordHash: "hash", Role: models.RoleUser})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
 }
 
 func TestMigrateIdempotent(t *testing.T) {
@@ -37,6 +47,75 @@ func TestMigrateIdempotent(t *testing.T) {
 	}
 	if len(applied) != len(migrations)-1 {
 		t.Errorf("applied %d migrations, want %d", len(applied), len(migrations)-1)
+	}
+}
+
+func TestMigrateSingleAdminDataToUsers(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec(migrations[0]); err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i < len(migrations)-1; i++ {
+		if _, err := db.Exec(migrations[i]); err != nil {
+			t.Fatalf("old migration %d: %v", i, err)
+		}
+		if _, err := db.Exec(`INSERT INTO schema_migrations(version, applied_at) VALUES(?, ?)`, i, now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ts := now()
+	if _, err := db.Exec(`INSERT INTO admin (id, username, password_hash, created_at, updated_at) VALUES (1, 'admin', 'hash', ?, ?)`, ts, ts); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO templates (id, name, kind, content, description, created_at, updated_at) VALUES (1, 'fakeip', 'user', '{}', '', ?, ?)`, ts, ts); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO subscription_sources (id, name, url, created_at) VALUES (1, 'src', 'https://example.com/sub', ?)`, ts); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO nodes (id, tag, type, source, source_ref, raw, created_at, updated_at) VALUES (1, 'n', 'vmess', 'subscription', 1, '{}', ?, ?)`, ts, ts); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO profiles (id, name, template_id, token, created_at, updated_at) VALUES (1, 'p', 1, 'tok', ?, ?)`, ts, ts); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO profile_nodes (profile_id, node_id, position) VALUES (1, 1, 0)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	admin, err := s.FirstAdmin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if admin.ID != 1 || admin.Username != "admin" {
+		t.Fatalf("admin = %+v", admin)
+	}
+	profiles, err := s.ListProfiles(1, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(profiles) != 1 || profiles[0].OwnerUserID != 1 || len(profiles[0].NodeIDs) != 1 {
+		t.Fatalf("profiles = %+v", profiles)
+	}
+	nodes, err := s.ListNodes(NodeFilter{OwnerUserID: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 1 || nodes[0].OwnerUserID != 1 {
+		t.Fatalf("nodes = %+v", nodes)
 	}
 }
 
@@ -67,8 +146,10 @@ func TestAdminRoundTrip(t *testing.T) {
 
 func TestNodeCRUD(t *testing.T) {
 	s := openTest(t)
+	ownerID := createTestUser(t, s)
 	n := &models.Node{
-		Tag: "🇭🇰 HK-1", Type: "shadowsocks", Server: "hk.example.com", ServerPort: 8388,
+		OwnerUserID: ownerID,
+		Tag:         "🇭🇰 HK-1", Type: "shadowsocks", Server: "hk.example.com", ServerPort: 8388,
 		CountryCode: "HK", CountrySource: "auto", Source: "manual",
 		Raw: `{"type":"shadowsocks","tag":"🇭🇰 HK-1"}`,
 	}
@@ -84,7 +165,7 @@ func TestNodeCRUD(t *testing.T) {
 		t.Errorf("got %+v", got)
 	}
 	// filter by country
-	list, err := s.ListNodes(NodeFilter{CountryCode: "HK"})
+	list, err := s.ListNodes(NodeFilter{OwnerUserID: ownerID, CountryCode: "HK"})
 	if err != nil || len(list) != 1 {
 		t.Fatalf("filter: %v len=%d", err, len(list))
 	}
@@ -109,20 +190,21 @@ func TestNodeCRUD(t *testing.T) {
 
 func TestProfileWithNodes(t *testing.T) {
 	s := openTest(t)
+	ownerID := createTestUser(t, s)
 	// need a template (FK) and nodes
-	tid, err := s.CreateTemplate(&models.Template{Name: "t1", Kind: "user", Content: "{}"})
+	tid, err := s.CreateTemplate(&models.Template{OwnerUserID: ownerID, Name: "t1", Kind: "user", Content: "{}"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var nodeIDs []int64
 	for i := 0; i < 3; i++ {
-		id, err := s.CreateNode(&models.Node{Tag: "n", Type: "vmess", Source: "manual", Raw: "{}"})
+		id, err := s.CreateNode(&models.Node{OwnerUserID: ownerID, Tag: "n", Type: "vmess", Source: "manual", Raw: "{}"})
 		if err != nil {
 			t.Fatal(err)
 		}
 		nodeIDs = append(nodeIDs, id)
 	}
-	p := &models.Profile{Name: "prof1", TemplateID: tid, Options: "{}", Token: "tok123", NodeIDs: []int64{nodeIDs[2], nodeIDs[0], nodeIDs[1]}}
+	p := &models.Profile{OwnerUserID: ownerID, Name: "prof1", TemplateID: tid, Options: "{}", Token: "tok123", NodeIDs: []int64{nodeIDs[2], nodeIDs[0], nodeIDs[1]}}
 	pid, err := s.CreateProfile(p)
 	if err != nil {
 		t.Fatal(err)
@@ -150,9 +232,40 @@ func TestProfileWithNodes(t *testing.T) {
 	}
 }
 
+func TestListProfilesWithNodesDoesNotNestOpenRows(t *testing.T) {
+	s := openTest(t)
+	ownerID := createTestUser(t, s)
+	tid, err := s.CreateTemplate(&models.Template{OwnerUserID: ownerID, Name: "t1", Kind: "user", Content: "{}"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nid, err := s.CreateNode(&models.Node{OwnerUserID: ownerID, Tag: "n", Type: "vmess", Source: "manual", Raw: "{}"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateProfile(&models.Profile{
+		OwnerUserID: ownerID,
+		Name:        "prof1",
+		TemplateID:  tid,
+		Options:     "{}",
+		Token:       "tok-list",
+		NodeIDs:     []int64{nid},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	list, err := s.ListProfiles(ownerID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || len(list[0].NodeIDs) != 1 || list[0].NodeIDs[0] != nid {
+		t.Fatalf("profiles = %+v", list)
+	}
+}
+
 func TestSeedUserTemplate(t *testing.T) {
 	s := openTest(t)
-	inserted, err := s.SeedUserTemplate("fakeip", `{"a":1}`, "desc")
+	ownerID := createTestUser(t, s)
+	inserted, err := s.SeedUserTemplate(ownerID, "fakeip", `{"a":1}`, "desc")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +273,7 @@ func TestSeedUserTemplate(t *testing.T) {
 		t.Fatal("first seed did not insert")
 	}
 	// Re-seeding never overwrites a normal template.
-	inserted, err = s.SeedUserTemplate("fakeip", `{"a":2}`, "desc2")
+	inserted, err = s.SeedUserTemplate(ownerID, "fakeip", `{"a":2}`, "desc2")
 	if err != nil {
 		t.Fatal(err)
 	}

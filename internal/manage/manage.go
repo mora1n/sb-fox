@@ -46,6 +46,8 @@ type Options struct {
 	Root              string
 	Version           string
 	Purge             bool
+	RegMode           string
+	RegExplicit       bool
 	Stdin             io.Reader
 	Stdout            io.Writer
 	HTTPClient        *http.Client
@@ -65,6 +67,9 @@ func (o Options) withDefaults() Options {
 	}
 	if o.KernelPath == "" {
 		o.KernelPath = "sing-box"
+	}
+	if o.RegMode == "" {
+		o.RegMode = "off"
 	}
 	if o.Stdin == nil {
 		o.Stdin = os.Stdin
@@ -113,12 +118,8 @@ func InstallDaemon(opts Options) error {
 		return err
 	}
 	envPath := opts.rooted("/etc/sb-fox/sb-fox.env")
-	if _, err := os.Stat(envPath); os.IsNotExist(err) {
-		if err := os.WriteFile(envPath, []byte(envContent(opts)), 0o644); err != nil {
-			return fmt.Errorf("write env file: %w", err)
-		}
-	} else if err != nil {
-		return fmt.Errorf("stat env file: %w", err)
+	if err := writeEnvFile(opts, envPath); err != nil {
+		return err
 	}
 	servicePath := opts.rooted("/etc/systemd/system/sb-fox.service")
 	if err := os.MkdirAll(filepath.Dir(servicePath), 0o755); err != nil {
@@ -287,7 +288,48 @@ func HealthCheck(opts Options, addr string) error {
 }
 
 func envContent(opts Options) string {
-	return fmt.Sprintf("SB_FOX_ADDR=%s\nSB_FOX_DATA_DIR=%s\nSB_FOX_KERNEL=%s\n", opts.Addr, opts.DataDir, opts.KernelPath)
+	reg := opts.RegMode
+	if reg == "" {
+		reg = "off"
+	}
+	return fmt.Sprintf("SB_FOX_ADDR=%s\nSB_FOX_DATA_DIR=%s\nSB_FOX_KERNEL=%s\nSB_FOX_REG=%s\n",
+		opts.Addr, opts.DataDir, opts.KernelPath, reg)
+}
+
+func writeEnvFile(opts Options, envPath string) error {
+	values := map[string]string{}
+	if data, err := os.ReadFile(envPath); err == nil {
+		values = parseEnv(data)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("read env file: %w", err)
+	}
+	values["SB_FOX_ADDR"] = opts.Addr
+	values["SB_FOX_DATA_DIR"] = opts.DataDir
+	values["SB_FOX_KERNEL"] = opts.KernelPath
+	if opts.RegExplicit || values["SB_FOX_REG"] == "" {
+		values["SB_FOX_REG"] = opts.RegMode
+	}
+	content := fmt.Sprintf("SB_FOX_ADDR=%s\nSB_FOX_DATA_DIR=%s\nSB_FOX_KERNEL=%s\nSB_FOX_REG=%s\n",
+		values["SB_FOX_ADDR"], values["SB_FOX_DATA_DIR"], values["SB_FOX_KERNEL"], values["SB_FOX_REG"])
+	if err := os.WriteFile(envPath, []byte(content), 0o644); err != nil {
+		return fmt.Errorf("write env file: %w", err)
+	}
+	return nil
+}
+
+func parseEnv(data []byte) map[string]string {
+	values := map[string]string{}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if ok {
+			values[strings.TrimSpace(key)] = strings.TrimSpace(value)
+		}
+	}
+	return values
 }
 
 func serviceContent(binaryPath string) string {

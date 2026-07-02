@@ -45,6 +45,8 @@ func TestInstallDaemonWritesServiceAndEnv(t *testing.T) {
 		Addr:              server.URL,
 		DataDir:           DefaultDataDir,
 		KernelPath:        "sing-box",
+		RegMode:           "on",
+		RegExplicit:       true,
 		TemplateSourceDir: source,
 		HTTPClient:        server.Client(),
 		Runner: func(name string, args ...string) ([]byte, error) {
@@ -71,8 +73,12 @@ func TestInstallDaemonWritesServiceAndEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(env), "SB_FOX_DATA_DIR=/var/lib/sb-fox") {
+	envText := string(env)
+	if !strings.Contains(envText, "SB_FOX_DATA_DIR=/var/lib/sb-fox") {
 		t.Fatalf("env missing data dir:\n%s", env)
+	}
+	if !strings.Contains(envText, "SB_FOX_REG=on") {
+		t.Fatalf("env missing registration switch:\n%s", env)
 	}
 	if _, err := os.Stat(filepath.Join(root, "var/lib/sb-fox/templates/fakeip.json")); err != nil {
 		t.Fatalf("seed template not copied: %v", err)

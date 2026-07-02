@@ -7,6 +7,7 @@ import "time"
 // JSON; the other columns are extracted metadata for filtering/grouping.
 type Node struct {
 	ID            int64     `json:"id"`
+	OwnerUserID   int64     `json:"owner_user_id"`
 	Tag           string    `json:"tag"`
 	Type          string    `json:"type"`
 	Server        string    `json:"server"`
@@ -26,6 +27,7 @@ type Node struct {
 // edits are both stored as ordinary user templates.
 type Template struct {
 	ID          int64     `json:"id"`
+	OwnerUserID int64     `json:"owner_user_id"`
 	Name        string    `json:"name"`
 	Kind        string    `json:"kind"`
 	Content     string    `json:"content"`
@@ -37,6 +39,7 @@ type Template struct {
 // SubscriptionSource is a remote URL from which nodes are (re)fetched.
 type SubscriptionSource struct {
 	ID          int64      `json:"id"`
+	OwnerUserID int64      `json:"owner_user_id"`
 	Name        string     `json:"name"`
 	URL         string     `json:"url"`
 	LastFetchAt *time.Time `json:"last_fetch_at,omitempty"`
@@ -48,14 +51,15 @@ type SubscriptionSource struct {
 // Profile ties a template + selected nodes + generation options into a
 // tokenized subscription that renders a full config.json.
 type Profile struct {
-	ID         int64     `json:"id"`
-	Name       string    `json:"name"`
-	TemplateID int64     `json:"template_id"`
-	Options    string    `json:"options"` // JSON: {autoCountryGroups, chainProxy, ...}
-	Token      string    `json:"token"`
-	NodeIDs    []int64   `json:"node_ids"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID          int64     `json:"id"`
+	OwnerUserID int64     `json:"owner_user_id"`
+	Name        string    `json:"name"`
+	TemplateID  int64     `json:"template_id"`
+	Options     string    `json:"options"` // JSON: {autoCountryGroups, chainProxy, ...}
+	Token       string    `json:"token"`
+	NodeIDs     []int64   `json:"node_ids"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // ProfileOptions is the parsed Profile.Options blob.
@@ -64,11 +68,33 @@ type ProfileOptions struct {
 	ChainProxy        bool `json:"chainProxy"`
 }
 
-// Admin is the single administrative account (row id = 1).
+// Admin is a compatibility view over the first administrative user.
 type Admin struct {
 	ID           int64     `json:"id"`
 	Username     string    `json:"username"`
 	PasswordHash string    `json:"-"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+const (
+	RoleAdmin = "admin"
+	RoleUser  = "user"
+)
+
+// User is an authenticated panel account. A zero limit means unlimited.
+type User struct {
+	ID            int64     `json:"id"`
+	Username      string    `json:"username"`
+	Role          string    `json:"role"`
+	NodeLimit     int       `json:"node_limit"`
+	ProfileLimit  int       `json:"profile_limit"`
+	TemplateLimit int       `json:"template_limit"`
+	PasswordHash  string    `json:"-"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+func (u *User) IsAdmin() bool {
+	return u != nil && u.Role == RoleAdmin
 }

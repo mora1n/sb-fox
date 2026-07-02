@@ -11,6 +11,10 @@ import (
 
 // handleImportLinks parses share-links into nodes (requirement d.1).
 func (s *Server) handleImportLinks(w http.ResponseWriter, r *http.Request) {
+	u, ok := requireCurrentUser(w, r)
+	if !ok {
+		return
+	}
 	var req struct {
 		Links string `json:"links"`
 	}
@@ -22,7 +26,7 @@ func (s *Server) handleImportLinks(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "parse_error", err.Error())
 		return
 	}
-	created := s.persistOutbounds(w, outbounds, "protocol", nil)
+	created := s.persistOutbounds(w, u, outbounds, "protocol", nil)
 	if created == nil {
 		return
 	}
@@ -33,6 +37,10 @@ func (s *Server) handleImportLinks(w http.ResponseWriter, r *http.Request) {
 // template's content (requirement d.2). Group outbounds (selector/urltest/
 // direct/block/dns) are skipped — only real proxy nodes are imported.
 func (s *Server) handleImportConfig(w http.ResponseWriter, r *http.Request) {
+	u, ok := requireCurrentUser(w, r)
+	if !ok {
+		return
+	}
 	var req struct {
 		Config string `json:"config"`
 	}
@@ -58,7 +66,7 @@ func (s *Server) handleImportConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		proxies = append(proxies, om)
 	}
-	created := s.persistOutbounds(w, proxies, "config", nil)
+	created := s.persistOutbounds(w, u, proxies, "config", nil)
 	if created == nil {
 		return
 	}
@@ -68,6 +76,10 @@ func (s *Server) handleImportConfig(w http.ResponseWriter, r *http.Request) {
 // handleImportSubscription creates a source, fetches it and imports nodes
 // (requirements b, d). Nodes may be share-links or a base64 blob of links.
 func (s *Server) handleImportSubscription(w http.ResponseWriter, r *http.Request) {
+	u, ok := requireCurrentUser(w, r)
+	if !ok {
+		return
+	}
 	var req struct {
 		Name string `json:"name"`
 		URL  string `json:"url"`
@@ -79,13 +91,18 @@ func (s *Server) handleImportSubscription(w http.ResponseWriter, r *http.Request
 		respondError(w, http.StatusBadRequest, "bad_request", "url is required")
 		return
 	}
-	sourceID, err := s.Store.CreateSource(req.Name, req.URL)
+	sourceID, err := s.Store.CreateSource(u.ID, req.Name, req.URL)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	nodes, ferr := s.fetchSourceNodes(sourceID, req.URL)
+	nodes, ferr := s.fetchSourceNodes(u, sourceID, req.URL)
 	if ferr != nil {
+		if ferr == errQuotaExceeded {
+			_ = s.Store.DeleteSource(sourceID)
+			respondError(w, http.StatusForbidden, "quota_exceeded", "nodes limit exceeded")
+			return
+		}
 		respondError(w, http.StatusBadGateway, "fetch_error", ferr.Error())
 		return
 	}
@@ -94,18 +111,23 @@ func (s *Server) handleImportSubscription(w http.ResponseWriter, r *http.Request
 
 // handleRefreshSource re-fetches a subscription source, replacing its nodes.
 func (s *Server) handleRefreshSource(w http.ResponseWriter, r *http.Request) {
+	u, ok := requireCurrentUser(w, r)
+	if !ok {
+		return
+	}
 	id := pathID(r)
-	src, err := s.Store.GetSource(id)
+	ownerID, allOwners := ownerScope(r)
+	src, err := s.Store.GetSourceForUser(id, ownerID, allOwners)
 	if err != nil {
 		respondError(w, http.StatusNotFound, "not_found", "source not found")
 		return
 	}
-	if err := s.Store.DeleteNodesBySource(id); err != nil {
-		respondError(w, http.StatusInternalServerError, "internal", err.Error())
-		return
-	}
-	nodes, ferr := s.fetchSourceNodes(id, src.URL)
+	nodes, ferr := s.refreshSourceNodes(u, src)
 	if ferr != nil {
+		if ferr == errQuotaExceeded {
+			respondError(w, http.StatusForbidden, "quota_exceeded", "nodes limit exceeded")
+			return
+		}
 		respondError(w, http.StatusBadGateway, "fetch_error", ferr.Error())
 		return
 	}
@@ -114,7 +136,42 @@ func (s *Server) handleRefreshSource(w http.ResponseWriter, r *http.Request) {
 
 // fetchSourceNodes fetches a subscription URL, parses links, persists nodes and
 // records the fetch outcome on the source.
-func (s *Server) fetchSourceNodes(sourceID int64, url string) ([]*models.Node, error) {
+func (s *Server) fetchSourceNodes(user *models.User, sourceID int64, url string) ([]*models.Node, error) {
+	outbounds, err := s.fetchSourceOutbounds(sourceID, url)
+	if err != nil {
+		return nil, err
+	}
+	nodes := nodesFromOutbounds(user.ID, outbounds, "subscription", &sourceID)
+	if ok, _, err := s.quotaAllowed(user, quotaNodes, len(nodes)); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, errQuotaExceeded
+	}
+	return s.insertNodes(nodes)
+}
+
+func (s *Server) refreshSourceNodes(user *models.User, src *models.SubscriptionSource) ([]*models.Node, error) {
+	outbounds, err := s.fetchSourceOutbounds(src.ID, src.URL)
+	if err != nil {
+		return nil, err
+	}
+	nodes := nodesFromOutbounds(src.OwnerUserID, outbounds, "subscription", &src.ID)
+	oldCount, err := s.Store.CountNodesBySource(src.ID)
+	if err != nil {
+		return nil, err
+	}
+	if ok, _, err := s.quotaAllowed(user, quotaNodes, len(nodes)-oldCount); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, errQuotaExceeded
+	}
+	if err := s.Store.DeleteNodesBySource(src.ID); err != nil {
+		return nil, err
+	}
+	return s.insertNodes(nodes)
+}
+
+func (s *Server) fetchSourceOutbounds(sourceID int64, url string) ([]*merge.OrderedMap, error) {
 	ctx, cancel := contextWithTimeout(25 * time.Second)
 	defer cancel()
 
@@ -128,12 +185,16 @@ func (s *Server) fetchSourceNodes(sourceID int64, url string) ([]*models.Node, e
 		_ = s.Store.UpdateSourceFetch(sourceID, "error: "+err.Error(), 0)
 		return nil, err
 	}
+	return outbounds, nil
+}
+
+func (s *Server) insertNodes(nodes []*models.Node) ([]*models.Node, error) {
 	var created []*models.Node
-	for _, ob := range outbounds {
-		n, err := nodeFromOutbound(ob, "subscription", &sourceID)
-		if err != nil {
-			continue
-		}
+	sourceID := int64(0)
+	if len(nodes) > 0 && nodes[0].SourceRef != nil {
+		sourceID = *nodes[0].SourceRef
+	}
+	for _, n := range nodes {
 		id, err := s.Store.CreateNode(n)
 		if err != nil {
 			continue
@@ -141,7 +202,9 @@ func (s *Server) fetchSourceNodes(sourceID int64, url string) ([]*models.Node, e
 		n.ID = id
 		created = append(created, n)
 	}
-	_ = s.Store.UpdateSourceFetch(sourceID, "ok", len(created))
+	if sourceID != 0 {
+		_ = s.Store.UpdateSourceFetch(sourceID, "ok", len(created))
+	}
 	return created, nil
 }
 
@@ -156,7 +219,8 @@ func (s *Server) handleRefreshCountry(w http.ResponseWriter, r *http.Request) {
 	}
 	updated := 0
 	for _, id := range req.NodeIDs {
-		n, err := s.Store.GetNode(id)
+		ownerID, allOwners := ownerScope(r)
+		n, err := s.Store.GetNodeForUser(id, ownerID, allOwners)
 		if err != nil {
 			continue
 		}
@@ -181,25 +245,38 @@ func (s *Server) handleRefreshCountry(w http.ResponseWriter, r *http.Request) {
 
 // persistOutbounds saves a batch of parsed outbounds as nodes and returns them.
 // On zero results (all failed) it writes a 400 and returns nil.
-func (s *Server) persistOutbounds(w http.ResponseWriter, outbounds []*merge.OrderedMap, source string, sourceRef *int64) []*models.Node {
-	var created []*models.Node
-	for _, ob := range outbounds {
-		n, err := nodeFromOutbound(ob, source, sourceRef)
-		if err != nil {
-			continue
-		}
-		id, err := s.Store.CreateNode(n)
-		if err != nil {
-			continue
-		}
-		n.ID = id
-		created = append(created, n)
+func (s *Server) persistOutbounds(w http.ResponseWriter, user *models.User, outbounds []*merge.OrderedMap, source string, sourceRef *int64) []*models.Node {
+	nodes := nodesFromOutbounds(user.ID, outbounds, source, sourceRef)
+	if len(nodes) == 0 {
+		respondError(w, http.StatusBadRequest, "no_nodes", "no valid nodes were imported")
+		return nil
+	}
+	if !s.checkQuota(w, user, quotaNodes, len(nodes)) {
+		return nil
+	}
+	created, err := s.insertNodes(nodes)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "internal", err.Error())
+		return nil
 	}
 	if len(created) == 0 {
 		respondError(w, http.StatusBadRequest, "no_nodes", "no valid nodes were imported")
 		return nil
 	}
 	return created
+}
+
+func nodesFromOutbounds(ownerUserID int64, outbounds []*merge.OrderedMap, source string, sourceRef *int64) []*models.Node {
+	var nodes []*models.Node
+	for _, ob := range outbounds {
+		n, err := nodeFromOutbound(ob, source, sourceRef)
+		if err != nil {
+			continue
+		}
+		n.OwnerUserID = ownerUserID
+		nodes = append(nodes, n)
+	}
+	return nodes
 }
 
 // isProxyOutbound reports whether a type is a real proxy node (vs a group or

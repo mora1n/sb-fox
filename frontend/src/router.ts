@@ -19,6 +19,7 @@ const router = createRouter({
         { path: 'templates', name: 'templates', component: () => import('./views/TemplatesView.vue') },
         { path: 'profiles', name: 'profiles', component: () => import('./views/ProfilesView.vue') },
         { path: 'preview', name: 'preview', component: () => import('./views/ConfigPreviewView.vue') },
+        { path: 'users', name: 'users', component: () => import('./views/UsersView.vue'), meta: { admin: true } },
         { path: 'settings', name: 'settings', component: () => import('./views/SettingsView.vue') },
       ],
     },
@@ -35,6 +36,9 @@ router.beforeEach(async (to) => {
   }
   if (!auth.isAuthenticated) {
     return { name: 'login' }
+  }
+  if (to.meta.admin && !auth.isAdmin) {
+    return { name: 'dashboard' }
   }
   return true
 })

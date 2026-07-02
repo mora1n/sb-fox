@@ -21,10 +21,11 @@ func (s *Server) Router() http.Handler {
 		// public bootstrap/auth endpoints
 		api.Get("/app", s.handleAppInfo)
 		api.Post("/auth/login", s.handleLogin)
+		api.Post("/auth/register", s.handleRegister)
 
 		// authenticated endpoints
 		api.Group(func(pr chi.Router) {
-			pr.Use(s.Auth.RequireAuth)
+			pr.Use(s.requireAuth)
 			s.mountAuthed(pr)
 		})
 	})
@@ -50,6 +51,12 @@ func (s *Server) mountAuthed(r chi.Router) {
 	r.Post("/auth/logout", s.handleLogout)
 	r.Get("/auth/me", s.handleMe)
 	r.Post("/auth/password", s.handleChangePassword)
+
+	r.Get("/users", s.handleListUsers)
+	r.Post("/users", s.handleCreateUser)
+	r.Put("/users/{id}", s.handleUpdateUser)
+	r.Delete("/users/{id}", s.handleDeleteUser)
+	r.Post("/users/{id}/reset-password", s.handleResetUserPassword)
 
 	r.Get("/settings", s.handleGetSettings)
 	r.Put("/settings", s.handleUpdateSettings)

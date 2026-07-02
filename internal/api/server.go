@@ -16,8 +16,12 @@ type Server struct {
 	Auth    *auth.Authenticator
 	Kernel  *kernel.Kernel
 	Fetcher *subfetch.Fetcher
+	// TemplateDir holds file-backed seed templates copied into each user.
+	TemplateDir string
 	// Secure marks whether session cookies should set the Secure flag (https).
 	Secure bool
+	// RegistrationEnabled exposes the public registration endpoint.
+	RegistrationEnabled bool
 	// DevMode skips serving the embedded frontend (API-only).
 	DevMode bool
 }

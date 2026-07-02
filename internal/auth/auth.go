@@ -1,6 +1,6 @@
-// Package auth provides single-admin authentication: bcrypt password
-// verification plus stateless HMAC-signed session cookies. No external JWT
-// dependency — sessions are signed with crypto/hmac over the standard library.
+// Package auth provides bcrypt password verification plus stateless HMAC-signed
+// session cookies. No external JWT dependency — sessions are signed with
+// crypto/hmac over the standard library.
 package auth
 
 import (

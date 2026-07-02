@@ -7,7 +7,7 @@ import (
 
 // envelope is the uniform API response shape: {data, error}.
 type envelope struct {
-	Data  any    `json:"data"`
+	Data  any       `json:"data"`
 	Error *apiError `json:"error"`
 }
 

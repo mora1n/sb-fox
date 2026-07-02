@@ -1,23 +1,21 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { get, post } from '../api/client'
-
-interface MeResponse {
-  username: string
-}
+import type { User } from '../api/types'
 
 export const useAuthStore = defineStore('auth', () => {
-  const username = ref<string | null>(null)
+  const user = ref<User | null>(null)
   const checked = ref(false) // whether we've called /auth/me at least once
 
-  const isAuthenticated = computed(() => username.value !== null)
+  const username = computed(() => user.value?.username ?? null)
+  const isAuthenticated = computed(() => user.value !== null)
+  const isAdmin = computed(() => user.value?.role === 'admin')
 
   async function me(): Promise<boolean> {
     try {
-      const data = await get<MeResponse>('/auth/me', true)
-      username.value = data.username
+      user.value = await get<User>('/auth/me', true)
     } catch {
-      username.value = null
+      user.value = null
     } finally {
       checked.value = true
     }
@@ -25,8 +23,12 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function login(u: string, p: string): Promise<void> {
-    const data = await post<MeResponse>('/auth/login', { username: u, password: p })
-    username.value = data.username
+    user.value = await post<User>('/auth/login', { username: u, password: p })
+    checked.value = true
+  }
+
+  async function register(u: string, p: string): Promise<void> {
+    user.value = await post<User>('/auth/register', { username: u, password: p })
     checked.value = true
   }
 
@@ -34,7 +36,7 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       await post('/auth/logout')
     } finally {
-      username.value = null
+      user.value = null
     }
   }
 
@@ -42,5 +44,5 @@ export const useAuthStore = defineStore('auth', () => {
     await post('/auth/password', { old_password: oldPassword, new_password: newPassword })
   }
 
-  return { username, checked, isAuthenticated, me, login, logout, changePassword }
+  return { user, username, checked, isAuthenticated, isAdmin, me, login, register, logout, changePassword }
 })

@@ -15,6 +15,7 @@ export type NodeSource = 'protocol' | 'subscription' | 'config' | 'manual'
 
 export interface Node {
   id: number
+  owner_user_id: number
   tag: string
   type: string
   server: string
@@ -34,6 +35,7 @@ export type TemplateKind = 'builtin' | 'user'
 
 export interface Template {
   id: number
+  owner_user_id: number
   name: string
   kind: TemplateKind
   content: string
@@ -44,6 +46,7 @@ export interface Template {
 
 export interface SubscriptionSource {
   id: number
+  owner_user_id: number
   name: string
   url: string
   last_fetch_at?: string
@@ -60,6 +63,7 @@ export interface ProfileOptions {
 // Profile.Options is a JSON string on the wire (see models.Profile.Options).
 export interface Profile {
   id: number
+  owner_user_id: number
   name: string
   template_id: number
   options: string
@@ -111,6 +115,20 @@ export type Settings = Record<string, string>
 export interface AppInfo {
   display_name: string
   country_heat_order: string[]
+  registration_enabled: boolean
+}
+
+export type UserRole = 'admin' | 'user'
+
+export interface User {
+  id: number
+  username: string
+  role: UserRole
+  node_limit: number
+  profile_limit: number
+  template_limit: number
+  created_at: string
+  updated_at: string
 }
 
 export interface PreviewPayload {

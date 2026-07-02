@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { RouterView, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useUiStore } from '../stores/ui'
@@ -8,6 +9,7 @@ import {
   ServerStackIcon,
   DocumentTextIcon,
   UserGroupIcon,
+  UsersIcon,
   EyeIcon,
   Cog6ToothIcon,
   ArrowRightOnRectangleIcon,
@@ -20,14 +22,15 @@ const ui = useUiStore()
 const settings = useSettingsStore()
 const router = useRouter()
 
-const nav = [
+const nav = computed(() => [
   { name: 'dashboard', label: '仪表盘', icon: HomeIcon },
   { name: 'nodes', label: '节点', icon: ServerStackIcon },
   { name: 'templates', label: '模板', icon: DocumentTextIcon },
   { name: 'profiles', label: '订阅分组', icon: UserGroupIcon },
   { name: 'preview', label: '预览生成', icon: EyeIcon },
+  ...(auth.isAdmin ? [{ name: 'users', label: '用户', icon: UsersIcon }] : []),
   { name: 'settings', label: '设置', icon: Cog6ToothIcon },
-]
+])
 
 async function logout() {
   await auth.logout()

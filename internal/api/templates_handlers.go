@@ -13,7 +13,8 @@ import (
 
 // handleListTemplates returns all templates.
 func (s *Server) handleListTemplates(w http.ResponseWriter, r *http.Request) {
-	list, err := s.Store.ListTemplates()
+	ownerID, allOwners := ownerScope(r)
+	list, err := s.Store.ListTemplates(ownerID, allOwners)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
@@ -24,7 +25,8 @@ func (s *Server) handleListTemplates(w http.ResponseWriter, r *http.Request) {
 // handleGetTemplate returns one template's full content.
 func (s *Server) handleGetTemplate(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
-	t, err := s.Store.GetTemplate(id)
+	ownerID, allOwners := ownerScope(r)
+	t, err := s.Store.GetTemplateForUser(id, ownerID, allOwners)
 	if err == store.ErrNotFound {
 		respondError(w, http.StatusNotFound, "not_found", "template not found")
 		return
@@ -44,6 +46,10 @@ type templateRequest struct {
 
 // handleCreateTemplate saves a user template (imported or from panel edits).
 func (s *Server) handleCreateTemplate(w http.ResponseWriter, r *http.Request) {
+	u, ok := requireCurrentUser(w, r)
+	if !ok {
+		return
+	}
 	var req templateRequest
 	if !decodeJSON(w, r, &req) {
 		return
@@ -56,7 +62,10 @@ func (s *Server) handleCreateTemplate(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "bad_request", "content is not valid JSON")
 		return
 	}
-	t := &models.Template{Name: req.Name, Kind: "user", Content: req.Content, Description: req.Description}
+	if !s.checkQuota(w, u, quotaTemplates, 1) {
+		return
+	}
+	t := &models.Template{OwnerUserID: u.ID, Name: req.Name, Kind: "user", Content: req.Content, Description: req.Description}
 	id, err := s.Store.CreateTemplate(t)
 	if err != nil {
 		respondError(w, http.StatusConflict, "conflict", err.Error())
@@ -69,7 +78,8 @@ func (s *Server) handleCreateTemplate(w http.ResponseWriter, r *http.Request) {
 // handleUpdateTemplate updates a user template (builtins are read-only).
 func (s *Server) handleUpdateTemplate(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
-	t, err := s.Store.GetTemplate(id)
+	ownerID, allOwners := ownerScope(r)
+	t, err := s.Store.GetTemplateForUser(id, ownerID, allOwners)
 	if err == store.ErrNotFound {
 		respondError(w, http.StatusNotFound, "not_found", "template not found")
 		return
@@ -100,7 +110,8 @@ func (s *Server) handleUpdateTemplate(w http.ResponseWriter, r *http.Request) {
 // handleDeleteTemplate removes a user template.
 func (s *Server) handleDeleteTemplate(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
-	t, err := s.Store.GetTemplate(id)
+	ownerID, allOwners := ownerScope(r)
+	t, err := s.Store.GetTemplateForUser(id, ownerID, allOwners)
 	if err == store.ErrNotFound {
 		respondError(w, http.StatusNotFound, "not_found", "template not found")
 		return
@@ -131,7 +142,8 @@ type groupInfo struct {
 // selector/urltest groups (requirement c).
 func (s *Server) handleInspectTemplate(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
-	t, err := s.Store.GetTemplate(id)
+	ownerID, allOwners := ownerScope(r)
+	t, err := s.Store.GetTemplateForUser(id, ownerID, allOwners)
 	if err == store.ErrNotFound {
 		respondError(w, http.StatusNotFound, "not_found", "template not found")
 		return
@@ -186,6 +198,11 @@ func inspectGroups(content string) ([]groupInfo, error) {
 
 func pathID(r *http.Request) int64 {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	return id
+}
+
+func pathInt64(raw string) int64 {
+	id, _ := strconv.ParseInt(raw, 10, 64)
 	return id
 }
 

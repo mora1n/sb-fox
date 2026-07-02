@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/mora1n/sb-fox/internal/models"
+	"github.com/mora1n/sb-fox/internal/store"
 )
 
 // previewRequest generates a config from a template + node ids without saving.
@@ -16,20 +17,24 @@ type previewRequest struct {
 
 // handlePreview renders a config.json in-memory (requirements a, c, f).
 func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
+	u, ok := requireCurrentUser(w, r)
+	if !ok {
+		return
+	}
 	var req previewRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}
 	content := req.TemplateContent
 	if content == "" {
-		t, err := s.Store.GetTemplate(req.TemplateID)
+		t, err := s.Store.GetTemplateForUser(req.TemplateID, u.ID, u.IsAdmin())
 		if err != nil {
 			respondError(w, http.StatusBadRequest, "bad_request", "template not found")
 			return
 		}
 		content = t.Content
 	}
-	nodes, err := s.Store.GetNodes(req.NodeIDs)
+	nodes, err := s.getNodesForUser(req.NodeIDs, u.ID, u.IsAdmin())
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
@@ -81,7 +86,8 @@ func (s *Server) resolveConfig(w http.ResponseWriter, r *http.Request) ([]byte, 
 		return []byte(req.Config), true
 	}
 	if req.ProfileID != 0 {
-		config, err := s.renderProfile(req.ProfileID)
+		ownerID, allOwners := ownerScope(r)
+		config, err := s.renderProfileForUser(req.ProfileID, ownerID, allOwners)
 		if err != nil {
 			respondError(w, http.StatusUnprocessableEntity, "generate_error", err.Error())
 			return nil, false
@@ -103,6 +109,26 @@ func (s *Server) renderProfile(profileID int64) ([]byte, error) {
 		return nil, err
 	}
 	nodes, err := s.Store.GetNodes(p.NodeIDs)
+	if err != nil {
+		return nil, err
+	}
+	order, err := s.countryHeatOrder()
+	if err != nil {
+		return nil, err
+	}
+	return generateConfig(t.Content, nodes, parseProfileOptions(p.Options), order)
+}
+
+func (s *Server) renderProfileForUser(profileID, ownerUserID int64, allOwners bool) ([]byte, error) {
+	p, err := s.Store.GetProfileForUser(profileID, ownerUserID, allOwners)
+	if err != nil {
+		return nil, err
+	}
+	t, err := s.Store.GetTemplateForUser(p.TemplateID, p.OwnerUserID, allOwners)
+	if err != nil {
+		return nil, err
+	}
+	nodes, err := s.getNodesForUser(p.NodeIDs, p.OwnerUserID, allOwners)
 	if err != nil {
 		return nil, err
 	}
@@ -146,4 +172,19 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request, toke
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="config.json"`)
 	_, _ = w.Write(config)
+}
+
+func (s *Server) getNodesForUser(ids []int64, ownerUserID int64, allOwners bool) ([]*models.Node, error) {
+	out := make([]*models.Node, 0, len(ids))
+	for _, id := range ids {
+		n, err := s.Store.GetNodeForUser(id, ownerUserID, allOwners)
+		if err == store.ErrNotFound {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, n)
+	}
+	return out, nil
 }

@@ -5,6 +5,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -57,21 +58,44 @@ func (s *Store) migrate() error {
 		if applied[version] {
 			continue
 		}
+		disableFK := strings.Contains(migrations[i], "-- sb-fox:disable-foreign-keys")
+		if disableFK {
+			if _, err := s.db.Exec(`PRAGMA foreign_keys = OFF`); err != nil {
+				return fmt.Errorf("store: disable foreign keys for migration %d: %w", version, err)
+			}
+		}
 		tx, err := s.db.Begin()
 		if err != nil {
+			if disableFK {
+				_, _ = s.db.Exec(`PRAGMA foreign_keys = ON`)
+			}
 			return err
 		}
 		if _, err := tx.Exec(migrations[i]); err != nil {
 			_ = tx.Rollback()
+			if disableFK {
+				_, _ = s.db.Exec(`PRAGMA foreign_keys = ON`)
+			}
 			return fmt.Errorf("store: migration %d: %w", version, err)
 		}
 		if _, err := tx.Exec(`INSERT INTO schema_migrations(version, applied_at) VALUES(?, ?)`,
 			version, now()); err != nil {
 			_ = tx.Rollback()
+			if disableFK {
+				_, _ = s.db.Exec(`PRAGMA foreign_keys = ON`)
+			}
 			return fmt.Errorf("store: record migration %d: %w", version, err)
 		}
 		if err := tx.Commit(); err != nil {
+			if disableFK {
+				_, _ = s.db.Exec(`PRAGMA foreign_keys = ON`)
+			}
 			return err
+		}
+		if disableFK {
+			if _, err := s.db.Exec(`PRAGMA foreign_keys = ON`); err != nil {
+				return fmt.Errorf("store: re-enable foreign keys after migration %d: %w", version, err)
+			}
 		}
 	}
 	return nil

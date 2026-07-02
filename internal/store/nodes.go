@@ -8,7 +8,7 @@ import (
 	"github.com/mora1n/sb-fox/internal/models"
 )
 
-const nodeCols = `id, tag, type, server, server_port, country_code, country_source,
+const nodeCols = `id, owner_user_id, tag, type, server, server_port, country_code, country_source,
 	source, source_ref, has_detour, detour, raw, created_at, updated_at`
 
 func scanNode(sc interface{ Scan(...any) error }) (*models.Node, error) {
@@ -16,7 +16,7 @@ func scanNode(sc interface{ Scan(...any) error }) (*models.Node, error) {
 	var created, updated string
 	var sourceRef sql.NullInt64
 	var hasDetour int
-	if err := sc.Scan(&n.ID, &n.Tag, &n.Type, &n.Server, &n.ServerPort, &n.CountryCode,
+	if err := sc.Scan(&n.ID, &n.OwnerUserID, &n.Tag, &n.Type, &n.Server, &n.ServerPort, &n.CountryCode,
 		&n.CountrySource, &n.Source, &sourceRef, &hasDetour, &n.Detour, &n.Raw,
 		&created, &updated); err != nil {
 		return nil, err
@@ -36,12 +36,21 @@ type NodeFilter struct {
 	CountryCode string
 	Type        string
 	Search      string // substring match on tag
+	OwnerUserID int64
+	AllOwners   bool
 }
 
 // ListNodes returns nodes matching filter, ordered by id.
 func (s *Store) ListNodes(f NodeFilter) ([]*models.Node, error) {
 	var where []string
 	var args []any
+	if !f.AllOwners {
+		where = append(where, "owner_user_id = ?")
+		args = append(args, f.OwnerUserID)
+	} else if f.OwnerUserID != 0 {
+		where = append(where, "owner_user_id = ?")
+		args = append(args, f.OwnerUserID)
+	}
 	if f.Source != "" {
 		where = append(where, "source = ?")
 		args = append(args, f.Source)
@@ -90,6 +99,21 @@ func (s *Store) GetNode(id int64) (*models.Node, error) {
 	return n, err
 }
 
+func (s *Store) GetNodeForUser(id, ownerUserID int64, allOwners bool) (*models.Node, error) {
+	q := `SELECT ` + nodeCols + ` FROM nodes WHERE id = ?`
+	args := []any{id}
+	if !allOwners {
+		q += ` AND owner_user_id = ?`
+		args = append(args, ownerUserID)
+	}
+	row := s.db.QueryRow(q, args...)
+	n, err := scanNode(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return n, err
+}
+
 // GetNodes returns nodes for the given ids, preserving the id order requested.
 func (s *Store) GetNodes(ids []int64) ([]*models.Node, error) {
 	out := make([]*models.Node, 0, len(ids))
@@ -110,8 +134,8 @@ func (s *Store) GetNodes(ids []int64) ([]*models.Node, error) {
 func (s *Store) CreateNode(n *models.Node) (int64, error) {
 	ts := now()
 	res, err := s.db.Exec(`INSERT INTO nodes (`+nodeCols+`)
-		VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		n.Tag, n.Type, n.Server, n.ServerPort, n.CountryCode, n.CountrySource,
+		VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		n.OwnerUserID, n.Tag, n.Type, n.Server, n.ServerPort, n.CountryCode, n.CountrySource,
 		n.Source, nullableInt64(n.SourceRef), boolToInt(n.HasDetour), n.Detour, n.Raw, ts, ts)
 	if err != nil {
 		return 0, err
@@ -139,6 +163,18 @@ func (s *Store) DeleteNode(id int64) error {
 func (s *Store) DeleteNodesBySource(sourceRef int64) error {
 	_, err := s.db.Exec(`DELETE FROM nodes WHERE source = 'subscription' AND source_ref = ?`, sourceRef)
 	return err
+}
+
+func (s *Store) CountNodes(ownerUserID int64) (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM nodes WHERE owner_user_id = ?`, ownerUserID).Scan(&n)
+	return n, err
+}
+
+func (s *Store) CountNodesBySource(sourceRef int64) (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM nodes WHERE source = 'subscription' AND source_ref = ?`, sourceRef).Scan(&n)
+	return n, err
 }
 
 func nullableInt64(p *int64) any {

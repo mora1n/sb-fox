@@ -8,6 +8,14 @@ func clearEnv(t *testing.T) {
 	t.Setenv("SB_FOX_DATA_DIR", "")
 	t.Setenv("SB_FOX_KERNEL", "")
 	t.Setenv("SB_FOX_DAEMON", "")
+	t.Setenv("SB_FOX_REG", "")
+}
+
+func setEUID(t *testing.T, id int) {
+	t.Helper()
+	old := currentEUID
+	currentEUID = func() int { return id }
+	t.Cleanup(func() { currentEUID = old })
 }
 
 func TestParseServeDefaults(t *testing.T) {
@@ -120,5 +128,82 @@ func TestParseManagementConflicts(t *testing.T) {
 	}
 	if _, err := Parse([]string{"--purge"}); err == nil {
 		t.Fatal("expected purge without uninstall error")
+	}
+}
+
+func TestParseRegistrationSwitch(t *testing.T) {
+	clearEnv(t)
+
+	cfg, err := Parse([]string{"--reg", "on"})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if !cfg.RegistrationEnabled || cfg.RegMode != "on" || !cfg.RegExplicit {
+		t.Fatalf("registration config = mode:%q enabled:%v explicit:%v", cfg.RegMode, cfg.RegistrationEnabled, cfg.RegExplicit)
+	}
+
+	cfg, err = Parse([]string{"-r", "off"})
+	if err != nil {
+		t.Fatalf("Parse short: %v", err)
+	}
+	if cfg.RegistrationEnabled || cfg.RegMode != "off" || !cfg.RegExplicit {
+		t.Fatalf("registration config = mode:%q enabled:%v explicit:%v", cfg.RegMode, cfg.RegistrationEnabled, cfg.RegExplicit)
+	}
+
+	if _, err := Parse([]string{"--reg", "maybe"}); err == nil {
+		t.Fatal("expected invalid --reg value")
+	}
+}
+
+func TestParseResetAdminDefaultsToServeDataDirWithoutRoot(t *testing.T) {
+	clearEnv(t)
+	setEUID(t, 1000)
+
+	cfg, err := Parse([]string{"-P"})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if cfg.Action != ActionResetAdmin {
+		t.Fatalf("action = %q, want %q", cfg.Action, ActionResetAdmin)
+	}
+	if cfg.DataDir != defaultServeDataDir {
+		t.Fatalf("data dir = %q, want %q", cfg.DataDir, defaultServeDataDir)
+	}
+}
+
+func TestParseResetAdminDefaultsToDaemonDataDirWithRoot(t *testing.T) {
+	clearEnv(t)
+	setEUID(t, 0)
+
+	cfg, err := Parse([]string{"-P"})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if cfg.DataDir != defaultDaemonDataDir {
+		t.Fatalf("data dir = %q, want %q", cfg.DataDir, defaultDaemonDataDir)
+	}
+}
+
+func TestParseResetAdminDataDirOverrides(t *testing.T) {
+	clearEnv(t)
+	setEUID(t, 0)
+
+	cfg, err := Parse([]string{"-P", "-D", "/tmp/sb-fox"})
+	if err != nil {
+		t.Fatalf("Parse explicit: %v", err)
+	}
+	if cfg.DataDir != "/tmp/sb-fox" {
+		t.Fatalf("explicit data dir = %q", cfg.DataDir)
+	}
+
+	clearEnv(t)
+	setEUID(t, 0)
+	t.Setenv("SB_FOX_DATA_DIR", "/tmp/sb-fox-env")
+	cfg, err = Parse([]string{"-P"})
+	if err != nil {
+		t.Fatalf("Parse env: %v", err)
+	}
+	if cfg.DataDir != "/tmp/sb-fox-env" {
+		t.Fatalf("env data dir = %q", cfg.DataDir)
 	}
 }

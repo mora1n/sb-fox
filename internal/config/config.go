@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Mode is the top-level runtime mode.
@@ -22,6 +23,8 @@ const (
 	defaultDaemonSocket  = "/var/run/sb-fox.sock"
 )
 
+var currentEUID = os.Geteuid
+
 // Action is a one-shot management operation requested by CLI flags.
 type Action string
 
@@ -30,20 +33,24 @@ const (
 	ActionInstallDaemon Action = "install-daemon"
 	ActionUpdate        Action = "update"
 	ActionUninstall     Action = "uninstall"
+	ActionResetAdmin    Action = "reset-admin"
 )
 
 // Config is the resolved runtime configuration.
 type Config struct {
-	Addr        string // listen address, e.g. "127.0.0.1:17890"
-	DataDir     string // directory for the SQLite db and temp files
-	DBPath      string // resolved sqlite path (DataDir/sb-fox.db)
-	KernelPath  string // initial sing-box binary path (overridable in settings)
-	SocketPath  string // daemon singleton socket path
-	Mode        Mode   // serve or daemon
-	Action      Action // management operation, if any
-	Purge       bool   // uninstall removes config/data without prompting
-	Dev         bool   // dev mode: serve API only, skip embedded frontend requirement
-	ShowVersion bool   // print version and exit
+	Addr                string // listen address, e.g. "127.0.0.1:17890"
+	DataDir             string // directory for the SQLite db and temp files
+	DBPath              string // resolved sqlite path (DataDir/sb-fox.db)
+	KernelPath          string // initial sing-box binary path (overridable in settings)
+	SocketPath          string // daemon singleton socket path
+	Mode                Mode   // serve or daemon
+	Action              Action // management operation, if any
+	Purge               bool   // uninstall removes config/data without prompting
+	RegMode             string // on or off
+	RegExplicit         bool   // --reg/-r was provided
+	RegistrationEnabled bool
+	Dev                 bool // dev mode: serve API only, skip embedded frontend requirement
+	ShowVersion         bool // print version and exit
 }
 
 // Parse reads flags (with env fallbacks) and returns the config.
@@ -54,20 +61,42 @@ func Parse(args []string) (*Config, error) {
 	}
 
 	name := "sb-fox"
-	dataDirDefault := envOr("SB_FOX_DATA_DIR", defaultServeDataDir)
+	dataDirEnv, hasDataDirEnv := os.LookupEnv("SB_FOX_DATA_DIR")
+	hasDataDirFlag := flagPresent(args, "--data-dir", "-D")
+	daemonRequested := hasFlag(args, "--daemon", "-d")
+	resetAdminRequested := hasFlag(args, "--reset-admin", "-P")
+
+	dataDirDefault := defaultServeDataDir
+	if hasDataDirEnv && dataDirEnv != "" {
+		dataDirDefault = dataDirEnv
+	}
 	if mode == ModeDaemon {
 		name = "sb-fox daemon runtime"
-		dataDirDefault = envOr("SB_FOX_DATA_DIR", defaultDaemonDataDir)
+		dataDirDefault = defaultDaemonDataDir
+		if hasDataDirEnv && dataDirEnv != "" {
+			dataDirDefault = dataDirEnv
+		}
 	}
-	if hasFlag(args, "--daemon", "-d") {
-		dataDirDefault = envOr("SB_FOX_DATA_DIR", defaultDaemonDataDir)
+	if daemonRequested {
+		dataDirDefault = defaultDaemonDataDir
+		if hasDataDirEnv && dataDirEnv != "" {
+			dataDirDefault = dataDirEnv
+		}
+	}
+	if resetAdminRequested && !hasDataDirFlag && !(hasDataDirEnv && dataDirEnv != "") {
+		dataDirDefault = defaultServeDataDir
+		if currentEUID() == 0 {
+			dataDirDefault = defaultDaemonDataDir
+		}
 	}
 
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	addr := envOr("SB_FOX_ADDR", defaultAddr)
 	dataDir := dataDirDefault
 	kernel := envOr("SB_FOX_KERNEL", "sing-box")
-	var installDaemon, update, uninstall, purge, dev, showVersion bool
+	reg := envOr("SB_FOX_REG", "off")
+	regExplicit := flagPresent(args, "--reg", "-r")
+	var installDaemon, update, uninstall, resetAdmin, purge, dev, showVersion bool
 	fs.Usage = func() {
 		out := fs.Output()
 		fmt.Fprintf(out, "Usage of %s:\n", name)
@@ -85,6 +114,10 @@ func Parse(args []string) (*Config, error) {
 		fmt.Fprintln(out, "\tuninstall service and binary")
 		fmt.Fprintln(out, "  --purge, -p")
 		fmt.Fprintln(out, "\tremove config and data during uninstall")
+		fmt.Fprintln(out, "  --reg, -r on|off")
+		fmt.Fprintf(out, "\tpublic registration switch (default %q)\n", reg)
+		fmt.Fprintln(out, "  --reset-admin, -P")
+		fmt.Fprintln(out, "\treset admin password and print a new random password")
 		fmt.Fprintln(out, "  --dev")
 		fmt.Fprintln(out, "\tdev mode (serve API only)")
 		fmt.Fprintln(out, "  --version, -v")
@@ -104,6 +137,10 @@ func Parse(args []string) (*Config, error) {
 	fs.BoolVar(&uninstall, "U", false, "uninstall service and binary")
 	fs.BoolVar(&purge, "purge", false, "remove config and data during uninstall")
 	fs.BoolVar(&purge, "p", false, "remove config and data during uninstall")
+	fs.StringVar(&reg, "reg", reg, "public registration switch (on|off)")
+	fs.StringVar(&reg, "r", reg, "public registration switch (on|off)")
+	fs.BoolVar(&resetAdmin, "reset-admin", false, "reset admin password and print a new random password")
+	fs.BoolVar(&resetAdmin, "P", false, "reset admin password and print a new random password")
 	fs.BoolVar(&dev, "dev", false, "dev mode (serve API only)")
 	fs.BoolVar(&showVersion, "version", false, "print version and exit")
 	fs.BoolVar(&showVersion, "v", false, "print version and exit")
@@ -114,7 +151,11 @@ func Parse(args []string) (*Config, error) {
 	if fs.NArg() > 0 {
 		return nil, fmt.Errorf("unknown argument %q", fs.Arg(0))
 	}
-	action, err := resolveAction(installDaemon, update, uninstall, purge)
+	action, err := resolveAction(installDaemon, update, uninstall, resetAdmin, purge)
+	if err != nil {
+		return nil, err
+	}
+	regMode, err := normalizeReg(reg)
 	if err != nil {
 		return nil, err
 	}
@@ -123,15 +164,18 @@ func Parse(args []string) (*Config, error) {
 	}
 
 	c := &Config{
-		Addr:        addr,
-		DataDir:     dataDir,
-		KernelPath:  kernel,
-		SocketPath:  "",
-		Mode:        mode,
-		Action:      action,
-		Purge:       purge,
-		Dev:         dev,
-		ShowVersion: showVersion,
+		Addr:                addr,
+		DataDir:             dataDir,
+		KernelPath:          kernel,
+		SocketPath:          "",
+		Mode:                mode,
+		Action:              action,
+		Purge:               purge,
+		RegMode:             regMode,
+		RegExplicit:         regExplicit,
+		RegistrationEnabled: regMode == "on",
+		Dev:                 dev,
+		ShowVersion:         showVersion,
 	}
 	if c.Mode == ModeDaemon {
 		c.SocketPath = defaultDaemonSocket
@@ -163,7 +207,27 @@ func hasFlag(args []string, names ...string) bool {
 	return false
 }
 
-func resolveAction(installDaemon, update, uninstall, purge bool) (Action, error) {
+func flagPresent(args []string, names ...string) bool {
+	for _, arg := range args {
+		for _, name := range names {
+			if arg == name || strings.HasPrefix(arg, name+"=") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func normalizeReg(value string) (string, error) {
+	switch value {
+	case "on", "off":
+		return value, nil
+	default:
+		return "", fmt.Errorf("--reg must be on or off")
+	}
+}
+
+func resolveAction(installDaemon, update, uninstall, resetAdmin, purge bool) (Action, error) {
 	count := 0
 	var action Action
 	if installDaemon {
@@ -177,6 +241,10 @@ func resolveAction(installDaemon, update, uninstall, purge bool) (Action, error)
 	if uninstall {
 		count++
 		action = ActionUninstall
+	}
+	if resetAdmin {
+		count++
+		action = ActionResetAdmin
 	}
 	if count > 1 {
 		return "", errors.New("only one management flag can be used at a time")

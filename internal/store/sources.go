@@ -8,13 +8,13 @@ import (
 	"github.com/mora1n/sb-fox/internal/models"
 )
 
-const sourceCols = `id, name, url, last_fetch_at, last_status, node_count, created_at`
+const sourceCols = `id, owner_user_id, name, url, last_fetch_at, last_status, node_count, created_at`
 
 func scanSource(sc interface{ Scan(...any) error }) (*models.SubscriptionSource, error) {
 	var s models.SubscriptionSource
 	var created string
 	var lastFetch sql.NullString
-	if err := sc.Scan(&s.ID, &s.Name, &s.URL, &lastFetch, &s.LastStatus, &s.NodeCount, &created); err != nil {
+	if err := sc.Scan(&s.ID, &s.OwnerUserID, &s.Name, &s.URL, &lastFetch, &s.LastStatus, &s.NodeCount, &created); err != nil {
 		return nil, err
 	}
 	if lastFetch.Valid {
@@ -26,8 +26,15 @@ func scanSource(sc interface{ Scan(...any) error }) (*models.SubscriptionSource,
 }
 
 // ListSources returns all subscription sources ordered by name.
-func (s *Store) ListSources() ([]*models.SubscriptionSource, error) {
-	rows, err := s.db.Query(`SELECT ` + sourceCols + ` FROM subscription_sources ORDER BY name`)
+func (s *Store) ListSources(ownerUserID int64, allOwners bool) ([]*models.SubscriptionSource, error) {
+	q := `SELECT ` + sourceCols + ` FROM subscription_sources`
+	var args []any
+	if !allOwners {
+		q += ` WHERE owner_user_id = ?`
+		args = append(args, ownerUserID)
+	}
+	q += ` ORDER BY name`
+	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -54,9 +61,25 @@ func (s *Store) GetSource(id int64) (*models.SubscriptionSource, error) {
 }
 
 // CreateSource inserts a subscription source and returns its id.
-func (s *Store) CreateSource(name, url string) (int64, error) {
-	res, err := s.db.Exec(`INSERT INTO subscription_sources (name, url, last_status, node_count, created_at)
-		VALUES (?, ?, '', 0, ?)`, name, url, now())
+func (s *Store) GetSourceForUser(id, ownerUserID int64, allOwners bool) (*models.SubscriptionSource, error) {
+	q := `SELECT ` + sourceCols + ` FROM subscription_sources WHERE id = ?`
+	args := []any{id}
+	if !allOwners {
+		q += ` AND owner_user_id = ?`
+		args = append(args, ownerUserID)
+	}
+	row := s.db.QueryRow(q, args...)
+	src, err := scanSource(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return src, err
+}
+
+// CreateSource inserts a subscription source and returns its id.
+func (s *Store) CreateSource(ownerUserID int64, name, url string) (int64, error) {
+	res, err := s.db.Exec(`INSERT INTO subscription_sources (owner_user_id, name, url, last_status, node_count, created_at)
+		VALUES (?, ?, ?, '', 0, ?)`, ownerUserID, name, url, now())
 	if err != nil {
 		return 0, err
 	}

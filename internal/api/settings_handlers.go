@@ -81,8 +81,9 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 
 // appInfo is public bootstrapping metadata for the frontend.
 type appInfo struct {
-	DisplayName      string   `json:"display_name"`
-	CountryHeatOrder []string `json:"country_heat_order"`
+	DisplayName         string   `json:"display_name"`
+	CountryHeatOrder    []string `json:"country_heat_order"`
+	RegistrationEnabled bool     `json:"registration_enabled"`
 }
 
 func (s *Server) handleAppInfo(w http.ResponseWriter, r *http.Request) {
@@ -96,7 +97,11 @@ func (s *Server) handleAppInfo(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	respondJSON(w, http.StatusOK, appInfo{DisplayName: displayName, CountryHeatOrder: order})
+	respondJSON(w, http.StatusOK, appInfo{
+		DisplayName:         displayName,
+		CountryHeatOrder:    order,
+		RegistrationEnabled: s.RegistrationEnabled,
+	})
 }
 
 func (s *Server) appDisplayName() (string, error) {

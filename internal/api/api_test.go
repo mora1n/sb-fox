@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -29,6 +30,15 @@ func testServer(t *testing.T) (*Server, *httptest.Server) {
 	}
 	t.Cleanup(func() { db.Close() })
 
+	hash, _ := auth.HashPassword("password123")
+	if err := db.SetAdmin("admin", hash); err != nil {
+		t.Fatal(err)
+	}
+	admin, err := db.FirstAdmin()
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	entries, err := os.ReadDir(filepath.Join("..", "..", "data", "templates"))
 	if err != nil {
 		t.Fatal(err)
@@ -42,22 +52,19 @@ func testServer(t *testing.T) (*Server, *httptest.Server) {
 			t.Fatal(err)
 		}
 		name := strings.TrimSuffix(entry.Name(), ".json")
-		if _, err := db.SeedUserTemplate(name, string(content), "test template"); err != nil {
+		if _, err := db.SeedUserTemplate(admin.ID, name, string(content), "test template"); err != nil {
 			t.Fatal(err)
 		}
-	}
-	hash, _ := auth.HashPassword("password123")
-	if err := db.SetAdmin("admin", hash); err != nil {
-		t.Fatal(err)
 	}
 
 	kernelPath, _ := exec.LookPath("sing-box")
 	srv := &Server{
-		Store:   db,
-		Auth:    auth.New([]byte("test-secret")),
-		Kernel:  kernel.New(kernelPath, t.TempDir(), 15*time.Second),
-		Fetcher: subfetch.New(),
-		DevMode: true,
+		Store:       db,
+		Auth:        auth.New([]byte("test-secret")),
+		Kernel:      kernel.New(kernelPath, t.TempDir(), 15*time.Second),
+		Fetcher:     subfetch.New(),
+		TemplateDir: filepath.Join("..", "..", "data", "templates"),
+		DevMode:     true,
 	}
 	ts := httptest.NewServer(srv.Router())
 	t.Cleanup(ts.Close)
@@ -128,6 +135,61 @@ func TestAuthGuard(t *testing.T) {
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", resp.StatusCode)
 	}
+}
+
+func TestRegistrationAdminResetAndQuota(t *testing.T) {
+	srv, ts := testServer(t)
+	c := newClient(t, ts.URL)
+
+	resp := c.do(http.MethodPost, "/api/auth/register", map[string]string{"username": "alice", "password": "password123"})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("register disabled status = %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	srv.RegistrationEnabled = true
+	var registered struct {
+		ID       int64  `json:"id"`
+		Username string `json:"username"`
+		Role     string `json:"role"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/auth/register", map[string]string{"username": "alice", "password": "password123"}), &registered)
+	if registered.ID == 0 || registered.Role != "user" {
+		t.Fatalf("registered user = %+v", registered)
+	}
+
+	c.http.Jar = login(t, ts.URL)
+	var reset struct {
+		Password string `json:"password"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/users/"+itoa(registered.ID)+"/reset-password", nil), &reset)
+	if reset.Password == "" {
+		t.Fatal("reset password is empty")
+	}
+	decodeData(t, c.do(http.MethodPut, "/api/users/"+itoa(registered.ID), map[string]any{
+		"username": "alice", "role": "user", "node_limit": 1, "profile_limit": 0, "template_limit": 0,
+	}), nil)
+
+	userClient := newClient(t, ts.URL)
+	badLogin := userClient.do(http.MethodPost, "/api/auth/login", map[string]string{"username": "alice", "password": "password123"})
+	if badLogin.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("old password login status = %d", badLogin.StatusCode)
+	}
+	badLogin.Body.Close()
+	userClient.http.Jar = loginAs(t, ts.URL, "alice", reset.Password)
+
+	raw1 := `{"type":"shadowsocks","tag":"n1","server":"a.example.com","server_port":1}`
+	raw2 := `{"type":"shadowsocks","tag":"n2","server":"b.example.com","server_port":2}`
+	create1 := userClient.do(http.MethodPost, "/api/nodes", map[string]string{"raw": raw1})
+	if create1.StatusCode != http.StatusCreated {
+		t.Fatalf("first node status = %d", create1.StatusCode)
+	}
+	create1.Body.Close()
+	create2 := userClient.do(http.MethodPost, "/api/nodes", map[string]string{"raw": raw2})
+	if create2.StatusCode != http.StatusForbidden {
+		t.Fatalf("quota status = %d", create2.StatusCode)
+	}
+	create2.Body.Close()
 }
 
 // TestFullFlow exercises login → import links → create profile → public sub →
@@ -243,15 +305,26 @@ func TestFullFlow(t *testing.T) {
 // --- helpers ---
 
 func login(t *testing.T, base string) http.CookieJar {
+	return loginAs(t, base, "admin", "password123")
+}
+
+func loginAs(t *testing.T, base, username, password string) http.CookieJar {
 	t.Helper()
 	client := &http.Client{}
-	body, _ := json.Marshal(map[string]string{"username": "admin", "password": "password123"})
+	body, _ := json.Marshal(map[string]string{"username": username, "password": password})
 	resp, err := client.Post(base+"/api/auth/login", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("login %s status %d", username, resp.StatusCode)
+	}
 	resp.Body.Close()
 	return mustJar(t, base, resp.Cookies())
+}
+
+func itoa(id int64) string {
+	return strconv.FormatInt(id, 10)
 }
 
 func mustJar(t *testing.T, base string, cookies []*http.Cookie) http.CookieJar {

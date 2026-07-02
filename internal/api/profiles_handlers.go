@@ -10,7 +10,8 @@ import (
 
 // handleListProfiles returns all profiles.
 func (s *Server) handleListProfiles(w http.ResponseWriter, r *http.Request) {
-	list, err := s.Store.ListProfiles()
+	ownerID, allOwners := ownerScope(r)
+	list, err := s.Store.ListProfiles(ownerID, allOwners)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
@@ -20,7 +21,8 @@ func (s *Server) handleListProfiles(w http.ResponseWriter, r *http.Request) {
 
 // handleGetProfile returns one profile with its node ids.
 func (s *Server) handleGetProfile(w http.ResponseWriter, r *http.Request) {
-	p, err := s.Store.GetProfile(pathID(r))
+	ownerID, allOwners := ownerScope(r)
+	p, err := s.Store.GetProfileForUser(pathID(r), ownerID, allOwners)
 	if err == store.ErrNotFound {
 		respondError(w, http.StatusNotFound, "not_found", "profile not found")
 		return
@@ -42,6 +44,10 @@ type profileRequest struct {
 // handleCreateProfile creates a profile and generates its public token
 // (requirement f).
 func (s *Server) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
+	u, ok := requireCurrentUser(w, r)
+	if !ok {
+		return
+	}
 	var req profileRequest
 	if !decodeJSON(w, r, &req) {
 		return
@@ -50,8 +56,14 @@ func (s *Server) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "bad_request", "name and template_id are required")
 		return
 	}
-	if _, err := s.Store.GetTemplate(req.TemplateID); err != nil {
+	if _, err := s.Store.GetTemplateForUser(req.TemplateID, u.ID, u.IsAdmin()); err != nil {
 		respondError(w, http.StatusBadRequest, "bad_request", "template not found")
+		return
+	}
+	if !s.validateNodeAccess(w, u, req.NodeIDs) {
+		return
+	}
+	if !s.checkQuota(w, u, quotaProfiles, 1) {
 		return
 	}
 	token, err := newToken()
@@ -60,11 +72,12 @@ func (s *Server) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := &models.Profile{
-		Name:       req.Name,
-		TemplateID: req.TemplateID,
-		Options:    marshalOptions(req.Options),
-		Token:      token,
-		NodeIDs:    req.NodeIDs,
+		OwnerUserID: u.ID,
+		Name:        req.Name,
+		TemplateID:  req.TemplateID,
+		Options:     marshalOptions(req.Options),
+		Token:       token,
+		NodeIDs:     req.NodeIDs,
 	}
 	id, err := s.Store.CreateProfile(p)
 	if err != nil {
@@ -77,7 +90,12 @@ func (s *Server) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 
 // handleUpdateProfile updates a profile and its node membership.
 func (s *Server) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
-	existing, err := s.Store.GetProfile(pathID(r))
+	u, ok := requireCurrentUser(w, r)
+	if !ok {
+		return
+	}
+	ownerID, allOwners := ownerScope(r)
+	existing, err := s.Store.GetProfileForUser(pathID(r), ownerID, allOwners)
 	if err == store.ErrNotFound {
 		respondError(w, http.StatusNotFound, "not_found", "profile not found")
 		return
@@ -88,6 +106,15 @@ func (s *Server) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	var req profileRequest
 	if !decodeJSON(w, r, &req) {
+		return
+	}
+	refOwner := existing.OwnerUserID
+	refAllOwners := u.IsAdmin()
+	if _, err := s.Store.GetTemplateForUser(req.TemplateID, refOwner, refAllOwners); err != nil {
+		respondError(w, http.StatusBadRequest, "bad_request", "template not found")
+		return
+	}
+	if !s.validateNodeAccessForOwner(w, refOwner, refAllOwners, req.NodeIDs) {
 		return
 	}
 	existing.Name = req.Name
@@ -104,7 +131,8 @@ func (s *Server) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 // handleRotateToken issues a new public token, revoking the old link.
 func (s *Server) handleRotateToken(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
-	if _, err := s.Store.GetProfile(id); err != nil {
+	ownerID, allOwners := ownerScope(r)
+	if _, err := s.Store.GetProfileForUser(id, ownerID, allOwners); err != nil {
 		respondError(w, http.StatusNotFound, "not_found", "profile not found")
 		return
 	}
@@ -122,6 +150,14 @@ func (s *Server) handleRotateToken(w http.ResponseWriter, r *http.Request) {
 
 // handleDeleteProfile removes a profile.
 func (s *Server) handleDeleteProfile(w http.ResponseWriter, r *http.Request) {
+	ownerID, allOwners := ownerScope(r)
+	if _, err := s.Store.GetProfileForUser(pathID(r), ownerID, allOwners); err == store.ErrNotFound {
+		respondError(w, http.StatusNotFound, "not_found", "profile not found")
+		return
+	} else if err != nil {
+		respondError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
 	if err := s.Store.DeleteProfile(pathID(r)); err != nil {
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
@@ -135,4 +171,21 @@ func marshalOptions(o models.ProfileOptions) string {
 		return "{}"
 	}
 	return string(b)
+}
+
+func (s *Server) validateNodeAccess(w http.ResponseWriter, u *models.User, nodeIDs []int64) bool {
+	return s.validateNodeAccessForOwner(w, u.ID, u.IsAdmin(), nodeIDs)
+}
+
+func (s *Server) validateNodeAccessForOwner(w http.ResponseWriter, ownerUserID int64, allOwners bool, nodeIDs []int64) bool {
+	for _, id := range nodeIDs {
+		if _, err := s.Store.GetNodeForUser(id, ownerUserID, allOwners); err == store.ErrNotFound {
+			respondError(w, http.StatusBadRequest, "bad_request", "node not found")
+			return false
+		} else if err != nil {
+			respondError(w, http.StatusInternalServerError, "internal", err.Error())
+			return false
+		}
+	}
+	return true
 }

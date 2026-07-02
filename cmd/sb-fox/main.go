@@ -26,6 +26,7 @@ import (
 	"github.com/mora1n/sb-fox/internal/config"
 	"github.com/mora1n/sb-fox/internal/kernel"
 	"github.com/mora1n/sb-fox/internal/manage"
+	"github.com/mora1n/sb-fox/internal/models"
 	"github.com/mora1n/sb-fox/internal/store"
 	"github.com/mora1n/sb-fox/internal/subfetch"
 )
@@ -53,11 +54,13 @@ func run(args []string) error {
 	}
 	switch cfg.Action {
 	case config.ActionInstallDaemon:
-		return manage.InstallDaemon(manage.Options{Addr: cfg.Addr, DataDir: cfg.DataDir, KernelPath: cfg.KernelPath})
+		return manage.InstallDaemon(manage.Options{Addr: cfg.Addr, DataDir: cfg.DataDir, KernelPath: cfg.KernelPath, RegMode: cfg.RegMode, RegExplicit: cfg.RegExplicit})
 	case config.ActionUpdate:
 		return manage.Update(manage.Options{Addr: cfg.Addr, DataDir: cfg.DataDir, KernelPath: cfg.KernelPath, Version: version})
 	case config.ActionUninstall:
 		return manage.Uninstall(manage.Options{Addr: cfg.Addr, DataDir: cfg.DataDir, KernelPath: cfg.KernelPath, Purge: cfg.Purge})
+	case config.ActionResetAdmin:
+		return resetAdminPassword(cfg)
 	}
 	if cfg.Mode == config.ModeDaemon {
 		release, err := acquireDaemonSocket(cfg.SocketPath)
@@ -76,10 +79,10 @@ func run(args []string) error {
 	}
 	defer db.Close()
 
-	if err := seedTemplates(db, cfg.DataDir); err != nil {
+	if err := bootstrapAdmin(db); err != nil {
 		return err
 	}
-	if err := bootstrapAdmin(db); err != nil {
+	if err := seedTemplates(db, cfg.DataDir); err != nil {
 		return err
 	}
 
@@ -97,12 +100,14 @@ func run(args []string) error {
 	fetcher.AllowPrivate = allowPrivate == "true"
 
 	srv := &api.Server{
-		Store:   db,
-		Auth:    auth.New(secret),
-		Kernel:  kernel.New(kernelPath, cfg.DataDir, 15*time.Second),
-		Fetcher: fetcher,
-		Secure:  false, // set true behind TLS; cookies still HttpOnly+SameSite
-		DevMode: cfg.Dev,
+		Store:               db,
+		Auth:                auth.New(secret),
+		Kernel:              kernel.New(kernelPath, cfg.DataDir, 15*time.Second),
+		Fetcher:             fetcher,
+		TemplateDir:         filepath.Join(cfg.DataDir, "templates"),
+		Secure:              false, // set true behind TLS; cookies still HttpOnly+SameSite
+		RegistrationEnabled: cfg.RegistrationEnabled,
+		DevMode:             cfg.Dev,
 	}
 
 	httpSrv := &http.Server{
@@ -115,7 +120,8 @@ func run(args []string) error {
 	if cfg.Dev || !assets.HasDist() {
 		uiState = "API only (no embedded UI)"
 	}
-	log.Printf("sb-fox %s listening on %s (%s), data-dir=%s, kernel=%q", version, cfg.Addr, uiState, cfg.DataDir, kernelPath)
+	log.Printf("sb-fox version=%s listening on %s (%s), data-dir=%s, kernel=%q, registration=%s",
+		version, cfg.Addr, uiState, cfg.DataDir, kernelPath, cfg.RegMode)
 	return serveHTTP(httpSrv)
 }
 
@@ -205,26 +211,34 @@ func seedTemplates(db *store.Store, dataDir string) error {
 	if err != nil {
 		return fmt.Errorf("read template directory %s: %w", templateDir, err)
 	}
-	seeded := 0
+	users, err := db.ListUsers()
+	if err != nil {
+		return fmt.Errorf("list users for template seed: %w", err)
+	}
+	scanned := 0
+	inserted := 0
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
+		scanned++
 		path := filepath.Join(templateDir, entry.Name())
 		content, err := os.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("read template %s: %w", path, err)
 		}
 		name := strings.TrimSuffix(entry.Name(), ".json")
-		ok, err := db.SeedUserTemplate(name, string(content), "file: data/templates/"+entry.Name())
-		if err != nil {
-			return fmt.Errorf("seed template %s: %w", name, err)
-		}
-		if ok {
-			seeded++
+		for _, user := range users {
+			ok, err := db.SeedUserTemplate(user.ID, name, string(content), "file: data/templates/"+entry.Name())
+			if err != nil {
+				return fmt.Errorf("seed template %s for user %d: %w", name, user.ID, err)
+			}
+			if ok {
+				inserted++
+			}
 		}
 	}
-	log.Printf("seeded %d file-backed templates from %s", seeded, templateDir)
+	log.Printf("template seed scanned=%d users=%d inserted=%d from %s", scanned, len(users), inserted, templateDir)
 	return nil
 }
 
@@ -261,6 +275,43 @@ func bootstrapAdmin(db *store.Store) error {
 		log.Printf("initial admin created (username: admin) from SB_FOX_ADMIN_PASSWORD")
 	}
 	return nil
+}
+
+func resetAdminPassword(cfg *config.Config) error {
+	if err := cfg.EnsureDataDir(); err != nil {
+		return resetAdminDataDirError(cfg.DataDir, err)
+	}
+	db, err := store.Open(cfg.DBPath)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	password := randomHex(12)
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		return err
+	}
+	admin, err := db.FirstAdmin()
+	if err == store.ErrNotFound {
+		if _, err := db.CreateUser(&models.User{Username: "admin", PasswordHash: hash, Role: models.RoleAdmin}); err != nil {
+			return err
+		}
+		fmt.Printf("admin password created\nusername: admin\npassword: %s\n", password)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := db.SetUserPassword(admin.ID, hash); err != nil {
+		return err
+	}
+	fmt.Printf("admin password reset\nusername: %s\npassword: %s\n", admin.Username, password)
+	return nil
+}
+
+func resetAdminDataDirError(dataDir string, err error) error {
+	return fmt.Errorf("create data dir %s: %w; local data: ./sb-fox -P -D ./data; daemon data: sudo sb-fox -P", dataDir, err)
 }
 
 // sessionSecret returns the stored HMAC session secret, creating one on first

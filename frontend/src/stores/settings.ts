@@ -11,6 +11,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const kernel = ref<KernelStatus | null>(null)
   const appDisplayName = ref(DEFAULT_APP_DISPLAY_NAME)
   const countryHeatOrder = ref<string[]>(completeCountryHeatOrder(DEFAULT_COUNTRY_HEAT_ORDER))
+  const registrationEnabled = ref(false)
   const loading = ref(false)
 
   async function fetchAll(): Promise<void> {
@@ -27,6 +28,7 @@ export const useSettingsStore = defineStore('settings', () => {
     const app = await get<AppInfo>('/app', true)
     appDisplayName.value = app?.display_name?.trim() || DEFAULT_APP_DISPLAY_NAME
     countryHeatOrder.value = completeCountryHeatOrder(app?.country_heat_order || DEFAULT_COUNTRY_HEAT_ORDER)
+    registrationEnabled.value = !!app?.registration_enabled
   }
 
   async function update(patch: Settings): Promise<void> {
@@ -50,6 +52,7 @@ export const useSettingsStore = defineStore('settings', () => {
     kernel,
     appDisplayName,
     countryHeatOrder,
+    registrationEnabled,
     loading,
     fetchAll,
     fetchAppInfo,

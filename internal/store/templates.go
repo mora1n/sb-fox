@@ -10,7 +10,7 @@ import (
 func scanTemplate(sc interface{ Scan(...any) error }) (*models.Template, error) {
 	var t models.Template
 	var created, updated string
-	if err := sc.Scan(&t.ID, &t.Name, &t.Kind, &t.Content, &t.Description, &created, &updated); err != nil {
+	if err := sc.Scan(&t.ID, &t.OwnerUserID, &t.Name, &t.Kind, &t.Content, &t.Description, &created, &updated); err != nil {
 		return nil, err
 	}
 	t.CreatedAt = parseTime(created)
@@ -18,11 +18,18 @@ func scanTemplate(sc interface{ Scan(...any) error }) (*models.Template, error) 
 	return &t, nil
 }
 
-const templateCols = `id, name, kind, content, description, created_at, updated_at`
+const templateCols = `id, owner_user_id, name, kind, content, description, created_at, updated_at`
 
 // ListTemplates returns all templates ordered by kind then name.
-func (s *Store) ListTemplates() ([]*models.Template, error) {
-	rows, err := s.db.Query(`SELECT ` + templateCols + ` FROM templates ORDER BY kind, name`)
+func (s *Store) ListTemplates(ownerUserID int64, allOwners bool) ([]*models.Template, error) {
+	q := `SELECT ` + templateCols + ` FROM templates`
+	var args []any
+	if !allOwners {
+		q += ` WHERE owner_user_id = ?`
+		args = append(args, ownerUserID)
+	}
+	q += ` ORDER BY kind, name`
+	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -48,6 +55,21 @@ func (s *Store) GetTemplate(id int64) (*models.Template, error) {
 	return t, err
 }
 
+func (s *Store) GetTemplateForUser(id, ownerUserID int64, allOwners bool) (*models.Template, error) {
+	q := `SELECT ` + templateCols + ` FROM templates WHERE id = ?`
+	args := []any{id}
+	if !allOwners {
+		q += ` AND owner_user_id = ?`
+		args = append(args, ownerUserID)
+	}
+	row := s.db.QueryRow(q, args...)
+	t, err := scanTemplate(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return t, err
+}
+
 // GetTemplateByName returns one template by unique name.
 func (s *Store) GetTemplateByName(name string) (*models.Template, error) {
 	row := s.db.QueryRow(`SELECT `+templateCols+` FROM templates WHERE name = ?`, name)
@@ -58,11 +80,21 @@ func (s *Store) GetTemplateByName(name string) (*models.Template, error) {
 	return t, err
 }
 
+func (s *Store) GetTemplateByNameForUser(ownerUserID int64, name string) (*models.Template, error) {
+	row := s.db.QueryRow(`SELECT `+templateCols+` FROM templates WHERE owner_user_id = ? AND name = ?`,
+		ownerUserID, name)
+	t, err := scanTemplate(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return t, err
+}
+
 // CreateTemplate inserts a template and returns its id.
 func (s *Store) CreateTemplate(t *models.Template) (int64, error) {
 	ts := now()
-	res, err := s.db.Exec(`INSERT INTO templates (name, kind, content, description, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)`, t.Name, t.Kind, t.Content, t.Description, ts, ts)
+	res, err := s.db.Exec(`INSERT INTO templates (owner_user_id, name, kind, content, description, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`, t.OwnerUserID, t.Name, t.Kind, t.Content, t.Description, ts, ts)
 	if err != nil {
 		return 0, err
 	}
@@ -71,13 +103,13 @@ func (s *Store) CreateTemplate(t *models.Template) (int64, error) {
 
 // SeedUserTemplate inserts a file-backed template when the name does not
 // already exist. It never overwrites user edits.
-func (s *Store) SeedUserTemplate(name, content, description string) (bool, error) {
+func (s *Store) SeedUserTemplate(ownerUserID int64, name, content, description string) (bool, error) {
 	ts := now()
 	res, err := s.db.Exec(`
-		INSERT INTO templates (name, kind, content, description, created_at, updated_at)
-		VALUES (?, 'user', ?, ?, ?, ?)
-		ON CONFLICT(name) DO NOTHING`,
-		name, content, description, ts, ts)
+		INSERT INTO templates (owner_user_id, name, kind, content, description, created_at, updated_at)
+		VALUES (?, ?, 'user', ?, ?, ?, ?)
+		ON CONFLICT(owner_user_id, name) DO NOTHING`,
+		ownerUserID, name, content, description, ts, ts)
 	if err != nil {
 		return false, err
 	}
@@ -99,4 +131,10 @@ func (s *Store) UpdateTemplate(id int64, content, description string) error {
 func (s *Store) DeleteTemplate(id int64) error {
 	_, err := s.db.Exec(`DELETE FROM templates WHERE id = ? AND kind = 'user'`, id)
 	return err
+}
+
+func (s *Store) CountTemplates(ownerUserID int64) (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM templates WHERE owner_user_id = ?`, ownerUserID).Scan(&n)
+	return n, err
 }

@@ -1,0 +1,51 @@
+import { defineStore } from 'pinia'
+import { ref } from 'vue'
+import { del, get, post, put } from '../api/client'
+import type { User, UserRole } from '../api/types'
+
+export interface UserPayload {
+  username: string
+  password?: string
+  role: UserRole
+  node_limit: number
+  profile_limit: number
+  template_limit: number
+}
+
+export const useUsersStore = defineStore('users', () => {
+  const users = ref<User[]>([])
+  const loading = ref(false)
+
+  async function fetchAll(): Promise<void> {
+    loading.value = true
+    try {
+      users.value = (await get<User[]>('/users')) ?? []
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function create(payload: UserPayload): Promise<User> {
+    const u = await post<User>('/users', payload)
+    await fetchAll()
+    return u
+  }
+
+  async function update(id: number, payload: UserPayload): Promise<User> {
+    const u = await put<User>('/users/' + id, payload)
+    await fetchAll()
+    return u
+  }
+
+  async function remove(id: number): Promise<void> {
+    await del('/users/' + id)
+    users.value = users.value.filter((u) => u.id !== id)
+  }
+
+  async function resetPassword(id: number): Promise<string> {
+    const r = await post<{ password: string }>('/users/' + id + '/reset-password')
+    return r.password
+  }
+
+  return { users, loading, fetchAll, create, update, remove, resetPassword }
+})

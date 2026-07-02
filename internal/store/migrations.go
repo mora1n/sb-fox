@@ -84,4 +84,109 @@ var migrations = []string{
 		position   INTEGER NOT NULL,
 		PRIMARY KEY (profile_id, node_id)
 	);`,
+
+	// 8: multi-user ownership and per-user resource names.
+	`-- sb-fox:disable-foreign-keys
+	CREATE TABLE users (
+		id             INTEGER PRIMARY KEY AUTOINCREMENT,
+		username       TEXT UNIQUE NOT NULL,
+		password_hash  TEXT NOT NULL,
+		role           TEXT NOT NULL CHECK (role IN ('admin', 'user')),
+		node_limit     INTEGER NOT NULL DEFAULT 0,
+		profile_limit  INTEGER NOT NULL DEFAULT 0,
+		template_limit INTEGER NOT NULL DEFAULT 0,
+		created_at     TEXT NOT NULL,
+		updated_at     TEXT NOT NULL
+	);
+	INSERT INTO users (id, username, password_hash, role, node_limit, profile_limit, template_limit, created_at, updated_at)
+		SELECT id, username, password_hash, 'admin', 0, 0, 0, created_at, updated_at FROM admin;
+
+	CREATE TABLE templates_new (
+		id            INTEGER PRIMARY KEY AUTOINCREMENT,
+		owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		name          TEXT NOT NULL,
+		kind          TEXT NOT NULL,
+		content       TEXT NOT NULL,
+		description   TEXT NOT NULL DEFAULT '',
+		created_at    TEXT NOT NULL,
+		updated_at    TEXT NOT NULL,
+		UNIQUE(owner_user_id, name)
+	);
+	INSERT INTO templates_new (id, owner_user_id, name, kind, content, description, created_at, updated_at)
+		SELECT id, 1, name, kind, content, description, created_at, updated_at FROM templates;
+
+	CREATE TABLE subscription_sources_new (
+		id            INTEGER PRIMARY KEY AUTOINCREMENT,
+		owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		name          TEXT NOT NULL,
+		url           TEXT NOT NULL,
+		last_fetch_at TEXT,
+		last_status   TEXT NOT NULL DEFAULT '',
+		node_count    INTEGER NOT NULL DEFAULT 0,
+		created_at    TEXT NOT NULL
+	);
+	INSERT INTO subscription_sources_new (id, owner_user_id, name, url, last_fetch_at, last_status, node_count, created_at)
+		SELECT id, 1, name, url, last_fetch_at, last_status, node_count, created_at FROM subscription_sources;
+
+	CREATE TABLE nodes_new (
+		id             INTEGER PRIMARY KEY AUTOINCREMENT,
+		owner_user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		tag            TEXT NOT NULL,
+		type           TEXT NOT NULL,
+		server         TEXT NOT NULL DEFAULT '',
+		server_port    INTEGER NOT NULL DEFAULT 0,
+		country_code   TEXT NOT NULL DEFAULT '',
+		country_source TEXT NOT NULL DEFAULT 'auto',
+		source         TEXT NOT NULL,
+		source_ref     INTEGER REFERENCES subscription_sources(id) ON DELETE SET NULL,
+		has_detour     INTEGER NOT NULL DEFAULT 0,
+		detour         TEXT NOT NULL DEFAULT '',
+		raw            TEXT NOT NULL,
+		created_at     TEXT NOT NULL,
+		updated_at     TEXT NOT NULL
+	);
+	INSERT INTO nodes_new (id, owner_user_id, tag, type, server, server_port, country_code, country_source, source, source_ref, has_detour, detour, raw, created_at, updated_at)
+		SELECT id, 1, tag, type, server, server_port, country_code, country_source, source, source_ref, has_detour, detour, raw, created_at, updated_at FROM nodes;
+
+	CREATE TABLE profiles_new (
+		id            INTEGER PRIMARY KEY AUTOINCREMENT,
+		owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		name          TEXT NOT NULL,
+		template_id   INTEGER NOT NULL REFERENCES templates(id),
+		options       TEXT NOT NULL DEFAULT '{}',
+		token         TEXT UNIQUE NOT NULL,
+		created_at    TEXT NOT NULL,
+		updated_at    TEXT NOT NULL,
+		UNIQUE(owner_user_id, name)
+	);
+	INSERT INTO profiles_new (id, owner_user_id, name, template_id, options, token, created_at, updated_at)
+		SELECT id, 1, name, template_id, options, token, created_at, updated_at FROM profiles;
+
+	CREATE TABLE profile_nodes_new (
+		profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+		node_id    INTEGER NOT NULL REFERENCES nodes(id)    ON DELETE CASCADE,
+		position   INTEGER NOT NULL,
+		PRIMARY KEY (profile_id, node_id)
+	);
+	INSERT INTO profile_nodes_new (profile_id, node_id, position)
+		SELECT profile_id, node_id, position FROM profile_nodes;
+
+	DROP TABLE profile_nodes;
+	DROP TABLE profiles;
+	DROP TABLE nodes;
+	DROP TABLE subscription_sources;
+	DROP TABLE templates;
+
+	ALTER TABLE templates_new RENAME TO templates;
+	ALTER TABLE subscription_sources_new RENAME TO subscription_sources;
+	ALTER TABLE nodes_new RENAME TO nodes;
+	ALTER TABLE profiles_new RENAME TO profiles;
+	ALTER TABLE profile_nodes_new RENAME TO profile_nodes;
+
+	CREATE INDEX idx_nodes_country ON nodes(country_code);
+	CREATE INDEX idx_nodes_source ON nodes(source);
+	CREATE INDEX idx_nodes_owner ON nodes(owner_user_id);
+	CREATE INDEX idx_templates_owner ON templates(owner_user_id);
+	CREATE INDEX idx_sources_owner ON subscription_sources(owner_user_id);
+	CREATE INDEX idx_profiles_owner ON profiles(owner_user_id);`,
 }

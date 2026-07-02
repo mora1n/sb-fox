@@ -14,9 +14,9 @@
 - 按可自定义的国家热度顺序生成国家 selector
 - 在设置页通过拖拽调整国家优先级
 - 在简洁的 Web UI 中管理模板、节点和订阅分组
+- 支持多用户，管理员可管理用户、重置密码并设置资源上限
 - 生成可轮换 token 的公开订阅链接
 - 调用本机 sing-box 校验和格式化生成配置
-- 支持在设置页修改面板显示名称
 
 ## 安装
 
@@ -40,6 +40,18 @@ sb-fox --addr 127.0.0.1:17890 --data-dir ./data
 
 首次运行时，`sb-fox` 会创建管理员账号，并在终端打印一次性密码。默认用户名是 `admin`。
 
+如需开放用户自行注册：
+
+```sh
+sb-fox --reg on
+```
+
+关闭注册：
+
+```sh
+sb-fox --reg off
+```
+
 ## 守护进程模式
 
 ```sh
@@ -54,6 +66,13 @@ sudo sb-fox --daemon
 - 模板目录：`/var/lib/sb-fox/templates`
 
 如果已有守护进程在运行，新的服务启动会直接失败。socket 是内部单实例锁，不提供命令行参数。
+
+守护进程模式也可显式开启或关闭注册：
+
+```sh
+sudo sb-fox --daemon --reg on
+sudo sb-fox --daemon --reg off
+```
 
 ## 模板
 
@@ -80,8 +99,18 @@ data/templates/fakeip.json
 | `--update`, `-u` |  | 更新已安装版本 |
 | `--uninstall`, `-U` |  | 卸载服务和二进制 |
 | `--purge`, `-p` |  | 卸载时同时删除配置和数据 |
+| `--reg on\|off`, `-r on\|off` | `SB_FOX_REG` | `off` |
+| `--reset-admin`, `-P` |  | 重置 admin 密码并打印新随机密码 |
 
 如果希望自行指定首次启动的管理员密码，可以在启动前设置 `SB_FOX_ADMIN_PASSWORD`。
+
+忘记 admin 密码时：
+
+```sh
+./sb-fox -P              # 本地 ./data
+sudo sb-fox -P           # daemon /var/lib/sb-fox
+./sb-fox -P -D ./data    # 指定数据目录
+```
 
 ## 从源码构建
 

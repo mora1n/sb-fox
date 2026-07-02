@@ -7,12 +7,12 @@ import (
 	"github.com/mora1n/sb-fox/internal/models"
 )
 
-const profileCols = `id, name, template_id, options, token, created_at, updated_at`
+const profileCols = `id, owner_user_id, name, template_id, options, token, created_at, updated_at`
 
 func scanProfile(sc interface{ Scan(...any) error }) (*models.Profile, error) {
 	var p models.Profile
 	var created, updated string
-	if err := sc.Scan(&p.ID, &p.Name, &p.TemplateID, &p.Options, &p.Token,
+	if err := sc.Scan(&p.ID, &p.OwnerUserID, &p.Name, &p.TemplateID, &p.Options, &p.Token,
 		&created, &updated); err != nil {
 		return nil, err
 	}
@@ -22,30 +22,66 @@ func scanProfile(sc interface{ Scan(...any) error }) (*models.Profile, error) {
 }
 
 // ListProfiles returns all profiles (without node ids) ordered by name.
-func (s *Store) ListProfiles() ([]*models.Profile, error) {
-	rows, err := s.db.Query(`SELECT ` + profileCols + ` FROM profiles ORDER BY name`)
+func (s *Store) ListProfiles(ownerUserID int64, allOwners bool) ([]*models.Profile, error) {
+	q := `SELECT ` + profileCols + ` FROM profiles`
+	var args []any
+	if !allOwners {
+		q += ` WHERE owner_user_id = ?`
+		args = append(args, ownerUserID)
+	}
+	q += ` ORDER BY name`
+	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	var out []*models.Profile
 	for rows.Next() {
 		p, err := scanProfile(rows)
 		if err != nil {
-			return nil, err
-		}
-		p.NodeIDs, err = s.profileNodeIDs(p.ID)
-		if err != nil {
+			_ = rows.Close()
 			return nil, err
 		}
 		out = append(out, p)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	for _, p := range out {
+		var err error
+		p.NodeIDs, err = s.profileNodeIDs(p.ID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 // GetProfile returns one profile with its node ids.
 func (s *Store) GetProfile(id int64) (*models.Profile, error) {
 	row := s.db.QueryRow(`SELECT `+profileCols+` FROM profiles WHERE id = ?`, id)
+	p, err := scanProfile(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	p.NodeIDs, err = s.profileNodeIDs(p.ID)
+	return p, err
+}
+
+func (s *Store) GetProfileForUser(id, ownerUserID int64, allOwners bool) (*models.Profile, error) {
+	q := `SELECT ` + profileCols + ` FROM profiles WHERE id = ?`
+	args := []any{id}
+	if !allOwners {
+		q += ` AND owner_user_id = ?`
+		args = append(args, ownerUserID)
+	}
+	row := s.db.QueryRow(q, args...)
 	p, err := scanProfile(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -95,8 +131,8 @@ func (s *Store) CreateProfile(p *models.Profile) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	res, err := tx.Exec(`INSERT INTO profiles (name, template_id, options, token, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)`, p.Name, p.TemplateID, p.Options, p.Token, ts, ts)
+	res, err := tx.Exec(`INSERT INTO profiles (owner_user_id, name, template_id, options, token, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`, p.OwnerUserID, p.Name, p.TemplateID, p.Options, p.Token, ts, ts)
 	if err != nil {
 		_ = tx.Rollback()
 		return 0, err
@@ -145,6 +181,12 @@ func (s *Store) SetProfileToken(id int64, token string) error {
 func (s *Store) DeleteProfile(id int64) error {
 	_, err := s.db.Exec(`DELETE FROM profiles WHERE id = ?`, id)
 	return err
+}
+
+func (s *Store) CountProfiles(ownerUserID int64) (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM profiles WHERE owner_user_id = ?`, ownerUserID).Scan(&n)
+	return n, err
 }
 
 func insertProfileNodes(tx *sql.Tx, profileID int64, nodeIDs []int64) error {
