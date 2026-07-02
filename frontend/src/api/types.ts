@@ -97,6 +97,7 @@ export interface ProfileOptions {
   autoCountryGroups: boolean
   chainProxy: boolean
   chainProxyNodeId?: number
+  chainProxyNodeIds?: number[]
 }
 
 // Profile.Options is a JSON string on the wire (see models.Profile.Options).
@@ -123,8 +124,8 @@ export interface ProfilePayload {
 
 export interface KernelStatus {
   available: boolean
-  path: string
-  version: string
+  path?: string
+  version?: string
 }
 
 export type ValidateStatus = 'ok' | 'invalid' | 'unavailable'
@@ -149,6 +150,13 @@ export interface ImportResult {
   imported: number
   nodes: Node[]
   source_id?: number
+}
+
+export interface NodeUsage {
+  profile_id: number
+  profile_name: string
+  via_group_id?: number
+  via_group_name?: string
 }
 
 export type Settings = Record<string, string>

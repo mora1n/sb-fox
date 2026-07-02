@@ -55,6 +55,7 @@ async function save() {
   try {
     const payload = { ...form.value }
     if (editing.value) {
+      payload.role = editing.value.role
       await store.update(editing.value.id, payload)
       ui.success('用户已更新')
     } else {
@@ -177,13 +178,6 @@ async function copyResetPassword() {
           <label v-if="!editing" class="form-control sm:col-span-2">
             <span class="label-text mb-1">{{ i18n.t('初始密码') }}</span>
             <input v-model="form.password" type="password" class="input input-bordered input-sm" autocomplete="new-password" />
-          </label>
-          <label class="form-control sm:col-span-2">
-            <span class="label-text mb-1">{{ i18n.t('角色') }}</span>
-            <select v-model="form.role" class="select select-bordered select-sm">
-              <option value="user">user</option>
-              <option value="admin">admin</option>
-            </select>
           </label>
           <label class="form-control">
             <span class="label-text mb-1">{{ i18n.t('节点上限') }}</span>

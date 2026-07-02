@@ -61,6 +61,7 @@ func (s *Server) mountAuthed(r chi.Router) {
 	r.Get("/settings", s.handleGetSettings)
 	r.Put("/settings", s.handleUpdateSettings)
 	r.Get("/settings/kernel", s.handleKernelStatus)
+	r.Get("/kernel/status", s.handlePublicKernelStatus)
 
 	r.Get("/templates", s.handleListTemplates)
 	r.Post("/templates", s.handleCreateTemplate)
@@ -74,6 +75,7 @@ func (s *Server) mountAuthed(r chi.Router) {
 
 	r.Get("/nodes", s.handleListNodes)
 	r.Post("/nodes", s.handleCreateNode)
+	r.Get("/nodes/{id}/usage", s.handleNodeUsage)
 	r.Get("/nodes/{id}", s.handleGetNode)
 	r.Put("/nodes/{id}", s.handleUpdateNode)
 	r.Delete("/nodes/{id}", s.handleDeleteNode)

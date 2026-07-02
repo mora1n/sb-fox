@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import type { Node } from '../api/types'
 import CountryFlag from './CountryFlag.vue'
+import { useI18nStore } from '../stores/i18n'
+import { nodeSourceLabel } from '../utils/nodeSource'
 import { PencilSquareIcon, TrashIcon, ArrowsRightLeftIcon } from '@heroicons/vue/24/outline'
 
 defineProps<{ node: Node; selected: boolean }>()
 defineEmits<{ edit: []; remove: []; 'toggle-select': [] }>()
+const i18n = useI18nStore()
 
 const sourceCls: Record<string, string> = {
   protocol: 'badge-neutral',
@@ -36,7 +39,7 @@ const sourceCls: Record<string, string> = {
       <div class="flex flex-wrap items-center gap-1">
         <span class="badge badge-outline badge-sm">{{ node.type }}</span>
         <CountryFlag v-if="node.country_code" :code="node.country_code" />
-        <span class="badge badge-sm" :class="sourceCls[node.source] || 'badge-ghost'">{{ node.source }}</span>
+        <span class="badge badge-sm" :class="sourceCls[node.source] || 'badge-ghost'">{{ i18n.t(nodeSourceLabel(node.source)) }}</span>
         <span v-if="node.has_detour" class="badge badge-sm badge-warning gap-1" :title="'detour: ' + node.detour">
           <ArrowsRightLeftIcon class="h-3 w-3" /> detour
         </span>

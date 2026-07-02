@@ -65,9 +65,10 @@ type Profile struct {
 
 // ProfileOptions is the parsed Profile.Options blob.
 type ProfileOptions struct {
-	AutoCountryGroups bool  `json:"autoCountryGroups"`
-	ChainProxy        bool  `json:"chainProxy"`
-	ChainProxyNodeID  int64 `json:"chainProxyNodeId,omitempty"`
+	AutoCountryGroups bool    `json:"autoCountryGroups"`
+	ChainProxy        bool    `json:"chainProxy"`
+	ChainProxyNodeID  int64   `json:"chainProxyNodeId,omitempty"`
+	ChainProxyNodeIDs []int64 `json:"chainProxyNodeIds,omitempty"`
 }
 
 // NodeGroup is a reusable, ordered collection of nodes.
@@ -79,6 +80,13 @@ type NodeGroup struct {
 	NodeIDs     []int64   `json:"node_ids"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type NodeUsage struct {
+	ProfileID    int64  `json:"profile_id"`
+	ProfileName  string `json:"profile_name"`
+	ViaGroupID   int64  `json:"via_group_id,omitempty"`
+	ViaGroupName string `json:"via_group_name,omitempty"`
 }
 
 // Admin is a compatibility view over the first administrative user.

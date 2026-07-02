@@ -28,9 +28,9 @@ const nav = computed(() => [
   { name: 'nodes', label: i18n.t('节点'), icon: ServerStackIcon },
   { name: 'templates', label: i18n.t('模板'), icon: DocumentTextIcon },
   { name: 'profiles', label: i18n.t('订阅'), icon: UserGroupIcon },
-  ...(auth.isAdmin ? [{ name: 'users', label: i18n.t('用户'), icon: UsersIcon }] : []),
   { name: 'settings', label: i18n.t('设置'), icon: Cog6ToothIcon },
 ])
+const bottomNav = computed(() => (auth.isAdmin ? [{ name: 'users', label: i18n.t('用户'), icon: UsersIcon }] : []))
 
 async function logout() {
   await auth.logout()
@@ -74,10 +74,21 @@ async function logout() {
     </div>
     <div class="drawer-side z-40">
       <label for="app-drawer" class="drawer-overlay"></label>
-      <aside class="w-60 min-h-full bg-base-100 border-r border-base-300">
+      <aside class="w-60 min-h-full bg-base-100 border-r border-base-300 flex flex-col">
         <div class="p-4 text-xl font-bold">{{ settings.appDisplayName }}</div>
-        <ul class="menu px-2 gap-1">
+        <ul class="menu px-2 gap-1 flex-1">
           <li v-for="item in nav" :key="item.name">
+            <RouterLink
+              :to="{ name: item.name }"
+              :class="{ active: router.currentRoute.value.name === item.name }"
+            >
+              <component :is="item.icon" class="h-5 w-5" />
+              {{ item.label }}
+            </RouterLink>
+          </li>
+        </ul>
+        <ul v-if="bottomNav.length" class="menu px-2 pb-3 gap-1">
+          <li v-for="item in bottomNav" :key="item.name">
             <RouterLink
               :to="{ name: item.name }"
               :class="{ active: router.currentRoute.value.name === item.name }"

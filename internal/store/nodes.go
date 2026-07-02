@@ -159,6 +159,63 @@ func (s *Store) DeleteNode(id int64) error {
 	return err
 }
 
+func (s *Store) ListNodeUsage(id, ownerUserID int64, allOwners bool) ([]*models.NodeUsage, error) {
+	var out []*models.NodeUsage
+	direct := `SELECT p.id, p.name FROM profiles p
+		JOIN profile_nodes pn ON pn.profile_id = p.id
+		WHERE pn.node_id = ?`
+	args := []any{id}
+	if !allOwners {
+		direct += ` AND p.owner_user_id = ?`
+		args = append(args, ownerUserID)
+	}
+	direct += ` ORDER BY p.name`
+	rows, err := s.db.Query(direct, args...)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		u := &models.NodeUsage{}
+		if err := rows.Scan(&u.ProfileID, &u.ProfileName); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+
+	viaGroup := `SELECT p.id, p.name, ng.id, ng.name FROM profiles p
+		JOIN profile_node_groups png ON png.profile_id = p.id
+		JOIN node_groups ng ON ng.id = png.group_id
+		JOIN node_group_nodes ngn ON ngn.group_id = ng.id
+		WHERE ngn.node_id = ?`
+	args = []any{id}
+	if !allOwners {
+		viaGroup += ` AND p.owner_user_id = ?`
+		args = append(args, ownerUserID)
+	}
+	viaGroup += ` ORDER BY p.name, ng.name`
+	rows, err = s.db.Query(viaGroup, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		u := &models.NodeUsage{}
+		if err := rows.Scan(&u.ProfileID, &u.ProfileName, &u.ViaGroupID, &u.ViaGroupName); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
 // DeleteNodesBySource removes all nodes attached to a subscription source.
 func (s *Store) DeleteNodesBySource(sourceRef int64) error {
 	_, err := s.db.Exec(`DELETE FROM nodes WHERE source = 'subscription' AND source_ref = ?`, sourceRef)

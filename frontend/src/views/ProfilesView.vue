@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { post } from '../api/client'
 import { useProfilesStore } from '../stores/profiles'
 import { useTemplatesStore } from '../stores/templates'
 import { useNodesStore } from '../stores/nodes'
 import { useNodeGroupsStore } from '../stores/nodeGroups'
+import { useSettingsStore } from '../stores/settings'
 import { useUiStore } from '../stores/ui'
 import { useI18nStore } from '../stores/i18n'
 import { errMsg } from '../utils/error'
-import type { KernelResult, PreviewPayload, Profile, ProfileOptions, ProfilePayload } from '../api/types'
+import type { KernelResult, Node, PreviewPayload, Profile, ProfileOptions, ProfilePayload } from '../api/types'
 import TokenLinkField from '../components/TokenLinkField.vue'
 import NodeMultiSelect from '../components/NodeMultiSelect.vue'
 import JsonViewer from '../components/JsonViewer.vue'
@@ -19,6 +20,7 @@ const store = useProfilesStore()
 const templates = useTemplatesStore()
 const nodes = useNodesStore()
 const nodeGroups = useNodeGroupsStore()
+const settings = useSettingsStore()
 const ui = useUiStore()
 const i18n = useI18nStore()
 
@@ -27,6 +29,14 @@ const editing = ref<Profile | null>(null)
 const busy = ref(false)
 const config = ref('')
 const validation = ref<KernelResult | null>(null)
+const allNodes = ref<Node[]>([])
+const kernelHint = computed(() => i18n.t('请先安装 sing-box 内核或在设置中配置路径'))
+const chainProxyNodeIds = computed<number[]>({
+  get: () => form.value.options.chainProxyNodeIds ?? [],
+  set: (ids) => {
+    form.value.options.chainProxyNodeIds = ids
+  },
+})
 
 const form = ref<{
   name: string
@@ -39,27 +49,48 @@ const form = ref<{
   template_id: 0,
   node_ids: [],
   node_group_ids: [],
-  options: { autoCountryGroups: true, chainProxy: false, chainProxyNodeId: 0 },
+  options: { autoCountryGroups: true, chainProxy: false, chainProxyNodeIds: [] },
 })
 
 onMounted(async () => {
   try {
-    await Promise.all([store.fetchAll(), templates.fetchAll(), nodes.fetchAll(), nodeGroups.fetchAll()])
+    const [, , loadedNodes] = await Promise.all([
+      store.fetchAll(),
+      templates.fetchAll(),
+      nodes.fetchUnfiltered(),
+      nodeGroups.fetchAll(),
+      settings.fetchKernelStatus(),
+    ])
+    allNodes.value = loadedNodes
   } catch (e) {
     ui.error(errMsg(e))
   }
 })
 
+watch(
+  () => form.value.node_ids,
+  () => {
+    const selected = new Set(form.value.node_ids)
+    form.value.options.chainProxyNodeIds = (form.value.options.chainProxyNodeIds ?? []).filter((id) => selected.has(id))
+  },
+)
+
 function parseOptions(s: string): ProfileOptions {
   try {
     const o = JSON.parse(s || '{}')
+    const legacyID = Number(o.chainProxyNodeId || 0)
     return {
       autoCountryGroups: !!o.autoCountryGroups,
       chainProxy: !!o.chainProxy,
-      chainProxyNodeId: Number(o.chainProxyNodeId || 0),
+      chainProxyNodeId: legacyID,
+      chainProxyNodeIds: Array.isArray(o.chainProxyNodeIds)
+        ? o.chainProxyNodeIds.map((id: unknown) => Number(id)).filter(Boolean)
+        : legacyID
+          ? [legacyID]
+          : [],
     }
   } catch {
-    return { autoCountryGroups: false, chainProxy: false, chainProxyNodeId: 0 }
+    return { autoCountryGroups: false, chainProxy: false, chainProxyNodeIds: [] }
   }
 }
 
@@ -86,7 +117,7 @@ function openCreate() {
     template_id: templates.templates[0]?.id || 0,
     node_ids: [],
     node_group_ids: [],
-    options: { autoCountryGroups: true, chainProxy: false, chainProxyNodeId: 0 },
+    options: { autoCountryGroups: true, chainProxy: false, chainProxyNodeIds: [] },
   }
   config.value = ''
   validation.value = null
@@ -116,7 +147,8 @@ function toggleGroup(id: number) {
 
 function buildPayload(): ProfilePayload {
   const options = { ...form.value.options }
-  if (!options.chainProxy) options.chainProxyNodeId = 0
+  options.chainProxyNodeIds = options.chainProxy ? [...(options.chainProxyNodeIds ?? [])] : []
+  options.chainProxyNodeId = 0
   return {
     name: form.value.name.trim(),
     template_id: form.value.template_id,
@@ -129,9 +161,21 @@ function buildPayload(): ProfilePayload {
 function validateForm() {
   if (!form.value.name.trim()) throw new Error('请填写名称')
   if (!form.value.template_id) throw new Error('请选择模板')
-  if (form.value.options.chainProxy && !form.value.options.chainProxyNodeId) {
+  if (form.value.options.chainProxy && !(form.value.options.chainProxyNodeIds?.length)) {
     throw new Error('请选择链式代理节点')
   }
+  if (
+    form.value.options.chainProxy &&
+    (form.value.options.chainProxyNodeIds?.length ?? 0) >= form.value.node_ids.length &&
+    !form.value.node_group_ids.length
+  ) {
+    throw new Error('链式代理需要至少一个上游节点')
+  }
+}
+
+function chainProxyCandidates() {
+  const selected = new Set(form.value.node_ids)
+  return allNodes.value.filter((n) => selected.has(n.id))
 }
 
 async function submit() {
@@ -177,6 +221,7 @@ async function generate() {
 
 async function validateGenerated() {
   if (!config.value) return ui.info('请先生成配置')
+  if (!settings.kernel?.available) return ui.info(kernelHint.value)
   busy.value = true
   try {
     validation.value = await post<KernelResult>('/generate/validate', { config: config.value })
@@ -189,6 +234,7 @@ async function validateGenerated() {
 
 async function formatGenerated() {
   if (!config.value) return ui.info('请先生成配置')
+  if (!settings.kernel?.available) return ui.info(kernelHint.value)
   busy.value = true
   try {
     const r = await post<KernelResult>('/generate/format', { config: config.value })
@@ -295,14 +341,11 @@ async function remove(p: Profile) {
             </div>
             <label v-if="form.options.chainProxy" class="form-control">
               <span class="label-text mb-1">{{ i18n.t('链式代理节点') }}</span>
-              <select v-model.number="form.options.chainProxyNodeId" class="select select-bordered select-sm">
-                <option :value="0" disabled>{{ i18n.t('选择节点') }}</option>
-                <option v-for="n in nodes.nodes" :key="n.id" :value="n.id">{{ n.tag }}</option>
-              </select>
+              <NodeMultiSelect :nodes="chainProxyCandidates()" v-model="chainProxyNodeIds" />
             </label>
             <div class="form-control">
               <span class="label-text mb-1">{{ i18n.t('单节点') }}</span>
-              <NodeMultiSelect :nodes="nodes.nodes" v-model="form.node_ids" />
+              <NodeMultiSelect :nodes="allNodes" v-model="form.node_ids" />
             </div>
             <div class="form-control">
               <span class="label-text mb-1">{{ i18n.t('组合节点') }}</span>
@@ -332,8 +375,8 @@ async function remove(p: Profile) {
                 <span v-if="busy" class="loading loading-spinner loading-sm"></span>
                 <span>{{ i18n.t('生成') }}</span>
               </button>
-              <button class="btn btn-sm" @click="validateGenerated" :disabled="busy || !config">{{ i18n.t('校验') }}</button>
-              <button class="btn btn-sm" @click="formatGenerated" :disabled="busy || !config">{{ i18n.t('格式化') }}</button>
+              <button class="btn btn-sm" @click="validateGenerated" :disabled="busy" :class="{ 'opacity-50 cursor-not-allowed': !config || !settings.kernel?.available }" :title="settings.kernel?.available ? '' : kernelHint">{{ i18n.t('校验') }}</button>
+              <button class="btn btn-sm" @click="formatGenerated" :disabled="busy" :class="{ 'opacity-50 cursor-not-allowed': !config || !settings.kernel?.available }" :title="settings.kernel?.available ? '' : kernelHint">{{ i18n.t('格式化') }}</button>
             </div>
             <ValidationBadge :status="validation?.status ?? null" :messages="validation?.messages" />
             <div class="border border-base-300 rounded-box bg-base-100 min-h-80">

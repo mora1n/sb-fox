@@ -26,6 +26,12 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
+	req.NodeIDs = uniqueInt64s(req.NodeIDs)
+	req.NodeGroupIDs = uniqueInt64s(req.NodeGroupIDs)
+	normalizePreviewRequestOptions(&req)
+	if !validateChainProxySelection(w, req.NodeIDs, req.NodeGroupIDs, req.Options) {
+		return
+	}
 	content := req.TemplateContent
 	if content == "" {
 		t, err := s.Store.GetTemplateForUser(req.TemplateID, u.ID, u.IsAdmin())
@@ -51,6 +57,12 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]string{"config": string(config)})
+}
+
+func normalizePreviewRequestOptions(req *previewRequest) {
+	profileReq := profileRequest{Options: req.Options}
+	normalizeProfileRequestOptions(&profileReq)
+	req.Options = profileReq.Options
 }
 
 type validateRequest struct {
@@ -225,11 +237,6 @@ func (s *Server) resolveNodesForUser(nodeIDs, groupIDs []int64, opts models.Prof
 			if err := addNode(id); err != nil {
 				return nil, err
 			}
-		}
-	}
-	if opts.ChainProxy {
-		if err := addNode(opts.ChainProxyNodeID); err != nil {
-			return nil, err
 		}
 	}
 	return out, nil

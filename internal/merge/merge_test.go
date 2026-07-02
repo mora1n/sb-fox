@@ -192,6 +192,32 @@ func TestChainProxySelector(t *testing.T) {
 	}
 }
 
+func TestChainProxySelectorUsesExplicitOutbounds(t *testing.T) {
+	cfg := loadTemplate(t, "fakeip")
+	nodes := loadFixtureNodes(t, "proto-a", "protocol")
+
+	out, err := Generate(cfg, nodes, Options{
+		AutoCountryGroups:   true,
+		ChainProxy:          true,
+		ChainProxyOutbounds: []string{"proto-a"},
+	})
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	outbounds, err := configOutbounds(out)
+	if err != nil {
+		t.Fatalf("outbounds: %v", err)
+	}
+	chainSelector := findTestOutbound(outbounds, "🔗 Chain Proxy")
+	if chainSelector == nil {
+		t.Fatal("missing chain proxy selector")
+	}
+	tags := outboundTagsForTest(chainSelector)
+	if len(tags) != 1 || tags[0] != "proto-a" {
+		t.Fatalf("chain selector outbounds = %v", tags)
+	}
+}
+
 func mustMarshal(t *testing.T, m *OrderedMap) []byte {
 	t.Helper()
 	b, err := m.MarshalJSON()

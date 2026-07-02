@@ -140,6 +140,24 @@ func (s *Server) handleDeleteNode(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+func (s *Server) handleNodeUsage(w http.ResponseWriter, r *http.Request) {
+	ownerID, allOwners := ownerScope(r)
+	id := pathID(r)
+	if _, err := s.Store.GetNodeForUser(id, ownerID, allOwners); err == store.ErrNotFound {
+		respondError(w, http.StatusNotFound, "not_found", "node not found")
+		return
+	} else if err != nil {
+		respondError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	usage, err := s.Store.ListNodeUsage(id, ownerID, allOwners)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	respondJSON(w, http.StatusOK, usage)
+}
+
 // applyManualCountry lets the request override the detected country.
 func applyManualCountry(n *models.Node, req nodeRequest) {
 	if req.CountrySource == "manual" && req.CountryCode != "" {

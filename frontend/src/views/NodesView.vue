@@ -6,7 +6,8 @@ import { useUiStore } from '../stores/ui'
 import { useI18nStore } from '../stores/i18n'
 import { errMsg } from '../utils/error'
 import { downloadPost } from '../api/client'
-import type { Node, NodeGroup } from '../api/types'
+import type { Node, NodeGroup, NodeSource } from '../api/types'
+import { nodeSourceLabel } from '../utils/nodeSource'
 import NodeCard from '../components/NodeCard.vue'
 import NodeEditForm from '../components/NodeEditForm.vue'
 import NodeMultiSelect from '../components/NodeMultiSelect.vue'
@@ -36,7 +37,7 @@ const selected = ref<Set<number>>(new Set())
 const busy = ref(false)
 const groupForm = ref({ name: '', description: '', node_ids: [] as number[] })
 
-const SOURCES = ['protocol', 'subscription', 'config', 'manual']
+const SOURCES: NodeSource[] = ['protocol', 'subscription', 'config', 'manual']
 const loading = computed(() => nodesStore.loading || nodeGroups.loading)
 
 onMounted(load)
@@ -120,7 +121,18 @@ async function submitGroup() {
 }
 
 async function remove(n: Node) {
-  if (!confirm(`删除节点 "${n.tag}"？`)) return
+  let message = `删除节点 "${n.tag}"？`
+  try {
+    const usage = await nodesStore.usage(n.id)
+    if (usage.length) {
+      const names = [...new Set(usage.map((u) => u.profile_name))]
+      message = `删除节点 "${n.tag}"？\n\n该节点正在被以下订阅使用，删除后可能导致订阅失效：\n${names.join('\n')}`
+    }
+  } catch (e) {
+    ui.error(errMsg(e))
+    return
+  }
+  if (!confirm(message)) return
   try {
     await nodesStore.remove(n.id)
     selected.value.delete(n.id)
@@ -209,7 +221,7 @@ async function exportTemplate() {
         </div>
         <select v-model="nodesStore.filters.source" class="select select-bordered select-sm">
           <option value="">{{ i18n.t('全部来源') }}</option>
-          <option v-for="s in SOURCES" :key="s" :value="s">{{ s }}</option>
+          <option v-for="s in SOURCES" :key="s" :value="s">{{ i18n.t(nodeSourceLabel(s)) }}</option>
         </select>
         <select v-model="nodesStore.filters.country" class="select select-bordered select-sm">
           <option value="">{{ i18n.t('全部国家') }}</option>

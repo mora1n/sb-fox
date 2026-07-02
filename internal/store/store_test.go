@@ -295,6 +295,95 @@ func TestNodeGroupAndProfileMembership(t *testing.T) {
 	}
 }
 
+func TestListNodeUsageDirectAndViaGroup(t *testing.T) {
+	s := openTest(t)
+	ownerID := createTestUser(t, s)
+	otherOwnerID, err := s.CreateUser(&models.User{Username: "other", PasswordHash: "hash", Role: models.RoleUser})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tid, err := s.CreateTemplate(&models.Template{OwnerUserID: ownerID, Name: "t1", Kind: "user", Content: "{}"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherTid, err := s.CreateTemplate(&models.Template{OwnerUserID: otherOwnerID, Name: "t2", Kind: "user", Content: "{}"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nid, err := s.CreateNode(&models.Node{OwnerUserID: ownerID, Tag: "n1", Type: "vmess", Source: "manual", Raw: "{}"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherNID, err := s.CreateNode(&models.Node{OwnerUserID: otherOwnerID, Tag: "n2", Type: "vmess", Source: "manual", Raw: "{}"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gid, err := s.CreateNodeGroup(&models.NodeGroup{
+		OwnerUserID: ownerID,
+		Name:        "g1",
+		NodeIDs:     []int64{nid},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateProfile(&models.Profile{
+		OwnerUserID: ownerID,
+		Name:        "direct",
+		TemplateID:  tid,
+		Options:     "{}",
+		Token:       "tok-direct",
+		NodeIDs:     []int64{nid},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateProfile(&models.Profile{
+		OwnerUserID:  ownerID,
+		Name:         "grouped",
+		TemplateID:   tid,
+		Options:      "{}",
+		Token:        "tok-grouped",
+		NodeGroupIDs: []int64{gid},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateProfile(&models.Profile{
+		OwnerUserID: otherOwnerID,
+		Name:        "other",
+		TemplateID:  otherTid,
+		Options:     "{}",
+		Token:       "tok-other",
+		NodeIDs:     []int64{otherNID},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	usage, err := s.ListNodeUsage(nid, ownerID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(usage) != 2 {
+		t.Fatalf("usage len = %d, usage = %+v", len(usage), usage)
+	}
+	byProfile := map[string]*models.NodeUsage{}
+	for _, u := range usage {
+		byProfile[u.ProfileName] = u
+	}
+	if byProfile["direct"] == nil || byProfile["direct"].ViaGroupID != 0 {
+		t.Fatalf("direct usage = %+v", byProfile["direct"])
+	}
+	if byProfile["grouped"] == nil || byProfile["grouped"].ViaGroupName != "g1" {
+		t.Fatalf("group usage = %+v", byProfile["grouped"])
+	}
+
+	all, err := s.ListNodeUsage(otherNID, ownerID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 1 || all[0].ProfileName != "other" {
+		t.Fatalf("all owner usage = %+v", all)
+	}
+}
+
 func TestListProfilesWithNodesDoesNotNestOpenRows(t *testing.T) {
 	s := openTest(t)
 	ownerID := createTestUser(t, s)

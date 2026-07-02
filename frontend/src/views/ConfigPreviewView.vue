@@ -1,24 +1,34 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useTemplatesStore } from '../stores/templates'
 import { useNodesStore } from '../stores/nodes'
+import { useSettingsStore } from '../stores/settings'
 import { useUiStore } from '../stores/ui'
 import { useI18nStore } from '../stores/i18n'
 import { errMsg } from '../utils/error'
 import { post } from '../api/client'
-import type { KernelResult, PreviewPayload, ProfileOptions } from '../api/types'
+import type { KernelResult, Node, PreviewPayload, ProfileOptions } from '../api/types'
 import NodeMultiSelect from '../components/NodeMultiSelect.vue'
 import JsonViewer from '../components/JsonViewer.vue'
 import ValidationBadge from '../components/ValidationBadge.vue'
 
 const templates = useTemplatesStore()
 const nodes = useNodesStore()
+const settings = useSettingsStore()
 const ui = useUiStore()
 const i18n = useI18nStore()
 
 const templateId = ref(0)
 const nodeIds = ref<number[]>([])
-const options = ref<ProfileOptions>({ autoCountryGroups: true, chainProxy: false })
+const options = ref<ProfileOptions>({ autoCountryGroups: true, chainProxy: false, chainProxyNodeIds: [] })
+const allNodes = ref<Node[]>([])
+const kernelHint = computed(() => i18n.t('请先安装 sing-box 内核或在设置中配置路径'))
+const chainProxyNodeIds = computed<number[]>({
+  get: () => options.value.chainProxyNodeIds ?? [],
+  set: (ids) => {
+    options.value.chainProxyNodeIds = ids
+  },
+})
 
 const config = ref('')
 const validation = ref<KernelResult | null>(null)
@@ -26,22 +36,45 @@ const busy = ref(false)
 
 onMounted(async () => {
   try {
-    await Promise.all([templates.fetchAll(), nodes.fetchAll()])
+    const [, loadedNodes] = await Promise.all([templates.fetchAll(), nodes.fetchUnfiltered(), settings.fetchKernelStatus()])
+    allNodes.value = loadedNodes
     templateId.value = templates.templates[0]?.id || 0
   } catch (e) {
     ui.error(errMsg(e))
   }
 })
 
+watch(nodeIds, () => {
+  const selected = new Set(nodeIds.value)
+  options.value.chainProxyNodeIds = (options.value.chainProxyNodeIds ?? []).filter((id) => selected.has(id))
+})
+
+const chainProxyCandidates = computed(() => {
+  const selected = new Set(nodeIds.value)
+  return allNodes.value.filter((n) => selected.has(n.id))
+})
+
+function validateOptions() {
+  if (!options.value.chainProxy) return
+  const selected = options.value.chainProxyNodeIds ?? []
+  if (!selected.length) throw new Error('请选择链式代理节点')
+  if (selected.length >= nodeIds.value.length) throw new Error('链式代理需要至少一个上游节点')
+}
+
 async function generate() {
   if (!templateId.value) return ui.info('请选择模板')
   busy.value = true
   validation.value = null
   try {
+    validateOptions()
     const payload: PreviewPayload = {
       template_id: templateId.value,
       node_ids: nodeIds.value,
-      options: options.value,
+      options: {
+        ...options.value,
+        chainProxyNodeIds: options.value.chainProxy ? [...(options.value.chainProxyNodeIds ?? [])] : [],
+        chainProxyNodeId: 0,
+      },
     }
     const r = await post<{ config: string }>('/generate/preview', payload)
     config.value = r.config
@@ -55,6 +88,7 @@ async function generate() {
 
 async function validate() {
   if (!config.value) return ui.info('请先生成配置')
+  if (!settings.kernel?.available) return ui.info(kernelHint.value)
   busy.value = true
   try {
     validation.value = await post<KernelResult>('/generate/validate', { config: config.value })
@@ -67,6 +101,7 @@ async function validate() {
 
 async function format() {
   if (!config.value) return ui.info('请先生成配置')
+  if (!settings.kernel?.available) return ui.info(kernelHint.value)
   busy.value = true
   try {
     const r = await post<KernelResult>('/generate/format', { config: config.value })
@@ -115,15 +150,19 @@ async function format() {
           </div>
           <div class="form-control">
             <span class="label-text mb-1">{{ i18n.t('节点') }}</span>
-            <NodeMultiSelect :nodes="nodes.nodes" v-model="nodeIds" />
+            <NodeMultiSelect :nodes="allNodes" v-model="nodeIds" />
+          </div>
+          <div v-if="options.chainProxy" class="form-control">
+            <span class="label-text mb-1">{{ i18n.t('链式代理节点') }}</span>
+            <NodeMultiSelect :nodes="chainProxyCandidates" v-model="chainProxyNodeIds" />
           </div>
           <div class="flex gap-2">
             <button class="btn btn-primary btn-sm w-24 justify-center" @click="generate" :disabled="busy">
               <span v-if="busy" class="loading loading-spinner loading-sm"></span>
               <span>{{ i18n.t('生成') }}</span>
             </button>
-            <button class="btn btn-sm" @click="validate" :disabled="busy || !config">{{ i18n.t('校验') }}</button>
-            <button class="btn btn-sm" @click="format" :disabled="busy || !config">{{ i18n.t('格式化') }}</button>
+            <button class="btn btn-sm" @click="validate" :disabled="busy" :class="{ 'opacity-50 cursor-not-allowed': !config || !settings.kernel?.available }" :title="settings.kernel?.available ? '' : kernelHint">{{ i18n.t('校验') }}</button>
+            <button class="btn btn-sm" @click="format" :disabled="busy" :class="{ 'opacity-50 cursor-not-allowed': !config || !settings.kernel?.available }" :title="settings.kernel?.available ? '' : kernelHint">{{ i18n.t('格式化') }}</button>
           </div>
           <ValidationBadge :status="validation?.status ?? null" :messages="validation?.messages" />
         </div>

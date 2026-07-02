@@ -21,11 +21,16 @@ type Options struct {
 	// CountryHeatOrder ranks country selectors before the region fallback sort.
 	// Empty means DefaultCountryHeatOrder().
 	CountryHeatOrder []string
-	// ChainProxy adds a selector grouping non-chain options. ChainProxyTag is
-	// the outbound tag used as the detour target by callers.
-	ChainProxy    bool
+	// ChainProxy adds a selector grouping the configured upstream options.
+	ChainProxy bool
+	// ChainProxyOutbounds is the explicit upstream tag list for the selector.
+	ChainProxyOutbounds []string
+	// ChainProxyTag is kept for compatibility with older callers; when
+	// ChainProxyOutbounds is empty, nodes with this tag are excluded.
 	ChainProxyTag string
 }
+
+const ChainProxyTag = "🔗 Chain Proxy"
 
 // DefaultOptions returns options matching merge.js defaults.
 func DefaultOptions() Options {
@@ -66,7 +71,10 @@ func Generate(config *OrderedMap, nodes []*Node, opts Options) (*OrderedMap, err
 
 	if !opts.AutoCountryGroups {
 		if opts.ChainProxy {
-			tags := nonChainProxyTags(info.validProxies, opts.ChainProxyTag)
+			tags := opts.ChainProxyOutbounds
+			if len(tags) == 0 {
+				tags = nonChainProxyTags(info.validProxies, opts.ChainProxyTag)
+			}
 			if chainSelector := createChainProxySelector(tags); chainSelector != nil {
 				outbounds = insertAdditionalOutbounds(outbounds, groups.directIdx, []any{chainSelector})
 				config.Set("outbounds", outbounds)
@@ -101,7 +109,11 @@ func Generate(config *OrderedMap, nodes []*Node, opts Options) (*OrderedMap, err
 	}
 	var chainSelector *OrderedMap
 	if opts.ChainProxy {
-		chainSelector = createChainProxySelector(selectableTags)
+		tags := opts.ChainProxyOutbounds
+		if len(tags) == 0 {
+			tags = selectableTags
+		}
+		chainSelector = createChainProxySelector(tags)
 	}
 	appendUniqueTags(groups.proxy, selectableTags)
 	appendUniqueTags(groups.auto, selectableTags)
@@ -176,7 +188,7 @@ func createChainProxySelector(tags []string) *OrderedMap {
 	}
 	sel := NewOrderedMap()
 	sel.Set("type", "selector")
-	sel.Set("tag", "🔗 Chain Proxy")
+	sel.Set("tag", ChainProxyTag)
 	sel.Set("outbounds", toAnySlice(tags))
 	return sel
 }

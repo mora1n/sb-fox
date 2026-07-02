@@ -32,7 +32,7 @@ onMounted(async () => {
       templatesStore.fetchAll(),
       profilesStore.fetchAll(),
       settingsStore.fetchAll(),
-      settingsStore.fetchKernel(),
+      settingsStore.fetchKernelStatus(),
     ])
   } catch (e) {
     ui.error(errMsg(e))

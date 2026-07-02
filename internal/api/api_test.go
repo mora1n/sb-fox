@@ -126,6 +126,24 @@ func decodeData(t *testing.T, resp *http.Response, dst any) {
 	}
 }
 
+func decodeError(t *testing.T, resp *http.Response) (int, string, string) {
+	t.Helper()
+	defer resp.Body.Close()
+	var env struct {
+		Error *struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
+		t.Fatalf("decode error envelope: %v", err)
+	}
+	if env.Error == nil {
+		t.Fatalf("expected api error, got status %d", resp.StatusCode)
+	}
+	return resp.StatusCode, env.Error.Code, env.Error.Message
+}
+
 func TestAuthGuard(t *testing.T) {
 	_, ts := testServer(t)
 	c := newClient(t, ts.URL)
@@ -190,6 +208,172 @@ func TestRegistrationAdminResetAndQuota(t *testing.T) {
 		t.Fatalf("quota status = %d", create2.StatusCode)
 	}
 	create2.Body.Close()
+}
+
+func TestAdminUserRoleIsNotEditableFromPanel(t *testing.T) {
+	_, ts := testServer(t)
+	c := newClient(t, ts.URL)
+	c.http.Jar = login(t, ts.URL)
+
+	status, _, msg := decodeError(t, c.do(http.MethodPost, "/api/users", map[string]any{
+		"username": "root2", "password": "password123", "role": "admin",
+	}))
+	if status != http.StatusBadRequest || !strings.Contains(msg, "role user") {
+		t.Fatalf("create admin status=%d msg=%q", status, msg)
+	}
+
+	var user struct {
+		ID   int64  `json:"id"`
+		Role string `json:"role"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/users", map[string]any{
+		"username": "bob", "password": "password123",
+	}), &user)
+	if user.Role != "user" {
+		t.Fatalf("created role = %q", user.Role)
+	}
+
+	status, _, msg = decodeError(t, c.do(http.MethodPut, "/api/users/"+itoa(user.ID), map[string]any{
+		"username": "bob", "role": "admin",
+	}))
+	if status != http.StatusBadRequest || !strings.Contains(msg, "cannot be changed") {
+		t.Fatalf("update role status=%d msg=%q", status, msg)
+	}
+
+	var updated struct {
+		Username string `json:"username"`
+		Role     string `json:"role"`
+	}
+	decodeData(t, c.do(http.MethodPut, "/api/users/"+itoa(user.ID), map[string]any{
+		"username": "bob2",
+	}), &updated)
+	if updated.Username != "bob2" || updated.Role != "user" {
+		t.Fatalf("updated user = %+v", updated)
+	}
+}
+
+func TestUserSettingsPermissionsAndPublicKernelStatus(t *testing.T) {
+	srv, ts := testServer(t)
+	srv.Kernel.Path = ""
+	admin := newClient(t, ts.URL)
+	admin.http.Jar = login(t, ts.URL)
+
+	var user struct {
+		ID int64 `json:"id"`
+	}
+	decodeData(t, admin.do(http.MethodPost, "/api/users", map[string]any{
+		"username": "carol", "password": "password123",
+	}), &user)
+
+	userClient := newClient(t, ts.URL)
+	userClient.http.Jar = loginAs(t, ts.URL, "carol", "password123")
+
+	var settings map[string]string
+	decodeData(t, userClient.do(http.MethodGet, "/api/settings", nil), &settings)
+	if _, ok := settings["app_display_name"]; ok {
+		t.Fatalf("non-admin settings leaked app_display_name: %+v", settings)
+	}
+	if _, ok := settings["kernel_path"]; ok {
+		t.Fatalf("non-admin settings leaked kernel_path: %+v", settings)
+	}
+	if _, ok := settings["country_heat_order"]; !ok {
+		t.Fatalf("non-admin settings missing country_heat_order: %+v", settings)
+	}
+
+	status, _, msg := decodeError(t, userClient.do(http.MethodPut, "/api/settings", map[string]string{"kernel_path": "sing-box"}))
+	if status != http.StatusForbidden || !strings.Contains(msg, "admin only") {
+		t.Fatalf("kernel setting status=%d msg=%q", status, msg)
+	}
+	status, _, msg = decodeError(t, userClient.do(http.MethodPut, "/api/settings", map[string]string{"subfetch_allow_private": "true"}))
+	if status != http.StatusForbidden || !strings.Contains(msg, "admin only") {
+		t.Fatalf("private fetch setting status=%d msg=%q", status, msg)
+	}
+	status, _, _ = decodeError(t, userClient.do(http.MethodGet, "/api/settings/kernel", nil))
+	if status != http.StatusForbidden {
+		t.Fatalf("non-admin kernel settings status=%d", status)
+	}
+
+	var public map[string]any
+	decodeData(t, userClient.do(http.MethodGet, "/api/kernel/status", nil), &public)
+	if _, ok := public["path"]; ok {
+		t.Fatalf("public kernel status leaked path: %+v", public)
+	}
+	if got, ok := public["available"].(bool); !ok || got {
+		t.Fatalf("public kernel status = %+v", public)
+	}
+
+	var adminKernel map[string]any
+	decodeData(t, admin.do(http.MethodGet, "/api/settings/kernel", nil), &adminKernel)
+	if _, ok := adminKernel["path"]; !ok {
+		t.Fatalf("admin kernel status missing path: %+v", adminKernel)
+	}
+}
+
+func TestNodeUsageEndpoint(t *testing.T) {
+	_, ts := testServer(t)
+	c := newClient(t, ts.URL)
+	c.http.Jar = login(t, ts.URL)
+
+	var templates []struct {
+		ID   int64  `json:"id"`
+		Name string `json:"name"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/templates", nil), &templates)
+	var templateID int64
+	for _, tm := range templates {
+		if tm.Name == "fakeip" {
+			templateID = tm.ID
+		}
+	}
+	if templateID == 0 {
+		t.Fatal("fakeip template not seeded")
+	}
+
+	createNode := func(tag string) int64 {
+		t.Helper()
+		raw := `{"type":"shadowsocks","tag":"` + tag + `","server":"example.com","server_port":443}`
+		var node struct {
+			ID int64 `json:"id"`
+		}
+		decodeData(t, c.do(http.MethodPost, "/api/nodes", map[string]string{"raw": raw}), &node)
+		return node.ID
+	}
+	n1 := createNode("n1")
+	n2 := createNode("n2")
+
+	var group struct {
+		ID int64 `json:"id"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/node-groups", map[string]any{
+		"name": "g1", "node_ids": []int64{n1},
+	}), &group)
+	decodeData(t, c.do(http.MethodPost, "/api/profiles", map[string]any{
+		"name": "direct", "template_id": templateID, "node_ids": []int64{n1, n2},
+		"options": map[string]bool{"autoCountryGroups": true},
+	}), nil)
+	decodeData(t, c.do(http.MethodPost, "/api/profiles", map[string]any{
+		"name": "grouped", "template_id": templateID, "node_group_ids": []int64{group.ID},
+		"options": map[string]bool{"autoCountryGroups": true},
+	}), nil)
+
+	var usage []struct {
+		ProfileName  string `json:"profile_name"`
+		ViaGroupName string `json:"via_group_name"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/nodes/"+itoa(n1)+"/usage", nil), &usage)
+	if len(usage) != 2 {
+		t.Fatalf("usage = %+v", usage)
+	}
+	seen := map[string]string{}
+	for _, u := range usage {
+		seen[u.ProfileName] = u.ViaGroupName
+	}
+	if _, ok := seen["direct"]; !ok {
+		t.Fatalf("missing direct usage: %+v", usage)
+	}
+	if seen["grouped"] != "g1" {
+		t.Fatalf("missing group usage: %+v", usage)
+	}
 }
 
 // TestFullFlow exercises login → import links → create profile → public sub →

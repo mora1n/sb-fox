@@ -1,7 +1,7 @@
 # sb-fox
 
 [![Release](https://img.shields.io/github/v/release/mora1n/sb-fox?sort=semver)](https://github.com/mora1n/sb-fox/releases)
-[![sing-box](https://img.shields.io/badge/sing--box-1.13.14-neutral)](https://github.com/SagerNet/sing-box)
+[![sing-box](https://img.shields.io/badge/sing--box-recommended%201.13.14-neutral)](https://github.com/SagerNet/sing-box)
 
 `sb-fox` 是一个轻量的 sing-box Web 面板，用于管理节点、模板和公开订阅分组。
 
@@ -16,7 +16,7 @@
 - 在简洁的 Web UI 中管理模板、节点和订阅分组
 - 支持多用户，管理员可管理用户、重置密码并设置资源上限
 - 生成可轮换 token 的公开订阅链接
-- 调用本机 sing-box 校验和格式化生成配置
+- 调用本机 sing-box 校验和格式化生成配置，未安装内核时相关按钮会置灰提示
 
 ## 安装
 
@@ -90,7 +90,7 @@ data/templates/fakeip.json
 
 它会以普通可编辑模板的形式写入数据库，模板名为 `fakeip`。如果数据库中已经存在同名模板，重启时不会覆盖用户修改。
 
-该模板面向 sing-box `1.13.14`。
+该模板建议使用 sing-box `1.13.14` 做兼容性检查；`sb-fox` 运行时不锁定 sing-box 版本。
 
 ## 配置
 
@@ -135,7 +135,7 @@ make parity
 sing-box check -c data/templates/fakeip.json
 ```
 
-模板兼容性检查建议使用 sing-box `1.13.14` 二进制。
+模板兼容性检查建议使用 sing-box `1.13.14` 二进制。未安装 sing-box 时，配置生成仍可使用，校验和格式化功能会在前端置灰提示。
 
 ## 安全
 

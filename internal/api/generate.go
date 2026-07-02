@@ -21,16 +21,19 @@ func generateConfig(templateContent string, nodes []*models.Node, opts models.Pr
 	if err != nil {
 		return nil, err
 	}
-	chainTag, err := applyChainProxy(nodes, mergeNodes, opts)
+	if err := applyChainProxy(nodes, mergeNodes, opts); err != nil {
+		return nil, err
+	}
+	chainSelectorTags, err := chainProxySelectorTags(nodes, mergeNodes, opts)
 	if err != nil {
 		return nil, err
 	}
 
 	out, err := merge.Generate(cfg, mergeNodes, merge.Options{
-		AutoCountryGroups: opts.AutoCountryGroups,
-		CountryHeatOrder:  countryHeatOrder,
-		ChainProxy:        opts.ChainProxy,
-		ChainProxyTag:     chainTag,
+		AutoCountryGroups:   opts.AutoCountryGroups,
+		CountryHeatOrder:    countryHeatOrder,
+		ChainProxy:          opts.ChainProxy,
+		ChainProxyOutbounds: chainSelectorTags,
 	})
 	if err != nil {
 		return nil, err
@@ -43,30 +46,62 @@ func generateConfig(templateContent string, nodes []*models.Node, opts models.Pr
 	return merge.Indent(compact)
 }
 
-func applyChainProxy(nodes []*models.Node, mergeNodes []*merge.Node, opts models.ProfileOptions) (string, error) {
+func applyChainProxy(nodes []*models.Node, mergeNodes []*merge.Node, opts models.ProfileOptions) error {
 	if !opts.ChainProxy {
-		return "", nil
+		return nil
 	}
-	if opts.ChainProxyNodeID == 0 {
-		return "", fmt.Errorf("chain proxy node is required")
+	chainIDs := normalizedChainProxyNodeIDs(opts)
+	if len(chainIDs) == 0 {
+		return fmt.Errorf("chain proxy nodes are required")
 	}
-	chainTag := ""
+	chainSet := make(map[int64]bool, len(chainIDs))
+	for _, id := range chainIDs {
+		chainSet[id] = true
+	}
+	found := 0
 	for i, n := range nodes {
-		if n.ID == opts.ChainProxyNodeID {
-			chainTag = mergeNodes[i].Raw.GetString("tag")
-			break
+		if chainSet[n.ID] {
+			mergeNodes[i].Raw.Set("detour", merge.ChainProxyTag)
+			found++
 		}
 	}
-	if chainTag == "" {
-		return "", fmt.Errorf("chain proxy node not found")
+	if found != len(chainSet) {
+		return fmt.Errorf("chain proxy node not found")
 	}
+	return nil
+}
+
+func chainProxySelectorTags(nodes []*models.Node, mergeNodes []*merge.Node, opts models.ProfileOptions) ([]string, error) {
+	if !opts.ChainProxy {
+		return nil, nil
+	}
+	chainIDs := normalizedChainProxyNodeIDs(opts)
+	chainSet := make(map[int64]bool, len(chainIDs))
+	for _, id := range chainIDs {
+		chainSet[id] = true
+	}
+	tags := make([]string, 0, len(nodes)-len(chainSet))
 	for i, n := range nodes {
-		if n.ID == opts.ChainProxyNodeID {
+		if chainSet[n.ID] {
 			continue
 		}
-		mergeNodes[i].Raw.Set("detour", chainTag)
+		tag := mergeNodes[i].Raw.GetString("tag")
+		if tag != "" {
+			tags = append(tags, tag)
+		}
 	}
-	return chainTag, nil
+	if len(tags) == 0 {
+		return nil, fmt.Errorf("chain proxy selector has no upstream nodes")
+	}
+	return tags, nil
+}
+
+func normalizedChainProxyNodeIDs(opts models.ProfileOptions) []int64 {
+	ids := opts.ChainProxyNodeIDs
+	if len(ids) == 0 && opts.ChainProxyNodeID != 0 {
+		ids = []int64{opts.ChainProxyNodeID}
+	}
+	return uniqueInt64s(ids)
 }
 
 // toMergeNodes converts DB node rows into merge.Node values. A node whose
@@ -111,9 +146,10 @@ func parseProfileOptions(blob string) models.ProfileOptions {
 	// Preserve an explicitly-false autoCountryGroups: decode into a probe with
 	// pointer so we can tell "absent" from "false".
 	var probe struct {
-		AutoCountryGroups *bool `json:"autoCountryGroups"`
-		ChainProxy        bool  `json:"chainProxy"`
-		ChainProxyNodeID  int64 `json:"chainProxyNodeId"`
+		AutoCountryGroups *bool   `json:"autoCountryGroups"`
+		ChainProxy        bool    `json:"chainProxy"`
+		ChainProxyNodeID  int64   `json:"chainProxyNodeId"`
+		ChainProxyNodeIDs []int64 `json:"chainProxyNodeIds"`
 	}
 	if err := json.Unmarshal([]byte(blob), &probe); err != nil {
 		return opts
@@ -123,5 +159,9 @@ func parseProfileOptions(blob string) models.ProfileOptions {
 	}
 	opts.ChainProxy = probe.ChainProxy
 	opts.ChainProxyNodeID = probe.ChainProxyNodeID
+	opts.ChainProxyNodeIDs = uniqueInt64s(probe.ChainProxyNodeIDs)
+	if len(opts.ChainProxyNodeIDs) == 0 && opts.ChainProxyNodeID != 0 {
+		opts.ChainProxyNodeIDs = []int64{opts.ChainProxyNodeID}
+	}
 	return opts
 }

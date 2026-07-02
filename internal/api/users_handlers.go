@@ -50,8 +50,8 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	role, err := store.NormalizeRole(req.Role)
-	if err != nil {
-		respondError(w, http.StatusBadRequest, "bad_request", err.Error())
+	if err != nil || role != models.RoleUser {
+		respondError(w, http.StatusBadRequest, "bad_request", "users created from the panel must have role user")
 		return
 	}
 	hash, err := auth.HashPassword(req.Password)
@@ -102,24 +102,11 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "bad_request", "username is required")
 		return
 	}
-	role, err := store.NormalizeRole(req.Role)
-	if err != nil {
-		respondError(w, http.StatusBadRequest, "bad_request", err.Error())
+	if req.Role != "" && req.Role != existing.Role {
+		respondError(w, http.StatusBadRequest, "bad_request", "user role cannot be changed")
 		return
 	}
-	if existing.Role == models.RoleAdmin && role != models.RoleAdmin {
-		admins, err := s.Store.CountAdmins()
-		if err != nil {
-			respondError(w, http.StatusInternalServerError, "internal", err.Error())
-			return
-		}
-		if admins <= 1 {
-			respondError(w, http.StatusForbidden, "forbidden", "cannot demote the last admin")
-			return
-		}
-	}
 	existing.Username = username
-	existing.Role = role
 	existing.NodeLimit = req.NodeLimit
 	existing.ProfileLimit = req.ProfileLimit
 	existing.TemplateLimit = req.TemplateLimit

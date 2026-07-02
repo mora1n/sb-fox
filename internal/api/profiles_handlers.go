@@ -59,6 +59,7 @@ func (s *Server) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	req.NodeIDs = uniqueInt64s(req.NodeIDs)
 	req.NodeGroupIDs = uniqueInt64s(req.NodeGroupIDs)
+	normalizeProfileRequestOptions(&req)
 	if _, err := s.Store.GetTemplateForUser(req.TemplateID, u.ID, u.IsAdmin()); err != nil {
 		respondError(w, http.StatusBadRequest, "bad_request", "template not found")
 		return
@@ -69,7 +70,10 @@ func (s *Server) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 	if !s.validateNodeGroupAccess(w, u, req.NodeGroupIDs) {
 		return
 	}
-	if req.Options.ChainProxy && !s.validateNodeAccess(w, u, []int64{req.Options.ChainProxyNodeID}) {
+	if req.Options.ChainProxy && !s.validateNodeAccess(w, u, req.Options.ChainProxyNodeIDs) {
+		return
+	}
+	if !validateChainProxySelection(w, req.NodeIDs, req.NodeGroupIDs, req.Options) {
 		return
 	}
 	if !s.checkQuota(w, u, quotaProfiles, 1) {
@@ -124,6 +128,7 @@ func (s *Server) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	req.NodeIDs = uniqueInt64s(req.NodeIDs)
 	req.NodeGroupIDs = uniqueInt64s(req.NodeGroupIDs)
+	normalizeProfileRequestOptions(&req)
 	refOwner := existing.OwnerUserID
 	refAllOwners := u.IsAdmin()
 	if _, err := s.Store.GetTemplateForUser(req.TemplateID, refOwner, refAllOwners); err != nil {
@@ -136,7 +141,10 @@ func (s *Server) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 	if !s.validateNodeGroupAccessForOwner(w, refOwner, refAllOwners, req.NodeGroupIDs) {
 		return
 	}
-	if req.Options.ChainProxy && !s.validateNodeAccessForOwner(w, refOwner, refAllOwners, []int64{req.Options.ChainProxyNodeID}) {
+	if req.Options.ChainProxy && !s.validateNodeAccessForOwner(w, refOwner, refAllOwners, req.Options.ChainProxyNodeIDs) {
+		return
+	}
+	if !validateChainProxySelection(w, req.NodeIDs, req.NodeGroupIDs, req.Options) {
 		return
 	}
 	existing.Name = req.Name
@@ -189,11 +197,55 @@ func (s *Server) handleDeleteProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 func marshalOptions(o models.ProfileOptions) string {
+	o.ChainProxyNodeIDs = uniqueInt64s(o.ChainProxyNodeIDs)
+	if !o.ChainProxy {
+		o.ChainProxyNodeID = 0
+		o.ChainProxyNodeIDs = nil
+	} else if len(o.ChainProxyNodeIDs) > 0 {
+		o.ChainProxyNodeID = 0
+	}
 	b, err := json.Marshal(o)
 	if err != nil {
 		return "{}"
 	}
 	return string(b)
+}
+
+func normalizeProfileRequestOptions(req *profileRequest) {
+	if !req.Options.ChainProxy {
+		req.Options.ChainProxyNodeID = 0
+		req.Options.ChainProxyNodeIDs = nil
+		return
+	}
+	req.Options.ChainProxyNodeIDs = uniqueInt64s(req.Options.ChainProxyNodeIDs)
+	if len(req.Options.ChainProxyNodeIDs) == 0 && req.Options.ChainProxyNodeID != 0 {
+		req.Options.ChainProxyNodeIDs = []int64{req.Options.ChainProxyNodeID}
+	}
+}
+
+func validateChainProxySelection(w http.ResponseWriter, nodeIDs, nodeGroupIDs []int64, opts models.ProfileOptions) bool {
+	if !opts.ChainProxy {
+		return true
+	}
+	if len(opts.ChainProxyNodeIDs) == 0 {
+		respondError(w, http.StatusBadRequest, "bad_request", "chain proxy nodes are required")
+		return false
+	}
+	selected := make(map[int64]bool, len(nodeIDs))
+	for _, id := range nodeIDs {
+		selected[id] = true
+	}
+	for _, id := range opts.ChainProxyNodeIDs {
+		if !selected[id] {
+			respondError(w, http.StatusBadRequest, "bad_request", "chain proxy nodes must be selected as single nodes")
+			return false
+		}
+	}
+	if len(opts.ChainProxyNodeIDs) >= len(nodeIDs) && len(nodeGroupIDs) == 0 {
+		respondError(w, http.StatusBadRequest, "bad_request", "chain proxy needs at least one upstream node")
+		return false
+	}
+	return true
 }
 
 func (s *Server) validateNodeAccess(w http.ResponseWriter, u *models.User, nodeIDs []int64) bool {

@@ -41,6 +41,11 @@ export const useSettingsStore = defineStore('settings', () => {
     return kernel.value
   }
 
+  async function fetchKernelStatus(): Promise<KernelStatus> {
+    kernel.value = await get<KernelStatus>('/kernel/status')
+    return kernel.value
+  }
+
   function applySettings(next: Settings): void {
     appDisplayName.value = next.app_display_name?.trim() || DEFAULT_APP_DISPLAY_NAME
     const rawOrder = next.country_heat_order ? JSON.parse(next.country_heat_order) : DEFAULT_COUNTRY_HEAT_ORDER
@@ -58,5 +63,6 @@ export const useSettingsStore = defineStore('settings', () => {
     fetchAppInfo,
     update,
     fetchKernel,
+    fetchKernelStatus,
   }
 })

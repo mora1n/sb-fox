@@ -11,11 +11,13 @@ const (
 	groupMainland = "Mainland"
 	groupReject   = "Reject"
 	groupOthers   = "Others"
+	groupChain    = "Chain Proxy"
 )
 
 // countryOptionExcludedGroups mirrors COUNTRY_OPTION_EXCLUDED_GROUPS.
 var countryOptionExcludedGroups = []string{
 	groupDirect, groupReject, groupOthers, groupAuto, groupRelay, groupProxy, groupMainland,
+	groupChain,
 }
 
 const defaultURLTestURL = "https://cp.cloudflare.com/generate_204"

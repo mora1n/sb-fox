@@ -29,6 +29,10 @@ var redactedKeys = map[string]bool{
 
 // handleGetSettings returns all non-redacted settings.
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
+	u, ok := requireCurrentUser(w, r)
+	if !ok {
+		return
+	}
 	all, err := s.Store.AllSettings()
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
@@ -45,12 +49,23 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
+	if !u.IsAdmin() {
+		for k := range out {
+			if adminOnlySetting(k) {
+				delete(out, k)
+			}
+		}
+	}
 	respondJSON(w, http.StatusOK, out)
 }
 
 // handleUpdateSettings patches settings from a flat map. Updating kernel_path
 // re-points the kernel and refreshes the cached version.
 func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
+	u, ok := requireCurrentUser(w, r)
+	if !ok {
+		return
+	}
 	var patch map[string]string
 	if !decodeJSON(w, r, &patch) {
 		return
@@ -58,6 +73,10 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	for k, v := range patch {
 		if redactedKeys[k] {
 			continue
+		}
+		if !u.IsAdmin() && adminOnlySetting(k) {
+			respondError(w, http.StatusForbidden, "forbidden", "admin only")
+			return
 		}
 		value, err := normalizeSetting(k, v)
 		if err != nil {
@@ -127,6 +146,15 @@ func defaultSettings() map[string]string {
 	}
 }
 
+func adminOnlySetting(key string) bool {
+	switch key {
+	case settingAppDisplayName, settingKernelPath, settingKernelVersion, settingAllowPrivate:
+		return true
+	default:
+		return false
+	}
+}
+
 func validateSettings(settings map[string]string) error {
 	if _, err := normalizeDisplayName(settings[settingAppDisplayName]); err != nil {
 		return fmt.Errorf("invalid %s: %w", settingAppDisplayName, err)
@@ -192,11 +220,29 @@ type kernelStatus struct {
 
 // handleKernelStatus probes the configured sing-box binary.
 func (s *Server) handleKernelStatus(w http.ResponseWriter, r *http.Request) {
+	if _, ok := requireAdmin(w, r); !ok {
+		return
+	}
 	status := kernelStatus{Path: s.Kernel.Path, Available: s.Kernel.Available()}
 	if status.Available {
 		if ver, err := s.Kernel.Version(); err == nil {
 			status.Version = ver
 			_ = s.Store.SetSetting(settingKernelVersion, ver)
+		}
+	}
+	respondJSON(w, http.StatusOK, status)
+}
+
+type publicKernelStatus struct {
+	Available bool   `json:"available"`
+	Version   string `json:"version"`
+}
+
+func (s *Server) handlePublicKernelStatus(w http.ResponseWriter, r *http.Request) {
+	status := publicKernelStatus{Available: s.Kernel.Available()}
+	if status.Available {
+		if ver, err := s.Kernel.Version(); err == nil {
+			status.Version = ver
 		}
 	}
 	respondJSON(w, http.StatusOK, status)

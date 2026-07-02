@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { del, get, post, put } from '../api/client'
-import type { ImportResult, Node } from '../api/types'
+import type { ImportResult, Node, NodeUsage } from '../api/types'
 import { useSettingsStore } from './settings'
 import { sortCountryCodes } from '../utils/countries'
 
@@ -43,6 +43,10 @@ export const useNodesStore = defineStore('nodes', () => {
     }
   }
 
+  async function fetchUnfiltered(): Promise<Node[]> {
+    return (await get<Node[]>('/nodes')) ?? []
+  }
+
   async function create(input: NodeInput): Promise<Node> {
     const n = await post<Node>('/nodes', input)
     await fetchAll()
@@ -58,6 +62,10 @@ export const useNodesStore = defineStore('nodes', () => {
   async function remove(id: number): Promise<void> {
     await del('/nodes/' + id)
     nodes.value = nodes.value.filter((n) => n.id !== id)
+  }
+
+  async function usage(id: number): Promise<NodeUsage[]> {
+    return (await get<NodeUsage[]>('/nodes/' + id + '/usage')) ?? []
   }
 
   async function importLinks(links: string): Promise<ImportResult> {
@@ -97,9 +105,11 @@ export const useNodesStore = defineStore('nodes', () => {
     countries,
     types,
     fetchAll,
+    fetchUnfiltered,
     create,
     update,
     remove,
+    usage,
     importLinks,
     importSubscription,
     importConfig,

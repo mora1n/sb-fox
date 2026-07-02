@@ -34,7 +34,7 @@ onMounted(async () => {
   try {
     await settings.fetchAll()
     syncSettingsFields()
-    await settings.fetchKernel()
+    if (auth.isAdmin) await settings.fetchKernel()
   } catch (e) {
     ui.error(errMsg(e))
   }
@@ -164,7 +164,7 @@ async function changePassword() {
       </div>
     </div>
 
-    <div class="card bg-base-100 shadow-sm">
+    <div v-if="auth.isAdmin" class="card bg-base-100 shadow-sm">
       <div class="card-body gap-3">
         <h2 class="card-title text-base">{{ i18n.t('sing-box 内核') }}</h2>
         <div class="flex items-center gap-2">
@@ -184,7 +184,7 @@ async function changePassword() {
       </div>
     </div>
 
-    <div class="card bg-base-100 shadow-sm">
+    <div v-if="auth.isAdmin" class="card bg-base-100 shadow-sm">
       <div class="card-body gap-3">
         <div class="flex items-center justify-between gap-3">
           <h2 class="card-title text-base">{{ i18n.t('国家热度排序') }}</h2>
@@ -232,14 +232,14 @@ async function changePassword() {
       </div>
     </div>
 
-    <div class="card bg-base-100 shadow-sm">
+    <div v-if="auth.isAdmin" class="card bg-base-100 shadow-sm">
       <div class="card-body gap-3">
         <h2 class="card-title text-base">{{ i18n.t('订阅抓取') }}</h2>
         <label class="label cursor-pointer justify-start gap-2">
           <input type="checkbox" class="toggle" v-model="allowPrivate" @change="saveAllowPrivate" />
           <span class="label-text">{{ i18n.t('允许抓取私网地址') }}</span>
         </label>
-        <p class="text-xs opacity-60">{{ i18n.t('默认关闭以防止 SSRF。仅在受信任的内网环境中开启。') }}</p>
+        <p class="text-xs opacity-60">{{ i18n.t('关闭时会拒绝私网、环回、链路本地、CGNAT、组播和云元数据地址；仅在可信内网订阅源中开启。') }}</p>
       </div>
     </div>
 
