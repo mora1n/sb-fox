@@ -758,7 +758,7 @@ async function remove(p: Profile) {
         <span v-if="selectedProfiles.size" class="badge badge-outline">{{ i18n.t('已选') }} {{ selectedProfiles.size }}</span>
       </div>
       <div class="flex items-center gap-2 flex-wrap">
-        <button class="btn btn-sm btn-ghost" @click="selectAllProfiles" :disabled="!store.profiles.length">
+        <button class="btn btn-sm" @click="selectAllProfiles" :disabled="!store.profiles.length">
           {{ allProfilesSelected ? i18n.t('取消全选') : i18n.t('全选') }}
         </button>
         <button class="btn btn-sm btn-error btn-outline" @click="removeSelectedProfiles" :disabled="busy || !selectedProfiles.size">

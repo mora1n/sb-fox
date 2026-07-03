@@ -377,7 +377,7 @@ async function remove(t: Template) {
         <span v-if="selectedTemplates.size" class="badge badge-outline">{{ i18n.t('已选') }} {{ selectedTemplates.size }}</span>
       </div>
       <div class="flex items-center gap-2 flex-wrap">
-        <button class="btn btn-sm btn-ghost" @click="selectAllTemplates" :disabled="!selectableTemplates.length">
+        <button class="btn btn-sm" @click="selectAllTemplates" :disabled="!selectableTemplates.length">
           {{ allTemplatesSelected ? i18n.t('取消全选') : i18n.t('全选') }}
         </button>
         <button class="btn btn-sm btn-error btn-outline" @click="removeSelectedTemplates" :disabled="busy || !selectedTemplates.size">

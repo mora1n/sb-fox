@@ -468,7 +468,7 @@ async function exportLinks() {
             <span v-if="selected.size" class="badge badge-outline">{{ i18n.t('已选') }} {{ selected.size }}</span>
           </div>
           <div class="flex gap-2 flex-wrap">
-            <button class="btn btn-sm btn-ghost" @click="selectAll" :disabled="!nodesStore.nodes.length">
+            <button class="btn btn-sm" @click="selectAll" :disabled="!nodesStore.nodes.length">
               {{ allFilteredSelected ? i18n.t('取消全选') : i18n.t('全选') }}
             </button>
             <button class="btn btn-sm btn-error btn-outline" @click="removeSelectedNodes" :disabled="busy || !selected.size">
@@ -562,7 +562,7 @@ async function exportLinks() {
             <span v-if="selectedGroups.size" class="badge badge-outline">{{ i18n.t('已选') }} {{ selectedGroups.size }}</span>
           </div>
           <div class="flex gap-2 flex-wrap">
-            <button class="btn btn-sm btn-ghost" @click="selectAllNodeGroups" :disabled="!nodeGroups.groups.length">
+            <button class="btn btn-sm" @click="selectAllNodeGroups" :disabled="!nodeGroups.groups.length">
               {{ allGroupsSelected ? i18n.t('取消全选') : i18n.t('全选') }}
             </button>
             <button class="btn btn-sm btn-error btn-outline" @click="removeSelectedGroups" :disabled="busy || !selectedGroups.size">
