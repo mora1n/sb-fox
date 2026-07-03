@@ -17,11 +17,11 @@ const (
 	ModeServe  Mode = "serve"
 	ModeDaemon Mode = "daemon"
 
-	defaultAddr          = "127.0.0.1:7878"
-	defaultServeDataDir  = "./data"
-	defaultDaemonDataDir = "/var/lib/sb-fox"
-	defaultDaemonSocket  = "/var/run/sb-fox.sock"
-	defaultLogLevel      = "info"
+	defaultAddr            = "127.0.0.1:7878"
+	defaultUserDataSubpath = ".local/share/sb-fox"
+	defaultDaemonDataDir   = "/var/lib/sb-fox"
+	defaultDaemonSocket    = "/var/run/sb-fox.sock"
+	defaultLogLevel        = "info"
 )
 
 var currentEUID = os.Geteuid
@@ -49,6 +49,8 @@ type Config struct {
 	Purge               bool   // uninstall removes config/data without prompting
 	RegMode             string // on or off
 	RegExplicit         bool   // --reg/-r was provided
+	AddrExplicit        bool   // --addr/-a was provided
+	DataDirExplicit     bool   // --data-dir/-D was provided
 	LogLevel            string // error, warn, info or debug
 	RegistrationEnabled bool
 	Dev                 bool // dev mode: serve API only, skip embedded frontend requirement
@@ -65,10 +67,13 @@ func Parse(args []string) (*Config, error) {
 	name := "sb-fox"
 	dataDirEnv, hasDataDirEnv := os.LookupEnv("SB_FOX_DATA_DIR")
 	hasDataDirFlag := flagPresent(args, "--data-dir", "-D")
+	addrExplicit := flagPresent(args, "--addr", "-a")
 	daemonRequested := hasFlag(args, "--daemon", "-d")
-	resetAdminRequested := hasFlag(args, "--reset-admin", "-P")
 
-	dataDirDefault := defaultServeDataDir
+	dataDirDefault, err := defaultServeDataDir()
+	if err != nil {
+		return nil, err
+	}
 	if hasDataDirEnv && dataDirEnv != "" {
 		dataDirDefault = dataDirEnv
 	}
@@ -83,12 +88,6 @@ func Parse(args []string) (*Config, error) {
 		dataDirDefault = defaultDaemonDataDir
 		if hasDataDirEnv && dataDirEnv != "" {
 			dataDirDefault = dataDirEnv
-		}
-	}
-	if resetAdminRequested && !hasDataDirFlag && !(hasDataDirEnv && dataDirEnv != "") {
-		dataDirDefault = defaultServeDataDir
-		if currentEUID() == 0 {
-			dataDirDefault = defaultDaemonDataDir
 		}
 	}
 
@@ -184,6 +183,8 @@ func Parse(args []string) (*Config, error) {
 		Purge:               purge,
 		RegMode:             regMode,
 		RegExplicit:         regExplicit,
+		AddrExplicit:        addrExplicit,
+		DataDirExplicit:     hasDataDirFlag || (hasDataDirEnv && dataDirEnv != ""),
 		LogLevel:            normalizedLogLevel,
 		RegistrationEnabled: regMode == "on",
 		Dev:                 dev,
@@ -199,6 +200,27 @@ func Parse(args []string) (*Config, error) {
 // EnsureDataDir creates the data directory if it does not exist.
 func (c *Config) EnsureDataDir() error {
 	return os.MkdirAll(c.DataDir, 0o755)
+}
+
+// SetDataDir updates DataDir and the derived DBPath together.
+func (c *Config) SetDataDir(dataDir string) {
+	c.DataDir = dataDir
+	c.DBPath = filepath.Join(c.DataDir, "sb-fox.db")
+}
+
+func defaultServeDataDir() (string, error) {
+	if currentEUID() == 0 {
+		return defaultDaemonDataDir, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve user data dir: %w", err)
+	}
+	home = strings.TrimSpace(home)
+	if home == "" {
+		return "", errors.New("resolve user data dir: HOME is empty")
+	}
+	return filepath.Join(home, defaultUserDataSubpath), nil
 }
 
 func envOr(key, def string) string {

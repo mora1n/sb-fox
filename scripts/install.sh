@@ -74,7 +74,12 @@ cp -R "${archive_root}/data/templates/." "${data_dir}/templates/"
 
 info "installed ${BINARY} ${version} to ${dir}/${BINARY}"
 info "installed seed templates to ${data_dir}/templates"
-info "run 'sudo ${dir}/${BINARY} --daemon' to install and start the systemd service"
+info "next steps:"
+printf '  %s\n' "start daemon: sudo ${dir}/${BINARY} --daemon"
+printf '  %s\n' "open panel:   http://127.0.0.1:7878"
+printf '  %s\n' "logs:         journalctl -u sb-fox -f"
+printf '  %s\n' "registration: sudo ${dir}/${BINARY} --reg on|off"
+printf '  %s\n' "foreground:   ${dir}/${BINARY} --addr 127.0.0.1:7879"
 case ":$PATH:" in
   *":$dir:"*) ;;
   *) printf '\033[1;33mnote:\033[0m %s is not in your PATH; add it or move the binary.\n' "$dir" ;;

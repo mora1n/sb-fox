@@ -26,31 +26,35 @@
 curl -fsSL https://raw.githubusercontent.com/mora1n/sb-fox/main/scripts/install.sh | sh
 ```
 
-安装脚本会下载匹配当前系统的 release 包，安装 `sb-fox` 二进制，并把种子模板复制到默认数据目录的 `templates` 子目录。
+安装脚本会下载匹配当前系统的 release 包，安装 `sb-fox` 二进制，并把种子模板复制到默认数据目录的 `templates` 子目录。安装完成后不会自动启用守护进程，只会打印下一步命令。
 
 root 用户安装时，种子模板默认复制到 `/var/lib/sb-fox/templates`；普通用户安装时默认复制到 `~/.local/share/sb-fox/templates`。
 
 ## 运行
 
 ```sh
-sb-fox --addr 127.0.0.1:7878 --data-dir ./data
+sb-fox
 ```
 
 启动后打开 `http://127.0.0.1:7878`。
 
 首次运行时，`sb-fox` 会创建管理员账号，并在终端打印一次性密码。默认用户名是 `admin`。
 
+如果已有守护进程在运行，直接执行 `sb-fox` 会显示 daemon 状态并退出，不会再启动第二个同地址服务。
+
 如需开放用户自行注册：
 
 ```sh
-sb-fox --reg on
+sudo sb-fox --reg on
 ```
 
 关闭注册：
 
 ```sh
-sb-fox --reg off
+sudo sb-fox --reg off
 ```
+
+没有守护进程时，`--reg on|off` 仍可作为前台启动参数使用。
 
 ## 守护进程模式
 
@@ -67,11 +71,11 @@ sudo sb-fox --daemon
 
 如果已有守护进程在运行，新的服务启动会直接失败。socket 是内部单实例锁，不提供命令行参数。
 
-守护进程模式也可显式开启或关闭注册：
+守护进程启动后，可通过命令修改注册开关，无需重启服务：
 
 ```sh
-sudo sb-fox --daemon --reg on
-sudo sb-fox --daemon --reg off
+sudo sb-fox --reg on
+sudo sb-fox --reg off
 ```
 
 查看守护进程日志：
@@ -99,7 +103,7 @@ data/templates/fakeip.json
 | 选项 | 环境变量 | 默认值 |
 |---|---|---|
 | `--addr`, `-a` | `SB_FOX_ADDR` | `127.0.0.1:7878` |
-| `--data-dir`, `-D` | `SB_FOX_DATA_DIR` | `./data` |
+| `--data-dir`, `-D` | `SB_FOX_DATA_DIR` | root: `/var/lib/sb-fox`；普通用户: `~/.local/share/sb-fox` |
 | `--kernel`, `-k` | `SB_FOX_KERNEL` | `sing-box` |
 | `--daemon`, `-d` |  | 安装、启用并启动 systemd 服务 |
 | `--update`, `-u` |  | 更新已安装版本 |
@@ -114,9 +118,9 @@ data/templates/fakeip.json
 忘记 admin 密码时：
 
 ```sh
-./sb-fox -P              # 本地 ./data
+sb-fox -P                # 当前用户默认数据目录
 sudo sb-fox -P           # daemon /var/lib/sb-fox
-./sb-fox -P -D ./data    # 指定数据目录
+sb-fox -P -D ./data      # 指定数据目录
 ```
 
 ## 从源码构建

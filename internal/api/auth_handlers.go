@@ -103,7 +103,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
-	if !s.RegistrationEnabled {
+	if !s.IsRegistrationEnabled() {
 		respondError(w, http.StatusForbidden, "registration_disabled", "registration is disabled")
 		return
 	}

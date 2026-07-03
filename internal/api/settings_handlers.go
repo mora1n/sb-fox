@@ -14,13 +14,14 @@ import (
 
 // Setting keys.
 const (
-	defaultAppDisplayName = "sb-fox"
-	settingAppDisplayName = "app_display_name"
-	settingCountryHeat    = "country_heat_order"
-	settingKernelPath     = "kernel_path"
-	settingKernelVersion  = "kernel_version"
-	settingAllowPrivate   = "subfetch_allow_private"
-	settingSubHostPrefix  = "subscription_host_prefix"
+	defaultAppDisplayName      = "sb-fox"
+	settingAppDisplayName      = "app_display_name"
+	settingCountryHeat         = "country_heat_order"
+	settingKernelPath          = "kernel_path"
+	settingKernelVersion       = "kernel_version"
+	settingAllowPrivate        = "subfetch_allow_private"
+	settingSubHostPrefix       = "subscription_host_prefix"
+	SettingRegistrationEnabled = "registration_enabled"
 )
 
 // redactedKeys are never returned to the client.
@@ -95,6 +96,9 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		if k == settingAllowPrivate {
 			s.Fetcher.AllowPrivate = value == "true"
 		}
+		if k == SettingRegistrationEnabled {
+			s.SetRegistrationEnabled(value == "true")
+		}
 	}
 	respondJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
@@ -126,7 +130,7 @@ func (s *Server) handleAppInfo(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, appInfo{
 		DisplayName:         displayName,
 		CountryHeatOrder:    order,
-		RegistrationEnabled: s.RegistrationEnabled,
+		RegistrationEnabled: s.IsRegistrationEnabled(),
 		SubscriptionHost:    subHost,
 	})
 }
@@ -149,15 +153,16 @@ func (s *Server) countryHeatOrder() ([]string, error) {
 
 func defaultSettings() map[string]string {
 	return map[string]string{
-		settingAppDisplayName: defaultAppDisplayName,
-		settingCountryHeat:    defaultCountryHeatOrderJSON(),
-		settingSubHostPrefix:  "",
+		settingAppDisplayName:      defaultAppDisplayName,
+		settingCountryHeat:         defaultCountryHeatOrderJSON(),
+		settingSubHostPrefix:       "",
+		SettingRegistrationEnabled: "false",
 	}
 }
 
 func adminOnlySetting(key string) bool {
 	switch key {
-	case settingAppDisplayName, settingKernelPath, settingKernelVersion, settingAllowPrivate, settingSubHostPrefix:
+	case settingAppDisplayName, settingKernelPath, settingKernelVersion, settingAllowPrivate, settingSubHostPrefix, SettingRegistrationEnabled:
 		return true
 	default:
 		return false
@@ -187,6 +192,10 @@ func normalizeSetting(key, value string) (string, error) {
 	case settingAllowPrivate:
 		if value != "true" && value != "false" {
 			return "", fmt.Errorf("%s must be \"true\" or \"false\"", settingAllowPrivate)
+		}
+	case SettingRegistrationEnabled:
+		if value != "true" && value != "false" {
+			return "", fmt.Errorf("%s must be \"true\" or \"false\"", SettingRegistrationEnabled)
 		}
 	case settingSubHostPrefix:
 		return normalizeSubscriptionHostPrefix(value)

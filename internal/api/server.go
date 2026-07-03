@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"sync"
 
 	"github.com/mora1n/sb-fox/internal/auth"
 	"github.com/mora1n/sb-fox/internal/kernel"
@@ -22,8 +23,21 @@ type Server struct {
 	Secure bool
 	// RegistrationEnabled exposes the public registration endpoint.
 	RegistrationEnabled bool
+	registrationMu      sync.RWMutex
 	// DevMode skips serving the embedded frontend (API-only).
 	DevMode bool
+}
+
+func (s *Server) IsRegistrationEnabled() bool {
+	s.registrationMu.RLock()
+	defer s.registrationMu.RUnlock()
+	return s.RegistrationEnabled
+}
+
+func (s *Server) SetRegistrationEnabled(enabled bool) {
+	s.registrationMu.Lock()
+	defer s.registrationMu.Unlock()
+	s.RegistrationEnabled = enabled
 }
 
 // newToken returns a 128-bit random hex token for public subscription links.

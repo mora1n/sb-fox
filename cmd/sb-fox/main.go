@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -74,12 +75,14 @@ func run(args []string) error {
 	case config.ActionResetAdmin:
 		return resetAdminPassword(cfg)
 	}
-	if cfg.Mode == config.ModeDaemon {
-		release, err := acquireDaemonSocket(cfg.SocketPath)
+	if cfg.Mode == config.ModeServe {
+		handled, err := maybeUseDaemonControl(cfg)
 		if err != nil {
 			return err
 		}
-		defer release()
+		if handled {
+			return nil
+		}
 	}
 	if err := cfg.EnsureDataDir(); err != nil {
 		return fmt.Errorf("create data dir: %w", err)
@@ -95,6 +98,10 @@ func run(args []string) error {
 		return err
 	}
 	if err := seedTemplates(db, cfg.DataDir); err != nil {
+		return err
+	}
+	registrationEnabled, err := registrationEnabledFromSettings(db, cfg.RegistrationEnabled)
+	if err != nil {
 		return err
 	}
 
@@ -118,8 +125,15 @@ func run(args []string) error {
 		Fetcher:             fetcher,
 		TemplateDir:         filepath.Join(cfg.DataDir, "templates"),
 		Secure:              false, // set true behind TLS; cookies still HttpOnly+SameSite
-		RegistrationEnabled: cfg.RegistrationEnabled,
+		RegistrationEnabled: registrationEnabled,
 		DevMode:             cfg.Dev,
+	}
+	if cfg.Mode == config.ModeDaemon {
+		release, err := acquireDaemonSocket(cfg.SocketPath, daemonRuntime{cfg: cfg, srv: srv}.handle)
+		if err != nil {
+			return err
+		}
+		defer release()
 	}
 
 	httpSrv := &http.Server{
@@ -133,7 +147,7 @@ func run(args []string) error {
 		uiState = "API only (no embedded UI)"
 	}
 	logInfo("sb-fox version=%s listening on %s (%s), data-dir=%s, kernel=%q, registration=%s",
-		version, cfg.Addr, uiState, cfg.DataDir, kernelPath, cfg.RegMode)
+		version, cfg.Addr, uiState, cfg.DataDir, kernelPath, regStatus(registrationEnabled))
 	logDebug("runtime mode=%s db=%s daemon_socket=%s", cfg.Mode, cfg.DBPath, cfg.SocketPath)
 	return serveHTTP(httpSrv)
 }
@@ -162,7 +176,7 @@ func serveHTTP(srv *http.Server) error {
 	}
 }
 
-func acquireDaemonSocket(path string) (func(), error) {
+func acquireDaemonSocket(path string, handle daemonControlHandler) (func(), error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, errors.New("daemon socket path is required")
 	}
@@ -206,7 +220,7 @@ func acquireDaemonSocket(path string) (func(), error) {
 					return
 				}
 			}
-			_ = conn.Close()
+			go serveDaemonControl(conn, handle)
 		}
 	}()
 
@@ -217,12 +231,36 @@ func acquireDaemonSocket(path string) (func(), error) {
 	}, nil
 }
 
+func serveDaemonControl(conn net.Conn, handle daemonControlHandler) {
+	defer conn.Close()
+	if err := conn.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		logWarn("daemon socket deadline error: %v", err)
+		return
+	}
+	var req daemonControlRequest
+	if err := json.NewDecoder(conn).Decode(&req); err != nil {
+		return
+	}
+	if handle == nil {
+		handle = func(daemonControlRequest) daemonControlResponse {
+			return daemonControlResponse{OK: true}
+		}
+	}
+	resp := handle(req)
+	if resp.Error != "" {
+		resp.OK = false
+	}
+	if err := json.NewEncoder(conn).Encode(resp); err != nil {
+		logWarn("daemon socket response error: %v", err)
+	}
+}
+
 // seedTemplates idempotently loads file-backed templates from data/templates.
 func seedTemplates(db *store.Store, dataDir string) error {
 	templateDir := filepath.Join(dataDir, "templates")
 	entries, err := os.ReadDir(templateDir)
 	if err != nil {
-		return fmt.Errorf("read template directory %s: %w", templateDir, err)
+		return seedTemplateDirError(templateDir, err)
 	}
 	users, err := db.ListUsers()
 	if err != nil {
@@ -253,6 +291,10 @@ func seedTemplates(db *store.Store, dataDir string) error {
 	}
 	logInfo("template seed scanned=%d users=%d inserted=%d from %s", scanned, len(users), inserted, templateDir)
 	return nil
+}
+
+func seedTemplateDirError(templateDir string, err error) error {
+	return fmt.Errorf("read seed template directory %s: %w; reinstall with scripts/install.sh or run with --data-dir pointing to a directory that contains templates/", templateDir, err)
 }
 
 // bootstrapAdmin creates the admin with a random printed password on first run.
@@ -325,6 +367,27 @@ func resetAdminPassword(cfg *config.Config) error {
 
 func resetAdminDataDirError(dataDir string, err error) error {
 	return fmt.Errorf("create data dir %s: %w; local data: ./sb-fox -P -D ./data; daemon data: sudo sb-fox -P", dataDir, err)
+}
+
+func registrationEnabledFromSettings(db *store.Store, initial bool) (bool, error) {
+	value, ok, err := db.GetSetting(api.SettingRegistrationEnabled)
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		if err := db.SetSetting(api.SettingRegistrationEnabled, boolSetting(initial)); err != nil {
+			return false, err
+		}
+		return initial, nil
+	}
+	switch value {
+	case "true":
+		return true, nil
+	case "false":
+		return false, nil
+	default:
+		return false, fmt.Errorf("%s must be \"true\" or \"false\"", api.SettingRegistrationEnabled)
+	}
 }
 
 func setLogLevel(value string) {

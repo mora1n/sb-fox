@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func clearEnv(t *testing.T) {
 	t.Helper()
@@ -21,6 +24,8 @@ func setEUID(t *testing.T, id int) {
 
 func TestParseServeDefaults(t *testing.T) {
 	clearEnv(t)
+	setEUID(t, 1000)
+	t.Setenv("HOME", "/home/tester")
 
 	cfg, err := Parse(nil)
 	if err != nil {
@@ -35,11 +40,15 @@ func TestParseServeDefaults(t *testing.T) {
 	if cfg.Addr != defaultAddr {
 		t.Fatalf("addr = %q, want %q", cfg.Addr, defaultAddr)
 	}
-	if cfg.DataDir != defaultServeDataDir {
-		t.Fatalf("data dir = %q, want %q", cfg.DataDir, defaultServeDataDir)
+	wantDataDir := filepath.Join("/home/tester", defaultUserDataSubpath)
+	if cfg.DataDir != wantDataDir {
+		t.Fatalf("data dir = %q, want %q", cfg.DataDir, wantDataDir)
 	}
-	if cfg.DBPath != "data/sb-fox.db" {
+	if cfg.DBPath != filepath.Join(wantDataDir, "sb-fox.db") {
 		t.Fatalf("db path = %q", cfg.DBPath)
+	}
+	if cfg.AddrExplicit || cfg.DataDirExplicit {
+		t.Fatalf("explicit flags = addr:%v data:%v", cfg.AddrExplicit, cfg.DataDirExplicit)
 	}
 	if cfg.SocketPath != "" {
 		t.Fatalf("socket path = %q, want empty", cfg.SocketPath)
@@ -67,6 +76,9 @@ func TestParseShortOptions(t *testing.T) {
 	}
 	if !cfg.ShowVersion {
 		t.Fatal("version flag not set")
+	}
+	if !cfg.AddrExplicit || !cfg.DataDirExplicit {
+		t.Fatalf("explicit flags = addr:%v data:%v", cfg.AddrExplicit, cfg.DataDirExplicit)
 	}
 }
 
@@ -196,6 +208,7 @@ func TestParseLogLevel(t *testing.T) {
 func TestParseResetAdminDefaultsToServeDataDirWithoutRoot(t *testing.T) {
 	clearEnv(t)
 	setEUID(t, 1000)
+	t.Setenv("HOME", "/home/tester")
 
 	cfg, err := Parse([]string{"-P"})
 	if err != nil {
@@ -204,8 +217,9 @@ func TestParseResetAdminDefaultsToServeDataDirWithoutRoot(t *testing.T) {
 	if cfg.Action != ActionResetAdmin {
 		t.Fatalf("action = %q, want %q", cfg.Action, ActionResetAdmin)
 	}
-	if cfg.DataDir != defaultServeDataDir {
-		t.Fatalf("data dir = %q, want %q", cfg.DataDir, defaultServeDataDir)
+	wantDataDir := filepath.Join("/home/tester", defaultUserDataSubpath)
+	if cfg.DataDir != wantDataDir {
+		t.Fatalf("data dir = %q, want %q", cfg.DataDir, wantDataDir)
 	}
 }
 
