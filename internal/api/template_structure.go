@@ -386,9 +386,6 @@ func classifyTemplateOutbounds(arr []any) (map[string]*merge.OrderedMap, map[str
 
 func validateTemplateStructure(st templateStructure, staticTags map[string]bool) ([]templateStructureGroup, error) {
 	final := strings.TrimSpace(st.Final)
-	if final == "" {
-		return nil, fmt.Errorf("final selector is required")
-	}
 	seen := map[string]bool{}
 	groupTags := map[string]bool{}
 	desired := make([]templateStructureGroup, 0, len(st.Groups))
@@ -409,16 +406,15 @@ func validateTemplateStructure(st templateStructure, staticTags map[string]bool)
 		groupTags[g.Tag] = true
 		desired = append(desired, g)
 	}
-	if !groupTags[final] {
-		return nil, fmt.Errorf("final selector %q does not exist", final)
-	}
-
 	allowed := map[string]bool{}
 	for tag := range staticTags {
 		allowed[tag] = true
 	}
 	for tag := range groupTags {
 		allowed[tag] = true
+	}
+	if final != "" && !allowed[final] {
+		return nil, fmt.Errorf("final outbound %q does not exist", final)
 	}
 	for i := range desired {
 		outs, err := normalizeOutboundRefs(desired[i].Tag, desired[i].Outbounds, allowed)
@@ -612,6 +608,12 @@ func routeFinal(cfg *merge.OrderedMap) string {
 func setRouteFinal(cfg *merge.OrderedMap, final string) {
 	raw, ok := cfg.Get("route")
 	route, ok := raw.(*merge.OrderedMap)
+	if final == "" {
+		if ok {
+			route.Delete("final")
+		}
+		return
+	}
 	if !ok {
 		route = merge.NewOrderedMap()
 		cfg.Set("route", route)

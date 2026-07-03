@@ -56,8 +56,8 @@ func TestWriteTemplateStructureValidation(t *testing.T) {
 		Final:  "Proxy",
 		Groups: []templateStructureGroup{},
 	})
-	if err == nil || !strings.Contains(err.Error(), "does not exist") {
-		t.Fatalf("expected missing final error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "cannot be deleted") {
+		t.Fatalf("expected deleted route group error, got %v", err)
 	}
 
 	_, err = writeTemplateStructure(content, templateStructure{
@@ -68,6 +68,66 @@ func TestWriteTemplateStructureValidation(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "duplicate outbound") {
 		t.Fatalf("expected duplicate outbound error, got %v", err)
+	}
+
+	_, err = writeTemplateStructure(content, templateStructure{
+		Final: "Missing",
+		Groups: []templateStructureGroup{
+			{Tag: "Proxy", Type: "selector", Outbounds: []string{"Direct"}},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "final outbound") {
+		t.Fatalf("expected unknown final error, got %v", err)
+	}
+}
+
+func TestWriteTemplateStructureAllowsStaticAndEmptyFinal(t *testing.T) {
+	content := `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":["Direct"]},
+    {"type":"direct","tag":"Direct"}
+  ],
+  "route": {
+    "rules": [{"domain":["example.com"],"outbound":"Proxy"}],
+    "final":"Proxy"
+  }
+}`
+
+	updated, err := writeTemplateStructure(content, templateStructure{
+		Final: "Direct",
+		Groups: []templateStructureGroup{
+			{Tag: "Proxy", Type: "selector", Outbounds: []string{"Direct"}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := readTemplateStructure(updated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Final != "Direct" || len(st.Groups) != 1 || st.Groups[0].Tag != "Proxy" {
+		t.Fatalf("structure = %+v", st)
+	}
+
+	updated, err = writeTemplateStructure(content, templateStructure{
+		Final: "",
+		Groups: []templateStructureGroup{
+			{Tag: "Proxy", Type: "selector", Outbounds: []string{"Direct"}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(updated, `"final"`) {
+		t.Fatalf("empty final should delete route.final:\n%s", updated)
+	}
+	st, err = readTemplateStructure(updated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Final != "" || len(st.Groups) != 1 || st.Groups[0].Tag != "Proxy" {
+		t.Fatalf("structure = %+v", st)
 	}
 }
 

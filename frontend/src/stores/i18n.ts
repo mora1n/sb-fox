@@ -168,6 +168,7 @@ const en: Record<string, string> = {
   '添加分组': 'Add Group',
   'final 使用的 selector': 'Final Selector',
   '最终出口': 'Final Outbound',
+  '使用 sing-box 默认': 'Use sing-box default',
   '出口': 'Outbounds',
   '无可选出口': 'No available outbounds',
   '默认出口': 'Default Outbound',

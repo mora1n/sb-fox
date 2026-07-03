@@ -58,7 +58,6 @@ const sortedTemplates = computed(() => {
   if (!templateSortKey.value) return store.templates
   return [...store.templates].sort((a, b) => compareText(String(a[templateSortKey.value as TemplateSortKey] ?? ''), String(b[templateSortKey.value as TemplateSortKey] ?? ''), templateSortDir.value))
 })
-const groupTags = computed(() => structure.value?.groups.map((g) => g.tag).filter(Boolean) ?? [])
 const formTitle = computed(() => {
   if (editing.value) return i18n.t('编辑模板')
   if (copyingFrom.value) return i18n.t('复制模板')
@@ -76,6 +75,12 @@ const availableOutbounds = computed(() => {
   }
   structure.value.available_outbounds?.forEach(add)
   structure.value.groups.forEach((g) => add(g.tag))
+  return out
+})
+const finalOutboundOptions = computed(() => {
+  const out = [...availableOutbounds.value]
+  const final = structure.value?.final?.trim() || ''
+  if (final && !out.includes(final)) out.unshift(final)
   return out
 })
 
@@ -118,9 +123,6 @@ async function view(t: Template) {
 async function editStructure(t: Template) {
   try {
     structure.value = await store.structure(t.id)
-    if (!structure.value.final && structure.value.groups.length) {
-      structure.value.final = structure.value.groups[0].tag
-    }
     structureFor.value = t
   } catch (e) {
     ui.error(errMsg(e))
@@ -531,7 +533,8 @@ async function remove(t: Template) {
         <label class="form-control max-w-sm mb-4">
           <span class="label-text mb-1">{{ i18n.t('最终出口') }}</span>
           <select v-model="structure.final" class="select select-bordered select-sm">
-            <option v-for="tag in groupTags" :key="tag" :value="tag">{{ tag }}</option>
+            <option value="">{{ i18n.t('使用 sing-box 默认') }}</option>
+            <option v-for="tag in finalOutboundOptions" :key="tag" :value="tag">{{ tag }}</option>
           </select>
         </label>
         <div v-if="!structure.groups.length" class="opacity-60 text-sm">{{ i18n.t('未检测到 selector/urltest 分组。') }}</div>

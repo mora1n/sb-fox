@@ -40,6 +40,9 @@ func generateConfig(templateContent string, nodes []*models.Node, opts models.Pr
 	if err != nil {
 		return nil, err
 	}
+	if err := validateRouteFinalOutbound(out); err != nil {
+		return nil, err
+	}
 	if err := validateGeneratedGroupCycles(out); err != nil {
 		return nil, err
 	}
@@ -55,9 +58,6 @@ func generateConfigWithGroupSelections(templateContent string, groupNodes map[st
 	st, err := readTemplateStructure(templateContent)
 	if err != nil {
 		return nil, fmt.Errorf("read template groups: %w", err)
-	}
-	if st.Final == "" {
-		return nil, fmt.Errorf("template route.final is required for group selections")
 	}
 	opts = ensureGroupSelectionsFromNodes(opts, groupNodes)
 	opts = applyDefaultOutboundRefs(st, opts)
@@ -164,7 +164,7 @@ func generateConfigWithGroupSelections(templateContent string, groupNodes map[st
 			group.Delete("default")
 		}
 	}
-	if err := validateFinalGroupHasOutbounds(outbounds, st.Final); err != nil {
+	if err := validateRouteFinalOutbound(out); err != nil {
 		return nil, err
 	}
 	if err := validateGeneratedGroupCycles(out); err != nil {
@@ -378,12 +378,20 @@ func countryCandidateTags(outbounds []any, nodes []*models.Node, templateGroupTa
 	return out
 }
 
-func validateFinalGroupHasOutbounds(outbounds []any, final string) error {
-	group := findOutboundByTag(outbounds, final)
-	if group == nil {
-		return fmt.Errorf("final selector %q is missing", final)
+func validateRouteFinalOutbound(cfg *merge.OrderedMap) error {
+	final := strings.TrimSpace(routeFinal(cfg))
+	if final == "" {
+		return nil
 	}
-	if len(outboundStringList(group)) == 0 {
+	outbounds, err := generatedOutbounds(cfg)
+	if err != nil {
+		return err
+	}
+	outbound := findOutboundByTag(outbounds, final)
+	if outbound == nil {
+		return fmt.Errorf("final outbound %q is missing", final)
+	}
+	if isTemplateGroup(outbound) && len(outboundStringList(outbound)) == 0 {
 		return fmt.Errorf("final selector %q has no selected nodes", final)
 	}
 	return nil

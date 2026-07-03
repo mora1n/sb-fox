@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/mora1n/sb-fox/internal/merge"
@@ -153,6 +154,82 @@ func TestGenerateConfigWithGroupSelectionUsesTemplateDefaultRefs(t *testing.T) {
 	outbounds := generatedOutboundMap(t, config)
 	if got := stringSliceValue(t, outbounds["Proxy"]["outbounds"]); !sameStrings(got, []string{"Direct"}) {
 		t.Fatalf("Proxy outbounds = %v", got)
+	}
+}
+
+func TestGenerateConfigWithGroupSelectionAllowsStaticFinal(t *testing.T) {
+	template := `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":["Direct"]},
+    {"type":"direct","tag":"Direct"}
+  ],
+  "route": {
+    "rules": [{"domain":["example.com"],"outbound":"Proxy"}],
+    "final":"Direct"
+  }
+}`
+	config, err := generateConfigWithGroupSelections(template, map[string][]*models.Node{}, nil, nil, models.ProfileOptions{
+		AutoCountryGroups: false,
+		GroupSelections: map[string]models.NodeSelection{
+			"Proxy": {},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("generateConfigWithGroupSelections: %v", err)
+	}
+	outbounds := generatedOutboundMap(t, config)
+	if got := stringSliceValue(t, outbounds["Proxy"]["outbounds"]); !sameStrings(got, []string{"Direct"}) {
+		t.Fatalf("Proxy outbounds = %v", got)
+	}
+	if got := outbounds["Direct"]["type"]; got != "direct" {
+		t.Fatalf("Direct type = %v", got)
+	}
+}
+
+func TestGenerateConfigWithGroupSelectionAllowsMissingFinal(t *testing.T) {
+	template := `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":["Direct"]},
+    {"type":"direct","tag":"Direct"}
+  ],
+  "route": {
+    "rules": [{"domain":["example.com"],"outbound":"Proxy"}]
+  }
+}`
+	config, err := generateConfigWithGroupSelections(template, map[string][]*models.Node{}, nil, nil, models.ProfileOptions{
+		AutoCountryGroups: false,
+		GroupSelections: map[string]models.NodeSelection{
+			"Proxy": {},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("generateConfigWithGroupSelections: %v", err)
+	}
+	route := generatedRouteMap(t, config)
+	if _, ok := route["final"]; ok {
+		t.Fatalf("route.final should stay omitted: %v", route["final"])
+	}
+}
+
+func TestGenerateConfigRejectsUnknownFinal(t *testing.T) {
+	template := `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":["Direct"]},
+    {"type":"direct","tag":"Direct"}
+  ],
+  "route": {
+    "rules": [{"domain":["example.com"],"outbound":"Proxy"}],
+    "final":"Missing"
+  }
+}`
+	_, err := generateConfigWithGroupSelections(template, map[string][]*models.Node{}, nil, nil, models.ProfileOptions{
+		AutoCountryGroups: false,
+		GroupSelections: map[string]models.NodeSelection{
+			"Proxy": {},
+		},
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), `final outbound "Missing" is missing`) {
+		t.Fatalf("expected unknown final error, got %v", err)
 	}
 }
 
@@ -408,6 +485,17 @@ func generatedOutboundMap(t *testing.T, config []byte) map[string]map[string]any
 		}
 	}
 	return outbounds
+}
+
+func generatedRouteMap(t *testing.T, config []byte) map[string]any {
+	t.Helper()
+	var out struct {
+		Route map[string]any `json:"route"`
+	}
+	if err := json.Unmarshal(config, &out); err != nil {
+		t.Fatalf("unmarshal generated config: %v", err)
+	}
+	return out.Route
 }
 
 func testNode(id int64, tag, country string) *models.Node {

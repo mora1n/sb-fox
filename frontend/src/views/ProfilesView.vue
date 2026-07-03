@@ -449,9 +449,9 @@ function closeForm() {
 }
 
 function hydrateLegacySelection(nodeIDs: number[], nodeGroupIDs: number[]) {
-  const finalTag = structure.value?.final || structure.value?.groups[0]?.tag || ''
-  if (!finalTag) return
-  const sel = selectionFor(finalTag)
+  const targetTag = managedFinalGroupTag() || structure.value?.groups[0]?.tag || ''
+  if (!targetTag) return
+  const sel = selectionFor(targetTag)
   if (hasSelection(sel)) return
   sel.nodeIds = [...nodeIDs]
   sel.nodeGroupIds = [...nodeGroupIDs]
@@ -517,25 +517,35 @@ function selectionMapHasAny(selections: Record<string, NodeSelection> | undefine
 function validateForm() {
   if (!form.value.name.trim()) throw new Error('请填写名称')
   if (!form.value.template_id) throw new Error('请选择模板')
-  if (!structure.value || !structure.value.groups.length) throw new Error('模板没有可用出口分组')
+  if (!structure.value) throw new Error('模板没有可用出口分组')
   if (form.value.options.autoCountryGroups && !hasSelection(autoCountrySelection())) {
     throw new Error('请选择自动国家分组来源节点')
   }
+  const finalTag = managedFinalGroupTag()
   for (const g of structure.value.groups) {
     const sel = selectionFor(g.tag)
-    const chainFillsFinal = form.value.options.chainProxy && g.tag === (structure.value.final || '') && hasSelection(chainSelection())
+    const isFinalGroup = g.tag === finalTag
+    const chainFillsFinal = form.value.options.chainProxy && isFinalGroup && hasSelection(chainSelection())
     if (!hasSelection(sel) && !chainFillsFinal) {
+      if (isFinalGroup) continue
       throw new Error(`出口分组 "${g.tag}" 不能为空`)
     }
   }
-  const finalTag = structure.value.final || structure.value.groups[0].tag
-  const finalSelection = selectionFor(finalTag)
-  if (!hasSelection(finalSelection) && !form.value.options.chainProxy) {
-    throw new Error(`最终出口 "${finalTag}" 至少需要选择一个节点、组合节点或引用出口`)
+  if (finalTag) {
+    const finalSelection = selectionFor(finalTag)
+    if (!hasSelection(finalSelection) && !form.value.options.chainProxy) {
+      throw new Error(`最终出口 "${finalTag}" 至少需要选择一个节点、组合节点或引用出口`)
+    }
   }
   if (form.value.options.chainProxy && !hasSelection(chainSelection())) {
     throw new Error('请选择链式代理节点')
   }
+}
+
+function managedFinalGroupTag() {
+  const final = structure.value?.final?.trim() || ''
+  if (!final) return ''
+  return structure.value?.groups.some((g) => g.tag === final) ? final : ''
 }
 
 function groupSelectionCount(tag: string) {
