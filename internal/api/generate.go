@@ -152,7 +152,7 @@ func generateConfigWithGroupSelections(templateContent string, groupNodes map[st
 		if group == nil {
 			return nil, fmt.Errorf("template outbound group %q is missing", g.Tag)
 		}
-		tags := selectableTagsForSelection(sel, groupNodes[g.Tag], outbounds, templateGroupTags, opts)
+		tags := selectableTagsForSelection(sel, groupNodes[g.Tag], autoCountryNodes, outbounds, templateGroupTags, opts)
 		if opts.ChainProxy {
 			tags = appendUniqueStrings(tags, chainTags)
 		}
@@ -288,9 +288,13 @@ func defaultOutboundRefs(g templateStructureGroup) []string {
 }
 
 func validateRequiredGroupSelections(st templateStructure, opts models.ProfileOptions) error {
+	autoCountryFillsEmptyGroup := opts.AutoCountryGroups && opts.AutoCountrySelected != nil && selectionHasInputs(*opts.AutoCountrySelected)
 	for _, g := range st.Groups {
 		sel := opts.GroupSelections[g.Tag]
 		if selectionHasInputs(sel) {
+			continue
+		}
+		if autoCountryFillsEmptyGroup && !sel.SkipCountryGroups {
 			continue
 		}
 		if opts.ChainProxy && g.Tag == st.Final && opts.ChainProxySelected != nil && selectionHasInputs(*opts.ChainProxySelected) {
@@ -317,10 +321,14 @@ func selectionHasInputs(sel models.NodeSelection) bool {
 	return len(sel.NodeIDs) > 0 || len(sel.NodeGroupIDs) > 0 || len(sel.OutboundRefs) > 0
 }
 
-func selectableTagsForSelection(sel models.NodeSelection, nodes []*models.Node, outbounds []any, templateGroupTags map[string]bool, opts models.ProfileOptions) []string {
+func selectableTagsForSelection(sel models.NodeSelection, nodes, autoCountryNodes []*models.Node, outbounds []any, templateGroupTags map[string]bool, opts models.ProfileOptions) []string {
 	tags := appendUniqueStrings(nil, sel.OutboundRefs)
 	if opts.AutoCountryGroups && !sel.SkipCountryGroups {
-		return appendUniqueStrings(tags, countryCandidateTags(outbounds, nodes, templateGroupTags))
+		countryNodes := nodes
+		if len(countryNodes) == 0 {
+			countryNodes = autoCountryNodes
+		}
+		return appendUniqueStrings(tags, countryCandidateTags(outbounds, countryNodes, templateGroupTags))
 	}
 	return appendUniqueStrings(tags, nodeTags(nodes))
 }
