@@ -7,11 +7,7 @@ const props = defineProps<{
   token: string
   profileName: string
   hostPrefix?: string
-  enabled?: boolean
-  showEnabled?: boolean
-  disabled?: boolean
 }>()
-const emit = defineEmits<{ 'update:enabled': [enabled: boolean] }>()
 const ui = useUiStore()
 const i18n = useI18nStore()
 
@@ -29,9 +25,6 @@ async function copy() {
   }
 }
 
-function onEnabledChange(event: Event) {
-  emit('update:enabled', (event.target as HTMLInputElement).checked)
-}
 </script>
 
 <template>
@@ -42,14 +35,5 @@ function onEnabledChange(event: Event) {
       </div>
       <button class="btn btn-sm join-item" type="button" @click="copy">{{ i18n.t('复制') }}</button>
     </div>
-    <input
-      v-if="showEnabled"
-      type="checkbox"
-      class="toggle toggle-sm"
-      :checked="!!enabled"
-      :disabled="disabled"
-      :title="i18n.t('公开')"
-      @change="onEnabledChange"
-    />
   </div>
 </template>

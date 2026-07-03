@@ -645,7 +645,7 @@ async function setProfileSubscriptionEnabled(profile: Profile, enabled: boolean)
   busy.value = true
   try {
     await store.setSubscriptionEnabled(profile.id, enabled)
-    ui.success(enabled ? i18n.t('公开已开启') : i18n.t('公开已关闭'))
+    ui.success(enabled ? i18n.t('分享已开启') : i18n.t('分享已关闭'))
   } catch (e) {
     ui.error(errMsg(e))
     try {
@@ -658,6 +658,10 @@ async function setProfileSubscriptionEnabled(profile: Profile, enabled: boolean)
   }
 }
 
+function onProfileSubscriptionEnabledChange(profile: Profile, event: Event) {
+  setProfileSubscriptionEnabled(profile, (event.target as HTMLInputElement).checked)
+}
+
 async function setSelectedProfilesSubscriptionEnabled(enabled: boolean) {
   const ids = store.profiles.filter((p) => selectedProfiles.value.has(p.id)).map((p) => p.id)
   if (!ids.length) return
@@ -666,7 +670,7 @@ async function setSelectedProfilesSubscriptionEnabled(enabled: boolean) {
     for (const id of ids) {
       await store.setSubscriptionEnabled(id, enabled)
     }
-    ui.success(enabled ? i18n.t('已开启公开') : i18n.t('已关闭公开'))
+    ui.success(enabled ? i18n.t('已开启分享') : i18n.t('已关闭分享'))
   } catch (e) {
     ui.error(errMsg(e))
     try {
@@ -875,11 +879,21 @@ async function remove(p: Profile) {
         </button>
         <div class="dropdown dropdown-end">
           <button tabindex="0" type="button" class="btn btn-sm" :disabled="busy || !selectedProfiles.size">
-            {{ i18n.t('公开') }}
+            {{ i18n.t('分享订阅') }}
           </button>
-          <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-20 w-32 p-2 shadow border border-base-300" @click.stop>
-            <li><button type="button" @click="setSelectedProfilesSubscriptionEnabled(true)">{{ i18n.t('开启公开') }}</button></li>
-            <li><button type="button" @click="setSelectedProfilesSubscriptionEnabled(false)">{{ i18n.t('关闭公开') }}</button></li>
+          <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-20 w-40 p-2 shadow border border-base-300" @click.stop>
+            <li>
+              <button type="button" class="flex items-center justify-between gap-3" @click="setSelectedProfilesSubscriptionEnabled(true)">
+                <span>{{ i18n.t('开启') }}</span>
+                <input type="checkbox" class="toggle toggle-sm pointer-events-none" checked />
+              </button>
+            </li>
+            <li>
+              <button type="button" class="flex items-center justify-between gap-3" @click="setSelectedProfilesSubscriptionEnabled(false)">
+                <span>{{ i18n.t('关闭') }}</span>
+                <input type="checkbox" class="toggle toggle-sm pointer-events-none" />
+              </button>
+            </li>
           </ul>
         </div>
       </div>
@@ -926,16 +940,24 @@ async function remove(p: Profile) {
           <div class="flex flex-wrap gap-1">
             <span v-for="badge in optionBadges(p)" :key="badge" class="badge badge-sm badge-neutral">{{ badge }}</span>
           </div>
-          <div v-if="store.subscriptionToken" @click.stop @keydown.stop>
-            <span class="text-xs opacity-60">{{ i18n.t('公开订阅链接') }}</span>
+          <div v-if="store.subscriptionToken" class="space-y-1" @click.stop @keydown.stop>
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-xs opacity-60">{{ i18n.t('订阅链接') }}</span>
+              <label class="label cursor-pointer gap-2 p-0">
+                <span class="label-text text-xs whitespace-nowrap">{{ i18n.t('分享订阅') }}</span>
+                <input
+                  type="checkbox"
+                  class="toggle toggle-sm"
+                  :checked="p.subscription_enabled"
+                  :disabled="busy"
+                  @change="onProfileSubscriptionEnabledChange(p, $event)"
+                />
+              </label>
+            </div>
             <TokenLinkField
               :token="store.subscriptionToken"
               :profile-name="p.name"
               :host-prefix="tokenHost"
-              :enabled="p.subscription_enabled"
-              :show-enabled="true"
-              :disabled="busy"
-              @update:enabled="(enabled) => setProfileSubscriptionEnabled(p, enabled)"
             />
           </div>
         </div>
@@ -949,7 +971,7 @@ async function remove(p: Profile) {
             <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleProfileSort('name')">{{ i18n.t('名称') }} {{ sortIndicator(profileSortKey, profileSortDir, 'name') }}</button></th>
             <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleProfileSort('template')">{{ i18n.t('模板') }} {{ sortIndicator(profileSortKey, profileSortDir, 'template') }}</button></th>
             <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleProfileSort('options')">{{ i18n.t('选项') }} {{ sortIndicator(profileSortKey, profileSortDir, 'options') }}</button></th>
-            <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleProfileSort('link')">{{ i18n.t('公开订阅链接') }} {{ sortIndicator(profileSortKey, profileSortDir, 'link') }}</button></th>
+            <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleProfileSort('link')">{{ i18n.t('订阅链接') }} {{ sortIndicator(profileSortKey, profileSortDir, 'link') }}</button></th>
             <th class="text-right">{{ i18n.t('操作') }}</th>
           </tr>
         </thead>
@@ -979,16 +1001,24 @@ async function remove(p: Profile) {
               </div>
             </td>
             <td class="min-w-80" @click.stop>
-              <TokenLinkField
-                v-if="store.subscriptionToken"
-                :token="store.subscriptionToken"
-                :profile-name="p.name"
-                :host-prefix="tokenHost"
-                :enabled="p.subscription_enabled"
-                :show-enabled="true"
-                :disabled="busy"
-                @update:enabled="(enabled) => setProfileSubscriptionEnabled(p, enabled)"
-              />
+              <div v-if="store.subscriptionToken" class="flex items-center gap-2 min-w-0">
+                <TokenLinkField
+                  class="flex-1"
+                  :token="store.subscriptionToken"
+                  :profile-name="p.name"
+                  :host-prefix="tokenHost"
+                />
+                <label class="label cursor-pointer gap-2 p-0 shrink-0">
+                  <span class="label-text text-xs whitespace-nowrap">{{ i18n.t('分享订阅') }}</span>
+                  <input
+                    type="checkbox"
+                    class="toggle toggle-sm"
+                    :checked="p.subscription_enabled"
+                    :disabled="busy"
+                    @change="onProfileSubscriptionEnabledChange(p, $event)"
+                  />
+                </label>
+              </div>
               <span v-else class="opacity-50">-</span>
             </td>
             <td class="text-right">
