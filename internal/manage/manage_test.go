@@ -408,6 +408,13 @@ func TestUpdateReplacesBinaryWithoutPrintingSourceURL(t *testing.T) {
 	if string(data) != "new" {
 		t.Fatalf("binary = %q, want new", data)
 	}
+	backups, err := filepath.Glob(current + ".bak-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backups) != 0 {
+		t.Fatalf("backup should be removed after successful update: %v", backups)
+	}
 	if strings.Contains(output.String(), server.URL) || strings.Contains(output.String(), "mora1n") {
 		t.Fatalf("update output exposed source info:\n%s", output.String())
 	}

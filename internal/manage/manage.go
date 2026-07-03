@@ -306,6 +306,9 @@ func Update(opts Options) error {
 		}
 		return fmt.Errorf("update rolled back: %w", err)
 	}
+	if err := os.Remove(backup); err != nil {
+		return fmt.Errorf("remove update backup: %w", err)
+	}
 	fmt.Fprintln(opts.Stdout, "update completed")
 	return nil
 }
