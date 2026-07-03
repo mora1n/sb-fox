@@ -371,6 +371,72 @@ func TestUserSettingsPermissionsAndPublicKernelStatus(t *testing.T) {
 	}
 }
 
+func TestTemplateLookupByNameForOverwriteFlow(t *testing.T) {
+	_, ts := testServer(t)
+	admin := newClient(t, ts.URL)
+	admin.http.Jar = login(t, ts.URL)
+
+	var created struct {
+		Template struct {
+			ID      int64  `json:"id"`
+			Name    string `json:"name"`
+			Content string `json:"content"`
+		} `json:"template"`
+	}
+	decodeData(t, admin.do(http.MethodPost, "/api/templates", map[string]string{
+		"name": "dup", "content": `{"a":1}`, "description": "old",
+	}), &created)
+	if created.Template.ID == 0 {
+		t.Fatalf("created template = %+v", created.Template)
+	}
+
+	var found struct {
+		ID      int64  `json:"id"`
+		Name    string `json:"name"`
+		Kind    string `json:"kind"`
+		Content string `json:"content"`
+	}
+	decodeData(t, admin.do(http.MethodGet, "/api/templates/by-name?name=dup", nil), &found)
+	if found.ID != created.Template.ID || found.Name != "dup" || found.Kind != "user" || found.Content != `{"a":1}` {
+		t.Fatalf("found template = %+v, created = %+v", found, created.Template)
+	}
+
+	status, _, msg := decodeError(t, admin.do(http.MethodGet, "/api/templates/by-name", nil))
+	if status != http.StatusBadRequest || !strings.Contains(msg, "name is required") {
+		t.Fatalf("missing name status=%d msg=%q", status, msg)
+	}
+	status, _, msg = decodeError(t, admin.do(http.MethodGet, "/api/templates/by-name?name=missing", nil))
+	if status != http.StatusNotFound || !strings.Contains(msg, "template not found") {
+		t.Fatalf("missing template status=%d msg=%q", status, msg)
+	}
+
+	decodeData(t, admin.do(http.MethodPut, "/api/templates/"+itoa(found.ID), map[string]string{
+		"content": `{"a":2}`, "description": "new",
+	}), nil)
+	var updated struct {
+		ID          int64  `json:"id"`
+		Content     string `json:"content"`
+		Description string `json:"description"`
+	}
+	decodeData(t, admin.do(http.MethodGet, "/api/templates/"+itoa(found.ID), nil), &updated)
+	if updated.ID != found.ID || updated.Content != `{"a":2}` || updated.Description != "new" {
+		t.Fatalf("updated template = %+v", updated)
+	}
+
+	var user struct {
+		ID int64 `json:"id"`
+	}
+	decodeData(t, admin.do(http.MethodPost, "/api/users", map[string]any{
+		"username": "dave", "password": "password123", "template_limit": 1,
+	}), &user)
+	userClient := newClient(t, ts.URL)
+	userClient.http.Jar = loginAs(t, ts.URL, "dave", "password123")
+	status, _, _ = decodeError(t, userClient.do(http.MethodGet, "/api/templates/by-name?name=dup", nil))
+	if status != http.StatusNotFound {
+		t.Fatalf("other user lookup status=%d", status)
+	}
+}
+
 func TestNodeUsageEndpoint(t *testing.T) {
 	_, ts := testServer(t)
 	c := newClient(t, ts.URL)

@@ -23,6 +23,29 @@ func (s *Server) handleListTemplates(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, list)
 }
 
+// handleGetTemplateByName returns the current user's template matching name.
+func (s *Server) handleGetTemplateByName(w http.ResponseWriter, r *http.Request) {
+	u, ok := requireCurrentUser(w, r)
+	if !ok {
+		return
+	}
+	name := strings.TrimSpace(r.URL.Query().Get("name"))
+	if name == "" {
+		respondError(w, http.StatusBadRequest, "bad_request", "name is required")
+		return
+	}
+	t, err := s.Store.GetTemplateByNameForUser(u.ID, name)
+	if err == store.ErrNotFound {
+		respondError(w, http.StatusNotFound, "not_found", "template not found")
+		return
+	}
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	respondJSON(w, http.StatusOK, t)
+}
+
 // handleGetTemplate returns one template's full content.
 func (s *Server) handleGetTemplate(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)

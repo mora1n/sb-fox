@@ -16,7 +16,11 @@ import {
   Bars3Icon,
   ChevronDownIcon,
   ChevronUpIcon,
+  ListBulletIcon,
+  Squares2X2Icon,
 } from '@heroicons/vue/24/outline'
+
+type ViewMode = 'card' | 'list'
 
 const store = useTemplatesStore()
 const ui = useUiStore()
@@ -33,6 +37,7 @@ const formName = ref('')
 const formDesc = ref('')
 const formContent = ref('')
 const busy = ref(false)
+const templateViewMode = ref<ViewMode>('card')
 
 const groupTags = computed(() => structure.value?.groups.map((g) => g.tag).filter(Boolean) ?? [])
 const availableOutbounds = computed(() => {
@@ -128,9 +133,18 @@ async function submitForm() {
       const r = await store.update(editing.value.id, formContent.value, formDesc.value)
       ui.success(r.imported ? `模板已更新，已导入 ${r.imported} 个节点` : '模板已更新')
     } else {
-      if (!formName.value.trim()) throw new Error('请填写模板名称')
-      const r = await store.create(formName.value, formContent.value, formDesc.value)
-      ui.success(r.imported ? `模板已导入，已导入 ${r.imported} 个节点` : '模板已导入')
+      const name = formName.value.trim()
+      if (!name) throw new Error('请填写模板名称')
+      const existing = await store.findByName(name)
+      if (existing) {
+        if (existing.kind !== 'user') throw new Error(`模板 "${name}" 不能覆盖更新`)
+        if (!confirm(`模板 "${name}" 已存在，是否覆盖更新？`)) return
+        const r = await store.update(existing.id, formContent.value, formDesc.value)
+        ui.success(r.imported ? `模板已更新，已导入 ${r.imported} 个节点` : '模板已更新')
+      } else {
+        const r = await store.create(name, formContent.value, formDesc.value)
+        ui.success(r.imported ? `模板已导入，已导入 ${r.imported} 个节点` : '模板已导入')
+      }
     }
     showForm.value = false
   } catch (e) {
@@ -220,12 +234,55 @@ async function remove(t: Template) {
 
 <template>
   <div class="flex flex-col gap-4">
-    <div class="flex items-center justify-between">
+    <div class="flex items-center justify-between gap-2 flex-wrap">
       <h1 class="text-2xl font-bold">{{ i18n.t('模板') }}</h1>
-      <button class="btn btn-sm btn-primary" @click="openImport"><PlusIcon class="h-4 w-4" /> {{ i18n.t('导入模板') }}</button>
+      <div class="flex items-center gap-2 flex-wrap">
+        <div class="join">
+          <button
+            type="button"
+            class="btn btn-sm join-item"
+            :class="{ 'btn-active': templateViewMode === 'card' }"
+            @click="templateViewMode = 'card'"
+          >
+            <Squares2X2Icon class="h-4 w-4" /> {{ i18n.t('卡片') }}
+          </button>
+          <button
+            type="button"
+            class="btn btn-sm join-item"
+            :class="{ 'btn-active': templateViewMode === 'list' }"
+            @click="templateViewMode = 'list'"
+          >
+            <ListBulletIcon class="h-4 w-4" /> {{ i18n.t('列表') }}
+          </button>
+        </div>
+        <button class="btn btn-sm btn-primary" @click="openImport"><PlusIcon class="h-4 w-4" /> {{ i18n.t('导入模板') }}</button>
+      </div>
     </div>
 
     <div v-if="store.loading" class="flex justify-center py-10"><span class="loading loading-spinner loading-lg"></span></div>
+    <div v-else-if="!store.templates.length" class="text-center py-10 opacity-60 bg-base-100 border border-base-300 rounded-box">
+      {{ i18n.t('暂无模板。') }}
+    </div>
+    <div v-else-if="templateViewMode === 'card'" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      <div v-for="t in store.templates" :key="t.id" class="card bg-base-100 border border-base-300 shadow-sm">
+        <div class="card-body p-4 gap-3">
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0">
+              <h2 class="font-semibold truncate" :title="t.name">{{ t.name }}</h2>
+              <p v-if="t.description" class="text-xs opacity-70 truncate" :title="t.description">{{ t.description }}</p>
+            </div>
+            <span class="badge badge-sm flex-none" :class="t.kind === 'builtin' ? 'badge-neutral' : 'badge-primary'">{{ t.kind }}</span>
+          </div>
+          <div class="flex gap-1 justify-end">
+            <button type="button" class="btn btn-xs btn-ghost" @click="view(t)" :title="i18n.t('查看')"><EyeIcon class="h-4 w-4" /></button>
+            <button type="button" class="btn btn-xs btn-ghost" @click="editStructure(t)" :title="i18n.t('分组管理')"><RectangleGroupIcon class="h-4 w-4" /></button>
+            <button type="button" class="btn btn-xs btn-ghost" @click="exportTemplate(t)" :title="i18n.t('导出')"><ArrowDownTrayIcon class="h-4 w-4" /></button>
+            <button v-if="t.kind === 'user'" type="button" class="btn btn-xs btn-ghost" @click="openEdit(t)" :title="i18n.t('编辑模板')"><PencilSquareIcon class="h-4 w-4" /></button>
+            <button v-if="t.kind === 'user'" type="button" class="btn btn-xs btn-ghost text-error" @click="remove(t)" :title="i18n.t('删除')"><TrashIcon class="h-4 w-4" /></button>
+          </div>
+        </div>
+      </div>
+    </div>
     <div v-else class="overflow-x-auto card bg-base-100 shadow-sm">
       <table class="table">
         <thead>
@@ -240,11 +297,11 @@ async function remove(t: Template) {
             <td class="text-sm opacity-70 max-w-xs truncate">{{ t.description }}</td>
             <td>
               <div class="flex gap-1 justify-end">
-                <button class="btn btn-xs btn-ghost" @click="view(t)" :title="i18n.t('查看')"><EyeIcon class="h-4 w-4" /></button>
-                <button class="btn btn-xs btn-ghost" @click="editStructure(t)" :title="i18n.t('分组管理')"><RectangleGroupIcon class="h-4 w-4" /></button>
-                <button class="btn btn-xs btn-ghost" @click="exportTemplate(t)" :title="i18n.t('导出')"><ArrowDownTrayIcon class="h-4 w-4" /></button>
-                <button v-if="t.kind === 'user'" class="btn btn-xs btn-ghost" @click="openEdit(t)" :title="i18n.t('编辑模板')"><PencilSquareIcon class="h-4 w-4" /></button>
-                <button v-if="t.kind === 'user'" class="btn btn-xs btn-ghost text-error" @click="remove(t)" :title="i18n.t('删除')"><TrashIcon class="h-4 w-4" /></button>
+                <button type="button" class="btn btn-xs btn-ghost" @click="view(t)" :title="i18n.t('查看')"><EyeIcon class="h-4 w-4" /></button>
+                <button type="button" class="btn btn-xs btn-ghost" @click="editStructure(t)" :title="i18n.t('分组管理')"><RectangleGroupIcon class="h-4 w-4" /></button>
+                <button type="button" class="btn btn-xs btn-ghost" @click="exportTemplate(t)" :title="i18n.t('导出')"><ArrowDownTrayIcon class="h-4 w-4" /></button>
+                <button v-if="t.kind === 'user'" type="button" class="btn btn-xs btn-ghost" @click="openEdit(t)" :title="i18n.t('编辑模板')"><PencilSquareIcon class="h-4 w-4" /></button>
+                <button v-if="t.kind === 'user'" type="button" class="btn btn-xs btn-ghost text-error" @click="remove(t)" :title="i18n.t('删除')"><TrashIcon class="h-4 w-4" /></button>
               </div>
             </td>
           </tr>

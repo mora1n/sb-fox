@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { del, downloadGet, get, post, put } from '../api/client'
+import { ApiRequestError, del, downloadGet, get, post, put } from '../api/client'
 import type { InspectResult, Template, TemplateSaveResult, TemplateStructure } from '../api/types'
 
 export const useTemplatesStore = defineStore('templates', () => {
@@ -18,6 +18,15 @@ export const useTemplatesStore = defineStore('templates', () => {
 
   async function getOne(id: number): Promise<Template> {
     return get<Template>('/templates/' + id)
+  }
+
+  async function findByName(name: string): Promise<Template | null> {
+    try {
+      return await get<Template>('/templates/by-name?name=' + encodeURIComponent(name))
+    } catch (e) {
+      if (e instanceof ApiRequestError && e.status === 404) return null
+      throw e
+    }
   }
 
   async function create(name: string, content: string, description: string): Promise<TemplateSaveResult> {
@@ -61,6 +70,7 @@ export const useTemplatesStore = defineStore('templates', () => {
     loading,
     fetchAll,
     getOne,
+    findByName,
     create,
     update,
     remove,

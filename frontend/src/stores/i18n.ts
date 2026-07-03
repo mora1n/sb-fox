@@ -143,6 +143,7 @@ const en: Record<string, string> = {
   '选择节点': 'Select Node',
   '导入模板': 'Import Template',
   '编辑模板': 'Edit Template',
+  '暂无模板。': 'No templates.',
   '类型': 'Type',
   '描述': 'Description',
   '查看': 'View',

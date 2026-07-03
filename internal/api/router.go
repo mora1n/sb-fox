@@ -70,6 +70,7 @@ func (s *Server) mountAuthed(r chi.Router) {
 
 	r.Get("/templates", s.handleListTemplates)
 	r.Post("/templates", s.handleCreateTemplate)
+	r.Get("/templates/by-name", s.handleGetTemplateByName)
 	r.Get("/templates/{id}", s.handleGetTemplate)
 	r.Put("/templates/{id}", s.handleUpdateTemplate)
 	r.Delete("/templates/{id}", s.handleDeleteTemplate)
