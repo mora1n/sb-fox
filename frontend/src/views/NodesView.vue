@@ -24,6 +24,7 @@ import {
   PencilSquareIcon,
   RectangleStackIcon,
   Squares2X2Icon,
+  DocumentDuplicateIcon,
   TrashIcon,
   XMarkIcon,
 } from '@heroicons/vue/24/outline'
@@ -45,8 +46,10 @@ const i18n = useI18nStore()
 const showImport = ref(false)
 const showEdit = ref(false)
 const editing = ref<Node | null>(null)
+const copyingNodeFrom = ref<Node | null>(null)
 const showGroupForm = ref(false)
 const editingGroup = ref<NodeGroup | null>(null)
+const copyingGroupFrom = ref<NodeGroup | null>(null)
 const selected = ref<Set<number>>(new Set())
 const selectedGroups = ref<Set<number>>(new Set())
 const busy = ref(false)
@@ -136,11 +139,25 @@ function selectAllNodeGroups() {
 
 function openCreate() {
   editing.value = null
+  copyingNodeFrom.value = null
   showEdit.value = true
 }
 function openEdit(n: Node) {
   editing.value = n
+  copyingNodeFrom.value = null
   showEdit.value = true
+}
+
+function openCopy(n: Node) {
+  editing.value = null
+  copyingNodeFrom.value = n
+  showEdit.value = true
+}
+
+function closeNodeForm() {
+  showEdit.value = false
+  editing.value = null
+  copyingNodeFrom.value = null
 }
 
 function nodeLabel(id: number) {
@@ -212,20 +229,38 @@ function sortIndicator(active: string, dir: SortDir, key: string) {
 
 function openCreateGroup() {
   editingGroup.value = null
+  copyingGroupFrom.value = null
   groupForm.value = { name: '', description: '', node_ids: [...selected.value] }
   showGroupForm.value = true
 }
 
 function openEditGroup(g: NodeGroup) {
   editingGroup.value = g
+  copyingGroupFrom.value = null
   groupForm.value = { name: g.name, description: g.description, node_ids: [...g.node_ids] }
   showGroupForm.value = true
+}
+
+function openCopyGroup(g: NodeGroup) {
+  editingGroup.value = null
+  copyingGroupFrom.value = g
+  groupForm.value = { name: g.name, description: g.description, node_ids: [...g.node_ids] }
+  showGroupForm.value = true
+}
+
+function closeGroupForm() {
+  showGroupForm.value = false
+  editingGroup.value = null
+  copyingGroupFrom.value = null
 }
 
 async function submitGroup() {
   busy.value = true
   try {
     if (!groupForm.value.name.trim()) throw new Error('请填写组合名称')
+    if (copyingGroupFrom.value && groupForm.value.name.trim() === copyingGroupFrom.value.name.trim()) {
+      throw new Error(i18n.t('复制组合节点需要修改名称后保存'))
+    }
     const payload = { ...groupForm.value, name: groupForm.value.name.trim() }
     if (editingGroup.value) {
       await nodeGroups.update(editingGroup.value.id, payload)
@@ -234,7 +269,7 @@ async function submitGroup() {
       await nodeGroups.create(payload)
       ui.success('组合节点已创建')
     }
-    showGroupForm.value = false
+    closeGroupForm()
   } catch (e) {
     ui.error(errMsg(e))
   } finally {
@@ -468,6 +503,7 @@ async function exportLinks() {
             :key="n.id"
             :node="n"
             :selected="selected.has(n.id)"
+            @copy="openCopy(n)"
             @edit="openEdit(n)"
             @remove="remove(n)"
             @toggle-select="toggleSelect(n.id)"
@@ -507,6 +543,7 @@ async function exportLinks() {
                 <td><span class="badge badge-sm badge-neutral">{{ i18n.t(nodeSourceLabel(n.source)) }}</span></td>
                 <td class="text-right">
                   <div class="flex justify-end gap-1">
+                    <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('复制节点')" @click.stop="openCopy(n)"><DocumentDuplicateIcon class="h-4 w-4" /></button>
                     <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('编辑节点')" @click.stop="openEdit(n)"><PencilSquareIcon class="h-4 w-4" /></button>
                     <button type="button" class="btn btn-xs btn-ghost text-error" :title="i18n.t('删除')" @click.stop="remove(n)"><TrashIcon class="h-4 w-4" /></button>
                   </div>
@@ -568,6 +605,7 @@ async function exportLinks() {
                   </div>
                 </div>
                 <div class="flex gap-1">
+                  <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('复制组合节点')" @click.stop="openCopyGroup(g)"><DocumentDuplicateIcon class="h-4 w-4" /></button>
                   <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('编辑组合节点')" @click.stop="openEditGroup(g)"><PencilSquareIcon class="h-4 w-4" /></button>
                   <button type="button" class="btn btn-xs btn-ghost text-error" :title="i18n.t('删除')" @click.stop="removeGroup(g)"><TrashIcon class="h-4 w-4" /></button>
                 </div>
@@ -611,6 +649,7 @@ async function exportLinks() {
                 </td>
                 <td class="text-right">
                   <div class="flex justify-end gap-1">
+                    <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('复制组合节点')" @click.stop="openCopyGroup(g)"><DocumentDuplicateIcon class="h-4 w-4" /></button>
                     <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('编辑组合节点')" @click.stop="openEditGroup(g)"><PencilSquareIcon class="h-4 w-4" /></button>
                     <button type="button" class="btn btn-xs btn-ghost text-error" :title="i18n.t('删除')" @click.stop="removeGroup(g)"><TrashIcon class="h-4 w-4" /></button>
                   </div>
@@ -623,11 +662,11 @@ async function exportLinks() {
     </template>
 
     <ImportDialog v-if="showImport" @close="showImport = false" @imported="load" />
-    <NodeEditForm v-if="showEdit" :node="editing" @close="showEdit = false" @saved="load" />
+    <NodeEditForm v-if="showEdit" :node="editing" :copy-from="copyingNodeFrom" @close="closeNodeForm" @saved="load" />
 
     <div v-if="showGroupForm" class="modal modal-open">
       <div class="modal-box max-w-2xl">
-        <h3 class="font-bold text-lg mb-3">{{ editingGroup ? i18n.t('编辑组合节点') : i18n.t('新建组合节点') }}</h3>
+        <h3 class="font-bold text-lg mb-3">{{ editingGroup ? i18n.t('编辑组合节点') : copyingGroupFrom ? i18n.t('复制组合节点') : i18n.t('新建组合节点') }}</h3>
         <div class="flex flex-col gap-3">
           <label class="form-control">
             <span class="label-text mb-1">{{ i18n.t('名称') }}</span>
@@ -643,13 +682,13 @@ async function exportLinks() {
           </div>
         </div>
         <div class="modal-action">
-          <button class="btn btn-ghost" @click="showGroupForm = false" :disabled="busy">{{ i18n.t('取消') }}</button>
+          <button class="btn btn-ghost" @click="closeGroupForm" :disabled="busy">{{ i18n.t('取消') }}</button>
           <button class="btn btn-primary" @click="submitGroup" :disabled="busy">
             <span v-if="busy" class="loading loading-spinner loading-sm"></span> {{ i18n.t('保存') }}
           </button>
         </div>
       </div>
-      <div class="modal-backdrop" @click="showGroupForm = false"></div>
+      <div class="modal-backdrop" @click="closeGroupForm"></div>
     </div>
   </div>
 </template>

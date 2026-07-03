@@ -31,6 +31,7 @@ import {
   ArrowPathIcon,
   ListBulletIcon,
   Squares2X2Icon,
+  DocumentDuplicateIcon,
 } from '@heroicons/vue/24/outline'
 
 type ViewMode = 'card' | 'list'
@@ -50,6 +51,7 @@ const i18n = useI18nStore()
 
 const showForm = ref(false)
 const editing = ref<Profile | null>(null)
+const copyingFrom = ref<Profile | null>(null)
 const busy = ref(false)
 const formLoading = ref(false)
 const suppressTemplateWatch = ref(false)
@@ -90,6 +92,11 @@ const form = ref<{
 
 const activeStructureGroup = computed(() => structure.value?.groups.find((g) => g.tag === activeGroup.value) ?? null)
 const formLocked = computed(() => busy.value || formLoading.value)
+const formTitle = computed(() => {
+  if (editing.value) return i18n.t('编辑订阅')
+  if (copyingFrom.value) return i18n.t('复制订阅')
+  return i18n.t('新建订阅')
+})
 
 const activeNodeIds = computed<number[]>({
   get: () => selectionFor(activeGroup.value).nodeIds,
@@ -304,6 +311,7 @@ function numberArray(value: unknown): number[] {
 async function openCreate() {
   suppressTemplateWatch.value = true
   editing.value = null
+  copyingFrom.value = null
   form.value = {
     name: '',
     template_id: templates.templates[0]?.id || 0,
@@ -331,6 +339,7 @@ async function openCreate() {
 async function openEdit(p: Profile) {
   suppressTemplateWatch.value = true
   editing.value = p
+  copyingFrom.value = null
   form.value = {
     name: p.name,
     template_id: p.template_id,
@@ -368,6 +377,55 @@ async function openEdit(p: Profile) {
     formLoading.value = false
     suppressTemplateWatch.value = false
   }
+}
+
+async function openCopy(p: Profile) {
+  suppressTemplateWatch.value = true
+  editing.value = null
+  copyingFrom.value = p
+  form.value = {
+    name: p.name,
+    template_id: p.template_id,
+    node_ids: numberArray(p.node_ids),
+    node_group_ids: numberArray(p.node_group_ids),
+    options: parseOptions(p.options),
+  }
+  config.value = ''
+  validation.value = null
+  structure.value = null
+  activeGroup.value = ''
+  activeEditor.value = 'group'
+  showForm.value = true
+  formLoading.value = true
+  try {
+    const full = await store.getOne(p.id)
+    const options = parseOptions(full.options)
+    const legacyNodeIDs = numberArray(full.node_ids)
+    const legacyNodeGroupIDs = numberArray(full.node_group_ids)
+    const shouldHydrateLegacySelection =
+      !selectionMapHasAny(options.groupSelections) && (legacyNodeIDs.length > 0 || legacyNodeGroupIDs.length > 0)
+    copyingFrom.value = full
+    form.value = {
+      name: full.name,
+      template_id: full.template_id,
+      node_ids: legacyNodeIDs,
+      node_group_ids: legacyNodeGroupIDs,
+      options,
+    }
+    await loadStructure(full.template_id)
+    if (shouldHydrateLegacySelection) hydrateLegacySelection(legacyNodeIDs, legacyNodeGroupIDs)
+  } catch (e) {
+    ui.error(errMsg(e))
+  } finally {
+    formLoading.value = false
+    suppressTemplateWatch.value = false
+  }
+}
+
+function closeForm() {
+  showForm.value = false
+  editing.value = null
+  copyingFrom.value = null
 }
 
 function hydrateLegacySelection(nodeIDs: number[], nodeGroupIDs: number[]) {
@@ -516,6 +574,9 @@ async function submit() {
   if (formLoading.value) return ui.info('正在加载订阅...')
   busy.value = true
   try {
+    if (copyingFrom.value && form.value.name.trim() === copyingFrom.value.name.trim()) {
+      throw new Error(i18n.t('复制订阅需要修改名称后保存'))
+    }
     validateForm()
     const payload = buildPayload()
     if (editing.value) {
@@ -525,7 +586,7 @@ async function submit() {
       await store.create(payload)
       ui.success('订阅已创建')
     }
-    showForm.value = false
+    closeForm()
   } catch (e) {
     ui.error(errMsg(e))
   } finally {
@@ -739,6 +800,7 @@ async function remove(p: Profile) {
               </div>
             </div>
             <div class="flex gap-1 flex-none">
+              <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('复制订阅')" @click.stop="openCopy(p)"><DocumentDuplicateIcon class="h-4 w-4" /></button>
               <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('编辑订阅')" @click.stop="openEdit(p)"><PencilSquareIcon class="h-4 w-4" /></button>
               <button type="button" class="btn btn-xs btn-ghost text-error" :title="i18n.t('删除')" @click.stop="remove(p)"><TrashIcon class="h-4 w-4" /></button>
             </div>
@@ -805,6 +867,7 @@ async function remove(p: Profile) {
             </td>
             <td class="text-right">
               <div class="flex gap-1 justify-end">
+                <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('复制订阅')" @click.stop="openCopy(p)"><DocumentDuplicateIcon class="h-4 w-4" /></button>
                 <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('编辑订阅')" @click.stop="openEdit(p)"><PencilSquareIcon class="h-4 w-4" /></button>
                 <button type="button" class="btn btn-xs btn-ghost text-error" :title="i18n.t('删除')" @click.stop="remove(p)"><TrashIcon class="h-4 w-4" /></button>
               </div>
@@ -817,9 +880,9 @@ async function remove(p: Profile) {
     <div v-if="showForm" class="modal modal-open">
       <div class="modal-box w-[96vw] max-w-[100rem] max-h-[90vh] overflow-y-auto">
         <div class="mb-3 flex items-center justify-between gap-3">
-          <h3 class="font-bold text-lg truncate">{{ editing ? i18n.t('编辑订阅') : i18n.t('新建订阅') }}</h3>
+          <h3 class="font-bold text-lg truncate">{{ formTitle }}</h3>
           <div class="flex shrink-0 items-center gap-2">
-            <button class="btn btn-ghost btn-sm" @click="showForm = false" :disabled="busy">{{ i18n.t('取消') }}</button>
+            <button class="btn btn-ghost btn-sm" @click="closeForm" :disabled="busy">{{ i18n.t('取消') }}</button>
             <button class="btn btn-primary btn-sm" @click="submit" :disabled="formLocked">
               <span v-if="formLocked" class="loading loading-spinner loading-sm"></span> {{ i18n.t('保存') }}
             </button>
@@ -1036,7 +1099,7 @@ async function remove(p: Profile) {
           </div>
         </div>
       </div>
-      <div class="modal-backdrop" @click="showForm = false"></div>
+      <div class="modal-backdrop" @click="closeForm"></div>
     </div>
   </div>
 </template>

@@ -8,7 +8,7 @@ import { useI18nStore } from '../stores/i18n'
 import { errMsg } from '../utils/error'
 import { COUNTRY_CODES, sortCountryOptions } from '../utils/countries'
 
-const props = defineProps<{ node: Node | null }>()
+const props = defineProps<{ node: Node | null; copyFrom?: Node | null }>()
 const emit = defineEmits<{ close: []; saved: [] }>()
 
 const nodesStore = useNodesStore()
@@ -44,8 +44,6 @@ function resetFrom(node: Node | null) {
     countryCode.value = ''
   }
 }
-watch(() => props.node, (n) => resetFrom(n ?? null), { immediate: true })
-
 // ensure a nested tls object exists, then return it
 function tls(): Record<string, any> {
   if (!raw.tls || typeof raw.tls !== 'object') raw.tls = {}
@@ -77,10 +75,18 @@ const alpnText = computed({
 })
 
 const countryOptions = computed(() => sortCountryOptions(COUNTRY_CODES, settings.countryHeatOrder))
+const formTitle = computed(() => {
+  if (props.node) return i18n.t('编辑节点')
+  if (props.copyFrom) return i18n.t('复制节点')
+  return i18n.t('新建节点')
+})
 
 async function save() {
   busy.value = true
   try {
+    if (props.copyFrom && String(raw.tag ?? '').trim() === props.copyFrom.tag.trim()) {
+      throw new Error(i18n.t('复制节点需要修改标签后保存'))
+    }
     const payload = {
       raw: JSON.stringify(raw),
       country_code: manualCountry.value ? countryCode.value : undefined,
@@ -97,12 +103,13 @@ async function save() {
     busy.value = false
   }
 }
+watch(() => [props.node, props.copyFrom], () => resetFrom(props.node ?? props.copyFrom ?? null), { immediate: true })
 </script>
 
 <template>
   <div class="modal modal-open">
     <div class="modal-box max-w-2xl">
-      <h3 class="font-bold text-lg mb-3">{{ node ? i18n.t('编辑节点') : i18n.t('新建节点') }}</h3>
+      <h3 class="font-bold text-lg mb-3">{{ formTitle }}</h3>
 
       <div v-if="parseError" class="alert alert-error text-sm mb-3">
         <span>{{ parseError }}</span>

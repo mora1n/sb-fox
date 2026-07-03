@@ -3,10 +3,10 @@ import type { Node } from '../api/types'
 import CountryFlag from './CountryFlag.vue'
 import { useI18nStore } from '../stores/i18n'
 import { nodeSourceLabel } from '../utils/nodeSource'
-import { PencilSquareIcon, TrashIcon, ArrowsRightLeftIcon } from '@heroicons/vue/24/outline'
+import { PencilSquareIcon, TrashIcon, ArrowsRightLeftIcon, DocumentDuplicateIcon } from '@heroicons/vue/24/outline'
 
 defineProps<{ node: Node; selected: boolean }>()
-defineEmits<{ edit: []; remove: []; 'toggle-select': [] }>()
+defineEmits<{ copy: []; edit: []; remove: []; 'toggle-select': [] }>()
 const i18n = useI18nStore()
 
 const sourceCls: Record<string, string> = {
@@ -41,8 +41,9 @@ const sourceCls: Record<string, string> = {
           <span class="font-semibold truncate" :title="node.tag">{{ node.tag }}</span>
         </div>
         <div class="flex gap-1 flex-none">
-          <button class="btn btn-xs btn-ghost" @click.stop="$emit('edit')" @keydown.stop><PencilSquareIcon class="h-4 w-4" /></button>
-          <button class="btn btn-xs btn-ghost text-error" @click.stop="$emit('remove')" @keydown.stop><TrashIcon class="h-4 w-4" /></button>
+          <button class="btn btn-xs btn-ghost" :title="i18n.t('复制节点')" @click.stop="$emit('copy')" @keydown.stop><DocumentDuplicateIcon class="h-4 w-4" /></button>
+          <button class="btn btn-xs btn-ghost" :title="i18n.t('编辑节点')" @click.stop="$emit('edit')" @keydown.stop><PencilSquareIcon class="h-4 w-4" /></button>
+          <button class="btn btn-xs btn-ghost text-error" :title="i18n.t('删除')" @click.stop="$emit('remove')" @keydown.stop><TrashIcon class="h-4 w-4" /></button>
         </div>
       </div>
       <div class="text-xs opacity-70 truncate mono">{{ node.server }}:{{ node.server_port }}</div>

@@ -19,6 +19,7 @@ import {
   ChevronUpIcon,
   ListBulletIcon,
   Squares2X2Icon,
+  DocumentDuplicateIcon,
 } from '@heroicons/vue/24/outline'
 
 type ViewMode = 'card' | 'list'
@@ -38,6 +39,7 @@ const dragIndex = ref<number | null>(null)
 
 const showForm = ref(false)
 const editing = ref<Template | null>(null)
+const copyingFrom = ref<Template | null>(null)
 const formName = ref('')
 const formDesc = ref('')
 const formContent = ref('')
@@ -57,6 +59,11 @@ const sortedTemplates = computed(() => {
   return [...store.templates].sort((a, b) => compareText(String(a[templateSortKey.value as TemplateSortKey] ?? ''), String(b[templateSortKey.value as TemplateSortKey] ?? ''), templateSortDir.value))
 })
 const groupTags = computed(() => structure.value?.groups.map((g) => g.tag).filter(Boolean) ?? [])
+const formTitle = computed(() => {
+  if (editing.value) return i18n.t('编辑模板')
+  if (copyingFrom.value) return i18n.t('复制模板')
+  return i18n.t('导入模板')
+})
 const availableOutbounds = computed(() => {
   if (!structure.value) return []
   const seen = new Set<string>()
@@ -131,6 +138,7 @@ async function exportTemplate(t: Template) {
 
 function openImport() {
   editing.value = null
+  copyingFrom.value = null
   formName.value = ''
   formDesc.value = ''
   formContent.value = ''
@@ -139,6 +147,7 @@ function openImport() {
 
 async function openEdit(t: Template) {
   editing.value = t
+  copyingFrom.value = null
   try {
     const full = await store.getOne(t.id)
     formName.value = full.name
@@ -148,6 +157,27 @@ async function openEdit(t: Template) {
   } catch (e) {
     ui.error(errMsg(e))
   }
+}
+
+async function openCopy(t: Template) {
+  editing.value = null
+  copyingFrom.value = t
+  try {
+    const full = await store.getOne(t.id)
+    copyingFrom.value = full
+    formName.value = full.name
+    formDesc.value = full.description
+    formContent.value = full.content
+    showForm.value = true
+  } catch (e) {
+    ui.error(errMsg(e))
+  }
+}
+
+function closeForm() {
+  showForm.value = false
+  editing.value = null
+  copyingFrom.value = null
 }
 
 function onFile(e: Event) {
@@ -178,8 +208,12 @@ async function submitForm() {
     } else {
       const name = formName.value.trim()
       if (!name) throw new Error('请填写模板名称')
+      if (copyingFrom.value && name === copyingFrom.value.name.trim()) {
+        throw new Error(i18n.t('复制模板需要修改名称后保存'))
+      }
       const existing = await store.findByName(name)
       if (existing) {
+        if (copyingFrom.value) throw new Error(i18n.t('模板名称已存在'))
         if (existing.kind !== 'user') throw new Error(`模板 "${name}" 不能覆盖更新`)
         if (!confirm(`模板 "${name}" 已存在，是否覆盖更新？`)) return
         const r = await store.update(existing.id, formContent.value, formDesc.value)
@@ -189,7 +223,7 @@ async function submitForm() {
         ui.success(templateImportMessage('模板已导入', r.imported, r.deduped))
       }
     }
-    showForm.value = false
+    closeForm()
   } catch (e) {
     ui.error(e instanceof SyntaxError ? 'content 不是合法 JSON' : errMsg(e))
   } finally {
@@ -394,6 +428,7 @@ async function remove(t: Template) {
             <button type="button" class="btn btn-xs btn-ghost" @click.stop="view(t)" :title="i18n.t('查看')"><EyeIcon class="h-4 w-4" /></button>
             <button type="button" class="btn btn-xs btn-ghost" @click.stop="editStructure(t)" :title="i18n.t('分组管理')"><RectangleGroupIcon class="h-4 w-4" /></button>
             <button type="button" class="btn btn-xs btn-ghost" @click.stop="exportTemplate(t)" :title="i18n.t('导出')"><ArrowDownTrayIcon class="h-4 w-4" /></button>
+            <button type="button" class="btn btn-xs btn-ghost" @click.stop="openCopy(t)" :title="i18n.t('复制模板')"><DocumentDuplicateIcon class="h-4 w-4" /></button>
             <button v-if="t.kind === 'user'" type="button" class="btn btn-xs btn-ghost" @click.stop="openEdit(t)" :title="i18n.t('编辑模板')"><PencilSquareIcon class="h-4 w-4" /></button>
             <button v-if="t.kind === 'user'" type="button" class="btn btn-xs btn-ghost text-error" @click.stop="remove(t)" :title="i18n.t('删除')"><TrashIcon class="h-4 w-4" /></button>
           </div>
@@ -441,6 +476,7 @@ async function remove(t: Template) {
                 <button type="button" class="btn btn-xs btn-ghost" @click.stop="view(t)" :title="i18n.t('查看')"><EyeIcon class="h-4 w-4" /></button>
                 <button type="button" class="btn btn-xs btn-ghost" @click.stop="editStructure(t)" :title="i18n.t('分组管理')"><RectangleGroupIcon class="h-4 w-4" /></button>
                 <button type="button" class="btn btn-xs btn-ghost" @click.stop="exportTemplate(t)" :title="i18n.t('导出')"><ArrowDownTrayIcon class="h-4 w-4" /></button>
+                <button type="button" class="btn btn-xs btn-ghost" @click.stop="openCopy(t)" :title="i18n.t('复制模板')"><DocumentDuplicateIcon class="h-4 w-4" /></button>
                 <button v-if="t.kind === 'user'" type="button" class="btn btn-xs btn-ghost" @click.stop="openEdit(t)" :title="i18n.t('编辑模板')"><PencilSquareIcon class="h-4 w-4" /></button>
                 <button v-if="t.kind === 'user'" type="button" class="btn btn-xs btn-ghost text-error" @click.stop="remove(t)" :title="i18n.t('删除')"><TrashIcon class="h-4 w-4" /></button>
               </div>
@@ -587,7 +623,7 @@ async function remove(t: Template) {
 
     <div v-if="showForm" class="modal modal-open">
       <div class="modal-box max-w-2xl">
-        <h3 class="font-bold text-lg mb-3">{{ editing ? i18n.t('编辑模板') : i18n.t('导入模板') }}</h3>
+        <h3 class="font-bold text-lg mb-3">{{ formTitle }}</h3>
         <div class="flex flex-col gap-3">
           <label v-if="!editing" class="form-control">
             <span class="label-text mb-1">{{ i18n.t('名称') }}</span>
@@ -607,13 +643,13 @@ async function remove(t: Template) {
           </label>
         </div>
         <div class="modal-action">
-          <button class="btn btn-ghost" @click="showForm = false" :disabled="busy">{{ i18n.t('取消') }}</button>
+          <button class="btn btn-ghost" @click="closeForm" :disabled="busy">{{ i18n.t('取消') }}</button>
           <button class="btn btn-primary" @click="submitForm" :disabled="busy">
             <span v-if="busy" class="loading loading-spinner loading-sm"></span> {{ i18n.t('保存') }}
           </button>
         </div>
       </div>
-      <div class="modal-backdrop" @click="showForm = false"></div>
+      <div class="modal-backdrop" @click="closeForm"></div>
     </div>
   </div>
 </template>
