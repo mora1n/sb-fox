@@ -662,27 +662,6 @@ function onProfileSubscriptionEnabledChange(profile: Profile, event: Event) {
   setProfileSubscriptionEnabled(profile, (event.target as HTMLInputElement).checked)
 }
 
-async function setSelectedProfilesSubscriptionEnabled(enabled: boolean) {
-  const ids = store.profiles.filter((p) => selectedProfiles.value.has(p.id)).map((p) => p.id)
-  if (!ids.length) return
-  busy.value = true
-  try {
-    for (const id of ids) {
-      await store.setSubscriptionEnabled(id, enabled)
-    }
-    ui.success(enabled ? i18n.t('已开启分享') : i18n.t('已关闭分享'))
-  } catch (e) {
-    ui.error(errMsg(e))
-    try {
-      await store.fetchAll()
-    } catch (refreshErr) {
-      ui.error(errMsg(refreshErr))
-    }
-  } finally {
-    busy.value = false
-  }
-}
-
 async function submit() {
   if (formLoading.value) return ui.info('正在加载订阅...')
   busy.value = true
@@ -877,25 +856,6 @@ async function remove(p: Profile) {
         <button class="btn btn-sm btn-error btn-outline" @click="removeSelectedProfiles" :disabled="busy || !selectedProfiles.size">
           <TrashIcon class="h-4 w-4" /> {{ i18n.t('删除') }}
         </button>
-        <div class="dropdown dropdown-end">
-          <button tabindex="0" type="button" class="btn btn-sm" :disabled="busy || !selectedProfiles.size">
-            {{ i18n.t('分享订阅') }}
-          </button>
-          <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-20 w-40 p-2 shadow border border-base-300" @click.stop>
-            <li>
-              <button type="button" class="flex items-center justify-between gap-3" @click="setSelectedProfilesSubscriptionEnabled(true)">
-                <span>{{ i18n.t('开启') }}</span>
-                <input type="checkbox" class="toggle toggle-sm pointer-events-none" checked />
-              </button>
-            </li>
-            <li>
-              <button type="button" class="flex items-center justify-between gap-3" @click="setSelectedProfilesSubscriptionEnabled(false)">
-                <span>{{ i18n.t('关闭') }}</span>
-                <input type="checkbox" class="toggle toggle-sm pointer-events-none" />
-              </button>
-            </li>
-          </ul>
-        </div>
       </div>
     </div>
 

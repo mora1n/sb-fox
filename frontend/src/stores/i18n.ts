@@ -132,8 +132,6 @@ const en: Record<string, string> = {
   '分享订阅': 'Share Subscription',
   '分享已开启': 'Subscription sharing enabled',
   '分享已关闭': 'Subscription sharing disabled',
-  '已开启分享': 'Subscription sharing enabled',
-  '已关闭分享': 'Subscription sharing disabled',
   '轮换 token': 'Rotate token',
   '共享 token': 'Shared token',
   '轮换共享 token': 'Rotate shared token',
