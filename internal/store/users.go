@@ -11,13 +11,13 @@ import (
 	"github.com/mora1n/sb-fox/internal/models"
 )
 
-const userCols = `id, username, password_hash, role, node_limit, profile_limit, template_limit, active_kernel_id, subscription_token, created_at, updated_at`
+const userCols = `id, username, password_hash, role, node_limit, profile_limit, template_limit, active_kernel_id, country_heat_order, subscription_token, created_at, updated_at`
 
 func scanUser(sc interface{ Scan(...any) error }) (*models.User, error) {
 	var u models.User
 	var created, updated string
 	if err := sc.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.NodeLimit,
-		&u.ProfileLimit, &u.TemplateLimit, &u.ActiveKernelID, &u.SubscriptionToken, &created, &updated); err != nil {
+		&u.ProfileLimit, &u.TemplateLimit, &u.ActiveKernelID, &u.CountryHeatOrder, &u.SubscriptionToken, &created, &updated); err != nil {
 		return nil, err
 	}
 	u.CreatedAt = parseTime(created)
@@ -113,9 +113,9 @@ func (s *Store) CreateUser(u *models.User) (int64, error) {
 	}
 	ts := now()
 	res, err := s.db.Exec(`INSERT INTO users
-		(username, password_hash, role, node_limit, profile_limit, template_limit, active_kernel_id, subscription_token, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		strings.TrimSpace(u.Username), u.PasswordHash, role, nodeLimit, profileLimit, templateLimit, strings.TrimSpace(u.ActiveKernelID), token, ts, ts)
+		(username, password_hash, role, node_limit, profile_limit, template_limit, active_kernel_id, country_heat_order, subscription_token, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		strings.TrimSpace(u.Username), u.PasswordHash, role, nodeLimit, profileLimit, templateLimit, strings.TrimSpace(u.ActiveKernelID), strings.TrimSpace(u.CountryHeatOrder), token, ts, ts)
 	if err != nil {
 		return 0, err
 	}
@@ -158,6 +158,11 @@ func (s *Store) SetUserSubscriptionToken(id int64, token string) error {
 
 func (s *Store) SetUserActiveKernel(id int64, kernelID string) error {
 	_, err := s.db.Exec(`UPDATE users SET active_kernel_id = ?, updated_at = ? WHERE id = ?`, strings.TrimSpace(kernelID), now(), id)
+	return err
+}
+
+func (s *Store) SetUserCountryHeatOrder(id int64, order string) error {
+	_, err := s.db.Exec(`UPDATE users SET country_heat_order = ?, updated_at = ? WHERE id = ?`, strings.TrimSpace(order), now(), id)
 	return err
 }
 

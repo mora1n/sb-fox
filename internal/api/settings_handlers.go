@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/mora1n/sb-fox/internal/merge"
+	"github.com/mora1n/sb-fox/internal/models"
 )
 
 // Setting keys.
@@ -28,10 +29,22 @@ var redactedKeys = map[string]bool{
 	"session_secret": true,
 }
 
-// handleGetSettings returns all non-redacted settings.
+// handleGetSettings returns global settings for admins and personal settings
+// for regular users.
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	u, ok := requireCurrentUser(w, r)
 	if !ok {
+		return
+	}
+	if !u.IsAdmin() {
+		order, err := s.userCountryHeatOrder(u)
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "internal", err.Error())
+			return
+		}
+		respondJSON(w, http.StatusOK, map[string]string{
+			settingCountryHeat: countryHeatOrderJSON(order),
+		})
 		return
 	}
 	all, err := s.Store.AllSettings()
@@ -50,13 +63,6 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	if !u.IsAdmin() {
-		for k := range out {
-			if adminOnlySetting(k) {
-				delete(out, k)
-			}
-		}
-	}
 	respondJSON(w, http.StatusOK, out)
 }
 
@@ -71,13 +77,30 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &patch) {
 		return
 	}
+	if !u.IsAdmin() {
+		for k := range patch {
+			if k != settingCountryHeat {
+				respondError(w, http.StatusForbidden, "forbidden", "admin only")
+				return
+			}
+		}
+		if v, ok := patch[settingCountryHeat]; ok {
+			value, err := normalizeSetting(settingCountryHeat, v)
+			if err != nil {
+				respondError(w, http.StatusBadRequest, "bad_request", err.Error())
+				return
+			}
+			if err := s.Store.SetUserCountryHeatOrder(u.ID, value); err != nil {
+				respondError(w, http.StatusInternalServerError, "internal", err.Error())
+				return
+			}
+		}
+		respondJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		return
+	}
 	for k, v := range patch {
 		if redactedKeys[k] {
 			continue
-		}
-		if !u.IsAdmin() && adminOnlySetting(k) {
-			respondError(w, http.StatusForbidden, "forbidden", "admin only")
-			return
 		}
 		value, err := normalizeSetting(k, v)
 		if err != nil {
@@ -150,21 +173,20 @@ func (s *Server) countryHeatOrder() ([]string, error) {
 	return parseCountryHeatOrder(raw)
 }
 
+func (s *Server) userCountryHeatOrder(u *models.User) ([]string, error) {
+	raw := strings.TrimSpace(u.CountryHeatOrder)
+	if raw == "" {
+		return s.countryHeatOrder()
+	}
+	return parseCountryHeatOrder(raw)
+}
+
 func defaultSettings() map[string]string {
 	return map[string]string{
 		settingAppDisplayName:      defaultAppDisplayName,
 		settingCountryHeat:         defaultCountryHeatOrderJSON(),
 		settingSubHostPrefix:       "",
 		SettingRegistrationEnabled: "false",
-	}
-}
-
-func adminOnlySetting(key string) bool {
-	switch key {
-	case settingAppDisplayName, settingKernelPath, settingKernelProfiles, settingKernelVersion, settingAllowPrivate, settingSubHostPrefix, SettingRegistrationEnabled:
-		return true
-	default:
-		return false
 	}
 }
 

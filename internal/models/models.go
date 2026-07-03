@@ -122,6 +122,7 @@ type User struct {
 	ProfileLimit      int       `json:"profile_limit"`
 	TemplateLimit     int       `json:"template_limit"`
 	ActiveKernelID    string    `json:"active_kernel_id"`
+	CountryHeatOrder  string    `json:"-"`
 	SubscriptionToken string    `json:"-"`
 	PasswordHash      string    `json:"-"`
 	CreatedAt         time.Time `json:"created_at"`

@@ -196,7 +196,7 @@ async function changePassword() {
   <div class="flex flex-col gap-4 max-w-3xl">
     <h1 class="text-2xl font-bold">{{ i18n.t('设置') }}</h1>
 
-    <div class="card bg-base-100 shadow-sm">
+    <div v-if="auth.isAdmin" class="card bg-base-100 shadow-sm">
       <div class="card-body gap-3">
         <h2 class="card-title text-base">{{ i18n.t('显示名称') }}</h2>
         <label class="form-control">
@@ -280,7 +280,7 @@ async function changePassword() {
       </div>
     </div>
 
-    <div v-if="auth.isAdmin" class="card bg-base-100 shadow-sm">
+    <div class="card bg-base-100 shadow-sm">
       <div class="card-body gap-3">
         <div class="flex items-center justify-between gap-3">
           <h2 class="card-title text-base">{{ i18n.t('国家热度排序') }}</h2>

@@ -221,4 +221,7 @@ var migrations = []string{
 
 	// 11: per-user preferred sing-box kernel profile.
 	`ALTER TABLE users ADD COLUMN active_kernel_id TEXT NOT NULL DEFAULT '';`,
+
+	// 12: per-user country heat order override.
+	`ALTER TABLE users ADD COLUMN country_heat_order TEXT NOT NULL DEFAULT '';`,
 }

@@ -312,6 +312,9 @@ func TestUserSettingsPermissionsAndPublicKernelStatus(t *testing.T) {
 	srv.Kernel.Path = ""
 	admin := newClient(t, ts.URL)
 	admin.http.Jar = login(t, ts.URL)
+	decodeData(t, admin.do(http.MethodPut, "/api/settings", map[string]string{
+		"country_heat_order": `["US","JP"]`,
+	}), nil)
 
 	var user struct {
 		ID int64 `json:"id"`
@@ -322,9 +325,23 @@ func TestUserSettingsPermissionsAndPublicKernelStatus(t *testing.T) {
 
 	userClient := newClient(t, ts.URL)
 	userClient.http.Jar = loginAs(t, ts.URL, "carol", "password123")
+	countryPrefix := func(raw string) []string {
+		t.Helper()
+		var order []string
+		if err := json.Unmarshal([]byte(raw), &order); err != nil {
+			t.Fatalf("decode country order: %v", err)
+		}
+		if len(order) < 2 {
+			t.Fatalf("short country order: %v", order)
+		}
+		return order[:2]
+	}
 
 	var settings map[string]string
 	decodeData(t, userClient.do(http.MethodGet, "/api/settings", nil), &settings)
+	if len(settings) != 1 {
+		t.Fatalf("non-admin settings should only include personal country order: %+v", settings)
+	}
 	if _, ok := settings["app_display_name"]; ok {
 		t.Fatalf("non-admin settings leaked app_display_name: %+v", settings)
 	}
@@ -334,6 +351,31 @@ func TestUserSettingsPermissionsAndPublicKernelStatus(t *testing.T) {
 	if _, ok := settings["subscription_host_prefix"]; ok {
 		t.Fatalf("non-admin settings leaked subscription_host_prefix: %+v", settings)
 	}
+	if _, ok := settings["registration_enabled"]; ok {
+		t.Fatalf("non-admin settings leaked registration_enabled: %+v", settings)
+	}
+	if got := countryPrefix(settings["country_heat_order"]); got[0] != "US" || got[1] != "JP" {
+		t.Fatalf("non-admin default country order = %v", got)
+	}
+
+	decodeData(t, userClient.do(http.MethodPut, "/api/settings", map[string]string{"country_heat_order": `["DE","FR"]`}), nil)
+	decodeData(t, userClient.do(http.MethodGet, "/api/settings", nil), &settings)
+	if got := countryPrefix(settings["country_heat_order"]); got[0] != "DE" || got[1] != "FR" {
+		t.Fatalf("non-admin personal country order = %v", got)
+	}
+	var adminSettings map[string]string
+	decodeData(t, admin.do(http.MethodGet, "/api/settings", nil), &adminSettings)
+	if got := countryPrefix(adminSettings["country_heat_order"]); got[0] != "US" || got[1] != "JP" {
+		t.Fatalf("admin country order changed by user preference: %v", got)
+	}
+	var app struct {
+		CountryHeatOrder []string `json:"country_heat_order"`
+	}
+	decodeData(t, userClient.do(http.MethodGet, "/api/app", nil), &app)
+	if len(app.CountryHeatOrder) < 2 || app.CountryHeatOrder[0] != "US" || app.CountryHeatOrder[1] != "JP" {
+		t.Fatalf("public app country order should remain admin order: %+v", app.CountryHeatOrder)
+	}
+
 	if _, ok := settings["country_heat_order"]; !ok {
 		t.Fatalf("non-admin settings missing country_heat_order: %+v", settings)
 	}
@@ -349,6 +391,21 @@ func TestUserSettingsPermissionsAndPublicKernelStatus(t *testing.T) {
 	status, _, msg = decodeError(t, userClient.do(http.MethodPut, "/api/settings", map[string]string{"subscription_host_prefix": "https://example.com"}))
 	if status != http.StatusForbidden || !strings.Contains(msg, "admin only") {
 		t.Fatalf("host prefix setting status=%d msg=%q", status, msg)
+	}
+	status, _, msg = decodeError(t, userClient.do(http.MethodPut, "/api/settings", map[string]string{"unknown_setting": "value"}))
+	if status != http.StatusForbidden || !strings.Contains(msg, "admin only") {
+		t.Fatalf("unknown setting status=%d msg=%q", status, msg)
+	}
+	status, _, msg = decodeError(t, userClient.do(http.MethodPut, "/api/settings", map[string]string{
+		"country_heat_order": `["CN","HK"]`,
+		"app_display_name":   "bad",
+	}))
+	if status != http.StatusForbidden || !strings.Contains(msg, "admin only") {
+		t.Fatalf("mixed setting status=%d msg=%q", status, msg)
+	}
+	decodeData(t, userClient.do(http.MethodGet, "/api/settings", nil), &settings)
+	if got := countryPrefix(settings["country_heat_order"]); got[0] != "DE" || got[1] != "FR" {
+		t.Fatalf("mixed forbidden patch changed personal country order: %v", got)
 	}
 	status, _, _ = decodeError(t, userClient.do(http.MethodGet, "/api/settings/kernel", nil))
 	if status != http.StatusForbidden {
