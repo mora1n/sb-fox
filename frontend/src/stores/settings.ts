@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { get, put } from '../api/client'
-import type { AppInfo, KernelStatus, Settings } from '../api/types'
+import { get, post, put } from '../api/client'
+import type { AppInfo, KernelProfile, KernelProbe, KernelStatus, Settings } from '../api/types'
 import { completeCountryHeatOrder, DEFAULT_COUNTRY_HEAT_ORDER } from '../utils/countries'
 
 const DEFAULT_APP_DISPLAY_NAME = 'sb-fox'
@@ -43,8 +43,27 @@ export const useSettingsStore = defineStore('settings', () => {
     return kernel.value
   }
 
+  async function fetchKernels(): Promise<KernelStatus> {
+    kernel.value = await get<KernelStatus>('/settings/kernels')
+    return kernel.value
+  }
+
+  async function saveKernels(kernels: KernelProfile[]): Promise<KernelStatus> {
+    await put('/settings/kernels', { kernels })
+    return fetchKernels()
+  }
+
+  async function testKernel(profile: KernelProfile): Promise<KernelProbe> {
+    return post<KernelProbe>('/settings/kernels/test', profile)
+  }
+
   async function fetchKernelStatus(): Promise<KernelStatus> {
     kernel.value = await get<KernelStatus>('/kernel/status')
+    return kernel.value
+  }
+
+  async function setActiveKernel(id: string): Promise<KernelStatus> {
+    kernel.value = await put<KernelStatus>('/kernel/active', { id })
     return kernel.value
   }
 
@@ -67,6 +86,10 @@ export const useSettingsStore = defineStore('settings', () => {
     fetchAppInfo,
     update,
     fetchKernel,
+    fetchKernels,
+    saveKernels,
+    testKernel,
     fetchKernelStatus,
+    setActiveKernel,
   }
 })

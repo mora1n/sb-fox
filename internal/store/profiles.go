@@ -130,7 +130,7 @@ func (s *Store) profileNodeIDs(profileID int64) ([]int64, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var ids []int64
+	ids := []int64{}
 	for rows.Next() {
 		var id int64
 		if err := rows.Scan(&id); err != nil {
@@ -147,7 +147,7 @@ func (s *Store) profileNodeGroupIDs(profileID int64) ([]int64, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var ids []int64
+	ids := []int64{}
 	for rows.Next() {
 		var id int64
 		if err := rows.Scan(&id); err != nil {

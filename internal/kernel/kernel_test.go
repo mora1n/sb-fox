@@ -1,7 +1,9 @@
 package kernel
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -29,6 +31,21 @@ func TestKernelEmptyPath(t *testing.T) {
 	}
 }
 
+func TestKernelProbeRejectsNonSingBoxVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "fake-version")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nif [ \"$1\" = version ]; then echo 'other-tool version 1.0'; exit 0; fi\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	k := New(path, t.TempDir(), 5*time.Second)
+	probe := k.Probe()
+	if !probe.Available {
+		t.Fatalf("probe should be available: %+v", probe)
+	}
+	if probe.Valid {
+		t.Fatalf("probe should reject non-sing-box output: %+v", probe)
+	}
+}
+
 // TestKernelReal exercises the real sing-box binary when present in PATH.
 func TestKernelReal(t *testing.T) {
 	path, err := exec.LookPath("sing-box")
@@ -47,6 +64,9 @@ func TestKernelReal(t *testing.T) {
 		t.Error("empty version")
 	}
 	t.Logf("kernel version: %s", ver)
+	if probe := k.Probe(); !probe.Valid {
+		t.Fatalf("kernel probe invalid: %+v", probe)
+	}
 
 	// A minimal valid config: one direct outbound.
 	valid := []byte(`{"log":{"level":"error"},"outbounds":[{"type":"direct","tag":"direct"}]}`)

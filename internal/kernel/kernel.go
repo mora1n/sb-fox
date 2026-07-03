@@ -26,9 +26,17 @@ const (
 
 // Result is a validation or format outcome.
 type Result struct {
-	Status   Status `json:"status"`
-	Messages string `json:"messages,omitempty"`  // kernel stderr/stdout on invalid
+	Status    Status `json:"status"`
+	Messages  string `json:"messages,omitempty"`  // kernel stderr/stdout on invalid
 	Formatted string `json:"formatted,omitempty"` // pretty config on successful format
+}
+
+// ProbeResult describes whether Path is an actual sing-box binary.
+type ProbeResult struct {
+	Available bool
+	Valid     bool
+	Version   string
+	Error     string
 }
 
 // Kernel invokes a sing-box binary at Path. An empty Path disables validation.
@@ -72,6 +80,23 @@ func (k *Kernel) Version() (string, error) {
 	// first line, e.g. "sing-box version 1.14.0-alpha.33"
 	line := strings.SplitN(strings.TrimSpace(string(out)), "\n", 2)[0]
 	return strings.TrimSpace(line), nil
+}
+
+// Probe checks that the configured binary is available and reports itself as
+// sing-box. It intentionally treats other successful "version" commands as
+// invalid so they are never used for validation or formatting.
+func (k *Kernel) Probe() ProbeResult {
+	if !k.Available() {
+		return ProbeResult{Error: "kernel binary unavailable"}
+	}
+	version, err := k.Version()
+	if err != nil {
+		return ProbeResult{Available: true, Error: err.Error()}
+	}
+	if !strings.HasPrefix(version, "sing-box version ") {
+		return ProbeResult{Available: true, Version: version, Error: "not a sing-box binary"}
+	}
+	return ProbeResult{Available: true, Valid: true, Version: version}
 }
 
 // Check runs `sing-box check -c <tmp>` on the given config bytes.

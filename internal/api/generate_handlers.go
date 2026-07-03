@@ -48,6 +48,13 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
+	if err := validateOptionGroupInputs(content, req.Options); err != nil {
+		respondError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	if !validateAutoCountrySelection(w, req.Options) {
+		return
+	}
 	order, err := s.countryHeatOrder()
 	if err != nil {
 		respondError(w, http.StatusUnprocessableEntity, "generate_error", err.Error())
@@ -74,20 +81,28 @@ type validateRequest struct {
 
 // handleValidate runs the sing-box kernel check (advisory).
 func (s *Server) handleValidate(w http.ResponseWriter, r *http.Request) {
+	u, ok := requireCurrentUser(w, r)
+	if !ok {
+		return
+	}
 	config, ok := s.resolveConfig(w, r)
 	if !ok {
 		return
 	}
-	respondJSON(w, http.StatusOK, s.validateWithKernel(config))
+	respondJSON(w, http.StatusOK, s.validateWithKernelForUser(u, config))
 }
 
 // handleFormat runs the sing-box kernel format.
 func (s *Server) handleFormat(w http.ResponseWriter, r *http.Request) {
+	u, ok := requireCurrentUser(w, r)
+	if !ok {
+		return
+	}
 	config, ok := s.resolveConfig(w, r)
 	if !ok {
 		return
 	}
-	respondJSON(w, http.StatusOK, s.Kernel.Format(config))
+	respondJSON(w, http.StatusOK, s.formatWithKernelForUser(u, config))
 }
 
 // resolveConfig returns the config bytes from either an inline config or a
@@ -211,7 +226,15 @@ func (s *Server) generateFromInputs(templateContent string, nodeIDs, groupIDs []
 		}
 		chainNodes = nodes
 	}
-	return generateConfigWithGroupSelections(templateContent, groupNodes, chainNodes, opts, order)
+	var autoCountryNodes []*models.Node
+	if opts.AutoCountryGroups && opts.AutoCountrySelected != nil {
+		nodes, err := s.resolveNodesForUser(opts.AutoCountrySelected.NodeIDs, opts.AutoCountrySelected.NodeGroupIDs, opts, ownerUserID, allOwners)
+		if err != nil {
+			return nil, err
+		}
+		autoCountryNodes = nodes
+	}
+	return generateConfigWithGroupSelections(templateContent, groupNodes, autoCountryNodes, chainNodes, opts, order)
 }
 
 func (s *Server) getNodesForUser(ids []int64, ownerUserID int64, allOwners bool) ([]*models.Node, error) {

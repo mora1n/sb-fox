@@ -21,12 +21,13 @@ type passwordRequest struct {
 }
 
 type meResponse struct {
-	ID            int64  `json:"id"`
-	Username      string `json:"username"`
-	Role          string `json:"role"`
-	NodeLimit     int    `json:"node_limit"`
-	ProfileLimit  int    `json:"profile_limit"`
-	TemplateLimit int    `json:"template_limit"`
+	ID             int64  `json:"id"`
+	Username       string `json:"username"`
+	Role           string `json:"role"`
+	NodeLimit      int    `json:"node_limit"`
+	ProfileLimit   int    `json:"profile_limit"`
+	TemplateLimit  int    `json:"template_limit"`
+	ActiveKernelID string `json:"active_kernel_id"`
 }
 
 // handleLogin verifies credentials and sets a session cookie.
@@ -179,11 +180,12 @@ func (s *Server) handleRotateSubscriptionToken(w http.ResponseWriter, r *http.Re
 
 func userMe(u *models.User) meResponse {
 	return meResponse{
-		ID:            u.ID,
-		Username:      u.Username,
-		Role:          u.Role,
-		NodeLimit:     u.NodeLimit,
-		ProfileLimit:  u.ProfileLimit,
-		TemplateLimit: u.TemplateLimit,
+		ID:             u.ID,
+		Username:       u.Username,
+		Role:           u.Role,
+		NodeLimit:      u.NodeLimit,
+		ProfileLimit:   u.ProfileLimit,
+		TemplateLimit:  u.TemplateLimit,
+		ActiveKernelID: u.ActiveKernelID,
 	}
 }

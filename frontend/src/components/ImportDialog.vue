@@ -23,22 +23,28 @@ async function submit() {
   busy.value = true
   try {
     let count = 0
+    let deduped = 0
     let warnings: string[] = []
     if (tab.value === 'links') {
       if (!links.value.trim()) throw new Error('请粘贴分享链接')
       const result = await nodesStore.importLinks(links.value)
       count = result.imported
+      deduped = result.deduped ?? 0
       warnings = result.warnings ?? []
     } else if (tab.value === 'subscription') {
       if (!subUrl.value.trim()) throw new Error('请填写订阅 URL')
       const result = await nodesStore.importSubscription(subName.value, subUrl.value)
       count = result.imported
+      deduped = result.deduped ?? 0
       warnings = result.warnings ?? []
     } else {
       if (!configText.value.trim()) throw new Error('请粘贴 config JSON')
-      count = (await nodesStore.importConfig(configText.value)).imported
+      const result = await nodesStore.importConfig(configText.value)
+      count = result.imported
+      deduped = result.deduped ?? 0
     }
     ui.success(`成功导入 ${count} 个节点`)
+    if (deduped) ui.info(`已跳过 ${deduped} 个重复节点`)
     warnings.slice(0, 3).forEach((warning) => ui.info(warning))
     emit('imported')
     emit('close')

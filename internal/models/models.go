@@ -65,12 +65,13 @@ type Profile struct {
 
 // ProfileOptions is the parsed Profile.Options blob.
 type ProfileOptions struct {
-	AutoCountryGroups  bool                     `json:"autoCountryGroups"`
-	ChainProxy         bool                     `json:"chainProxy"`
-	ChainProxyNodeID   int64                    `json:"chainProxyNodeId,omitempty"`
-	ChainProxyNodeIDs  []int64                  `json:"chainProxyNodeIds,omitempty"`
-	GroupSelections    map[string]NodeSelection `json:"groupSelections,omitempty"`
-	ChainProxySelected *NodeSelection           `json:"chainProxySelection,omitempty"`
+	AutoCountryGroups   bool                     `json:"autoCountryGroups"`
+	ChainProxy          bool                     `json:"chainProxy"`
+	ChainProxyNodeID    int64                    `json:"chainProxyNodeId,omitempty"`
+	ChainProxyNodeIDs   []int64                  `json:"chainProxyNodeIds,omitempty"`
+	GroupSelections     map[string]NodeSelection `json:"groupSelections,omitempty"`
+	AutoCountrySelected *NodeSelection           `json:"autoCountrySelection,omitempty"`
+	ChainProxySelected  *NodeSelection           `json:"chainProxySelection,omitempty"`
 }
 
 type NodeSelection struct {
@@ -120,6 +121,7 @@ type User struct {
 	NodeLimit         int       `json:"node_limit"`
 	ProfileLimit      int       `json:"profile_limit"`
 	TemplateLimit     int       `json:"template_limit"`
+	ActiveKernelID    string    `json:"active_kernel_id"`
 	SubscriptionToken string    `json:"-"`
 	PasswordHash      string    `json:"-"`
 	CreatedAt         time.Time `json:"created_at"`

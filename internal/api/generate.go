@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/mora1n/sb-fox/internal/merge"
 	"github.com/mora1n/sb-fox/internal/models"
@@ -47,7 +48,7 @@ func generateConfig(templateContent string, nodes []*models.Node, opts models.Pr
 	return merge.Indent(compact)
 }
 
-func generateConfigWithGroupSelections(templateContent string, groupNodes map[string][]*models.Node, chainNodes []*models.Node, opts models.ProfileOptions, countryHeatOrder []string) ([]byte, error) {
+func generateConfigWithGroupSelections(templateContent string, groupNodes map[string][]*models.Node, autoCountryNodes, chainNodes []*models.Node, opts models.ProfileOptions, countryHeatOrder []string) ([]byte, error) {
 	st, err := readTemplateStructure(templateContent)
 	if err != nil {
 		return nil, fmt.Errorf("read template groups: %w", err)
@@ -56,7 +57,11 @@ func generateConfigWithGroupSelections(templateContent string, groupNodes map[st
 		return nil, fmt.Errorf("template route.final is required for group selections")
 	}
 	opts = ensureGroupSelectionsFromNodes(opts, groupNodes)
+	opts = applyDefaultOutboundRefs(st, opts)
 	if err := validateGroupSelectionRefs(st, opts); err != nil {
+		return nil, err
+	}
+	if err := validateRequiredGroupSelections(st, opts); err != nil {
 		return nil, err
 	}
 	validGroups := map[string]bool{}
@@ -82,7 +87,11 @@ func generateConfigWithGroupSelections(templateContent string, groupNodes map[st
 		return nil, err
 	}
 
-	allNodes := uniqueNodes(groupNodes, chainNodes)
+	if opts.AutoCountryGroups && len(autoCountryNodes) == 0 {
+		return nil, fmt.Errorf("auto country group nodes are required")
+	}
+
+	allNodes := uniqueNodes(groupNodes, autoCountryNodes, chainNodes)
 	mergeNodes, err := toMergeNodes(allNodes)
 	if err != nil {
 		return nil, err
@@ -100,8 +109,9 @@ func generateConfigWithGroupSelections(templateContent string, groupNodes map[st
 	}
 
 	out, err := merge.Generate(cfg, mergeNodes, merge.Options{
-		AutoCountryGroups: opts.AutoCountryGroups,
-		CountryHeatOrder:  countryHeatOrder,
+		AutoCountryGroups:      opts.AutoCountryGroups,
+		CountryHeatOrder:       countryHeatOrder,
+		CountryGroupSourceTags: countrySourceTags(opts, autoCountryNodes),
 	})
 	if err != nil {
 		return nil, err
@@ -159,6 +169,13 @@ func generateConfigWithGroupSelections(templateContent string, groupNodes map[st
 	return merge.Indent(compact)
 }
 
+func countrySourceTags(opts models.ProfileOptions, nodes []*models.Node) []string {
+	if !opts.AutoCountryGroups {
+		return nil
+	}
+	return nodeTags(nodes)
+}
+
 func ensureGroupSelectionsFromNodes(opts models.ProfileOptions, groupNodes map[string][]*models.Node) models.ProfileOptions {
 	if len(opts.GroupSelections) > 0 {
 		return opts
@@ -185,6 +202,18 @@ func validateOptionOutboundRefs(templateContent string, opts models.ProfileOptio
 	return validateGroupSelectionRefs(st, opts)
 }
 
+func validateOptionGroupInputs(templateContent string, opts models.ProfileOptions) error {
+	if len(opts.GroupSelections) == 0 {
+		return nil
+	}
+	st, err := readTemplateStructure(templateContent)
+	if err != nil {
+		return fmt.Errorf("read template groups: %w", err)
+	}
+	opts = applyDefaultOutboundRefs(st, opts)
+	return validateRequiredGroupSelections(st, opts)
+}
+
 func validateGroupSelectionRefs(st templateStructure, opts models.ProfileOptions) error {
 	groups := make(map[string]templateStructureGroup, len(st.Groups))
 	for _, g := range st.Groups {
@@ -202,6 +231,47 @@ func validateGroupSelectionRefs(st templateStructure, opts models.ProfileOptions
 		if _, err := normalizeOutboundRefs(tag, sel.OutboundRefs, allowed); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func applyDefaultOutboundRefs(st templateStructure, opts models.ProfileOptions) models.ProfileOptions {
+	if opts.GroupSelections == nil {
+		opts.GroupSelections = map[string]models.NodeSelection{}
+	}
+	for _, g := range st.Groups {
+		sel := opts.GroupSelections[g.Tag]
+		if selectionHasInputs(sel) {
+			continue
+		}
+		sel.OutboundRefs = defaultOutboundRefs(g)
+		opts.GroupSelections[g.Tag] = sel
+	}
+	opts.GroupSelections = normalizeGroupSelections(opts.GroupSelections)
+	return opts
+}
+
+func defaultOutboundRefs(g templateStructureGroup) []string {
+	out := make([]string, 0, len(g.Outbounds))
+	for _, ref := range g.Outbounds {
+		ref = strings.TrimSpace(ref)
+		if ref != "" && ref != g.Tag {
+			out = append(out, ref)
+		}
+	}
+	return normalizeOutboundRefList(out)
+}
+
+func validateRequiredGroupSelections(st templateStructure, opts models.ProfileOptions) error {
+	for _, g := range st.Groups {
+		sel := opts.GroupSelections[g.Tag]
+		if selectionHasInputs(sel) {
+			continue
+		}
+		if opts.ChainProxy && g.Tag == st.Final && opts.ChainProxySelected != nil && selectionHasInputs(*opts.ChainProxySelected) {
+			continue
+		}
+		return fmt.Errorf("outbound group %q has no selected nodes or references", g.Tag)
 	}
 	return nil
 }
@@ -298,7 +368,7 @@ func generatedOutbounds(cfg *merge.OrderedMap) ([]any, error) {
 	return outbounds, nil
 }
 
-func uniqueNodes(groupNodes map[string][]*models.Node, chainNodes []*models.Node) []*models.Node {
+func uniqueNodes(groupNodes map[string][]*models.Node, extraGroups ...[]*models.Node) []*models.Node {
 	var out []*models.Node
 	seen := map[int64]bool{}
 	add := func(nodes []*models.Node) {
@@ -318,7 +388,9 @@ func uniqueNodes(groupNodes map[string][]*models.Node, chainNodes []*models.Node
 	for _, key := range keys {
 		add(groupNodes[key])
 	}
-	add(chainNodes)
+	for _, nodes := range extraGroups {
+		add(nodes)
+	}
 	return out
 }
 
@@ -511,12 +583,13 @@ func parseProfileOptions(blob string) models.ProfileOptions {
 	// Preserve an explicitly-false autoCountryGroups: decode into a probe with
 	// pointer so we can tell "absent" from "false".
 	var probe struct {
-		AutoCountryGroups  *bool                           `json:"autoCountryGroups"`
-		ChainProxy         bool                            `json:"chainProxy"`
-		ChainProxyNodeID   int64                           `json:"chainProxyNodeId"`
-		ChainProxyNodeIDs  []int64                         `json:"chainProxyNodeIds"`
-		GroupSelections    map[string]models.NodeSelection `json:"groupSelections"`
-		ChainProxySelected *models.NodeSelection           `json:"chainProxySelection"`
+		AutoCountryGroups   *bool                           `json:"autoCountryGroups"`
+		ChainProxy          bool                            `json:"chainProxy"`
+		ChainProxyNodeID    int64                           `json:"chainProxyNodeId"`
+		ChainProxyNodeIDs   []int64                         `json:"chainProxyNodeIds"`
+		GroupSelections     map[string]models.NodeSelection `json:"groupSelections"`
+		AutoCountrySelected *models.NodeSelection           `json:"autoCountrySelection"`
+		ChainProxySelected  *models.NodeSelection           `json:"chainProxySelection"`
 	}
 	if err := json.Unmarshal([]byte(blob), &probe); err != nil {
 		return opts
@@ -531,6 +604,16 @@ func parseProfileOptions(blob string) models.ProfileOptions {
 		opts.ChainProxyNodeIDs = []int64{opts.ChainProxyNodeID}
 	}
 	opts.GroupSelections = normalizeGroupSelections(probe.GroupSelections)
+	if probe.AutoCountrySelected != nil {
+		normalized := normalizeNodeSelection(*probe.AutoCountrySelected)
+		opts.AutoCountrySelected = &normalized
+	}
+	if opts.AutoCountryGroups && opts.AutoCountrySelected == nil && len(opts.GroupSelections) > 0 {
+		normalized := normalizeNodeSelection(mergeGroupSelections(opts.GroupSelections))
+		if selectionHasInputs(normalized) {
+			opts.AutoCountrySelected = &normalized
+		}
+	}
 	if probe.ChainProxySelected != nil {
 		normalized := normalizeNodeSelection(*probe.ChainProxySelected)
 		opts.ChainProxySelected = &normalized

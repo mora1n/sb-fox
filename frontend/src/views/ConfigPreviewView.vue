@@ -22,7 +22,7 @@ const templateId = ref(0)
 const nodeIds = ref<number[]>([])
 const options = ref<ProfileOptions>({ autoCountryGroups: true, chainProxy: false, chainProxyNodeIds: [] })
 const allNodes = ref<Node[]>([])
-const kernelHint = computed(() => i18n.t('请先安装 sing-box 内核或在设置中配置路径'))
+const kernelHint = computed(() => i18n.t('请选择有效 sing-box 内核或联系管理员配置内核'))
 const chainProxyNodeIds = computed<number[]>({
   get: () => options.value.chainProxyNodeIds ?? [],
   set: (ids) => {

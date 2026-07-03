@@ -47,6 +47,7 @@ export interface Template {
 export interface TemplateSaveResult {
   template: Template
   imported: number
+  deduped?: number
   nodes: Node[]
 }
 
@@ -99,6 +100,7 @@ export interface ProfileOptions {
   chainProxyNodeId?: number
   chainProxyNodeIds?: number[]
   groupSelections?: Record<string, NodeSelection>
+  autoCountrySelection?: NodeSelection
   chainProxySelection?: NodeSelection
 }
 
@@ -116,8 +118,8 @@ export interface Profile {
   name: string
   template_id: number
   options: string
-  node_ids: number[]
-  node_group_ids: number[]
+  node_ids?: number[] | null
+  node_group_ids?: number[] | null
   created_at: string
   updated_at: string
 }
@@ -132,8 +134,28 @@ export interface ProfilePayload {
 
 export interface KernelStatus {
   available: boolean
+  active_kernel_id: string
+  active?: KernelProbe
+  kernels: KernelProbe[]
   path?: string
   version?: string
+}
+
+export interface KernelProfile {
+  id: string
+  name: string
+  path: string
+}
+
+export interface KernelProbe {
+  id: string
+  name: string
+  path?: string
+  available: boolean
+  valid: boolean
+  active?: boolean
+  version?: string
+  error?: string
 }
 
 export type ValidateStatus = 'ok' | 'invalid' | 'unavailable'
@@ -156,6 +178,7 @@ export interface InspectResult {
 
 export interface ImportResult {
   imported: number
+  deduped?: number
   nodes: Node[]
   source_id?: number
   warnings?: string[]
@@ -186,6 +209,7 @@ export interface User {
   node_limit: number
   profile_limit: number
   template_limit: number
+  active_kernel_id: string
   created_at: string
   updated_at: string
 }

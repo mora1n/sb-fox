@@ -35,10 +35,10 @@ export const useTemplatesStore = defineStore('templates', () => {
     return r
   }
 
-  async function update(id: number, content: string, description: string): Promise<{ imported: number }> {
-    const r = await put<{ ok: boolean; imported: number }>('/templates/' + id, { content, description })
+  async function update(id: number, content: string, description: string): Promise<{ imported: number; deduped?: number }> {
+    const r = await put<{ ok: boolean; imported: number; deduped?: number }>('/templates/' + id, { content, description })
     await fetchAll()
-    return { imported: r.imported ?? 0 }
+    return { imported: r.imported ?? 0, deduped: r.deduped ?? 0 }
   }
 
   async function remove(id: number): Promise<void> {

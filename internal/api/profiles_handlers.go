@@ -70,6 +70,13 @@ func (s *Server) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
+	if err := validateOptionGroupInputs(t.Content, req.Options); err != nil {
+		respondError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	if !validateAutoCountrySelection(w, req.Options) {
+		return
+	}
 	if !s.validateNodeAccess(w, u, req.NodeIDs) {
 		return
 	}
@@ -143,6 +150,13 @@ func (s *Server) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
+	if err := validateOptionGroupInputs(t.Content, req.Options); err != nil {
+		respondError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	if !validateAutoCountrySelection(w, req.Options) {
+		return
+	}
 	if !s.validateNodeAccessForOwner(w, refOwner, refAllOwners, req.NodeIDs) {
 		return
 	}
@@ -190,6 +204,19 @@ func (s *Server) handleDeleteProfile(w http.ResponseWriter, r *http.Request) {
 func marshalOptions(o models.ProfileOptions) string {
 	o.ChainProxyNodeIDs = uniqueInt64s(o.ChainProxyNodeIDs)
 	o.GroupSelections = normalizeGroupSelections(o.GroupSelections)
+	if o.AutoCountrySelected != nil {
+		normalized := normalizeNodeSelection(*o.AutoCountrySelected)
+		o.AutoCountrySelected = &normalized
+	}
+	if o.AutoCountryGroups && o.AutoCountrySelected == nil && len(o.GroupSelections) > 0 {
+		normalized := normalizeNodeSelection(mergeGroupSelections(o.GroupSelections))
+		if selectionHasInputs(normalized) {
+			o.AutoCountrySelected = &normalized
+		}
+	}
+	if !o.AutoCountryGroups {
+		o.AutoCountrySelected = nil
+	}
 	if o.ChainProxySelected != nil {
 		normalized := normalizeNodeSelection(*o.ChainProxySelected)
 		o.ChainProxySelected = &normalized
@@ -210,6 +237,19 @@ func marshalOptions(o models.ProfileOptions) string {
 
 func normalizeProfileRequestOptions(req *profileRequest) {
 	req.Options.GroupSelections = normalizeGroupSelections(req.Options.GroupSelections)
+	if req.Options.AutoCountrySelected != nil {
+		normalized := normalizeNodeSelection(*req.Options.AutoCountrySelected)
+		req.Options.AutoCountrySelected = &normalized
+	}
+	if req.Options.AutoCountryGroups && req.Options.AutoCountrySelected == nil && len(req.Options.GroupSelections) > 0 {
+		normalized := normalizeNodeSelection(mergeGroupSelections(req.Options.GroupSelections))
+		if selectionHasInputs(normalized) {
+			req.Options.AutoCountrySelected = &normalized
+		}
+	}
+	if !req.Options.AutoCountryGroups {
+		req.Options.AutoCountrySelected = nil
+	}
 	if req.Options.ChainProxySelected != nil {
 		normalized := normalizeNodeSelection(*req.Options.ChainProxySelected)
 		req.Options.ChainProxySelected = &normalized
@@ -224,6 +264,26 @@ func normalizeProfileRequestOptions(req *profileRequest) {
 	if len(req.Options.ChainProxyNodeIDs) == 0 && req.Options.ChainProxyNodeID != 0 {
 		req.Options.ChainProxyNodeIDs = []int64{req.Options.ChainProxyNodeID}
 	}
+}
+
+func validateAutoCountrySelection(w http.ResponseWriter, opts models.ProfileOptions) bool {
+	if !opts.AutoCountryGroups || len(opts.GroupSelections) == 0 {
+		return true
+	}
+	if opts.AutoCountrySelected == nil || !selectionHasInputs(*opts.AutoCountrySelected) {
+		respondError(w, http.StatusBadRequest, "bad_request", "auto country group nodes are required")
+		return false
+	}
+	return true
+}
+
+func mergeGroupSelections(selections map[string]models.NodeSelection) models.NodeSelection {
+	var out models.NodeSelection
+	for _, sel := range selections {
+		out.NodeIDs = append(out.NodeIDs, sel.NodeIDs...)
+		out.NodeGroupIDs = append(out.NodeGroupIDs, sel.NodeGroupIDs...)
+	}
+	return normalizeNodeSelection(out)
 }
 
 func validateChainProxySelection(w http.ResponseWriter, nodeIDs, nodeGroupIDs []int64, opts models.ProfileOptions) bool {
@@ -347,6 +407,14 @@ func (s *Server) validateOptionSelectionAccess(w http.ResponseWriter, ownerUserI
 			return false
 		}
 		if !s.validateNodeGroupAccessForOwner(w, ownerUserID, allOwners, opts.ChainProxySelected.NodeGroupIDs) {
+			return false
+		}
+	}
+	if opts.AutoCountrySelected != nil {
+		if !s.validateNodeAccessForOwner(w, ownerUserID, allOwners, opts.AutoCountrySelected.NodeIDs) {
+			return false
+		}
+		if !s.validateNodeGroupAccessForOwner(w, ownerUserID, allOwners, opts.AutoCountrySelected.NodeGroupIDs) {
 			return false
 		}
 	}

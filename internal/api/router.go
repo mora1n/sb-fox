@@ -66,7 +66,11 @@ func (s *Server) mountAuthed(r chi.Router) {
 	r.Get("/settings", s.handleGetSettings)
 	r.Put("/settings", s.handleUpdateSettings)
 	r.Get("/settings/kernel", s.handleKernelStatus)
+	r.Get("/settings/kernels", s.handleListKernels)
+	r.Put("/settings/kernels", s.handleSaveKernels)
+	r.Post("/settings/kernels/test", s.handleTestKernel)
 	r.Get("/kernel/status", s.handlePublicKernelStatus)
+	r.Put("/kernel/active", s.handleSetActiveKernel)
 
 	r.Get("/templates", s.handleListTemplates)
 	r.Post("/templates", s.handleCreateTemplate)

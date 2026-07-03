@@ -9,6 +9,7 @@ import { downloadPost } from '../api/client'
 import type { Node, NodeGroup } from '../api/types'
 import { nodeSourceLabel } from '../utils/nodeSource'
 import { NODE_SOURCES } from '../utils/nodeFilters'
+import { readViewPref, writeViewPref } from '../utils/viewPrefs'
 import NodeCard from '../components/NodeCard.vue'
 import NodeEditForm from '../components/NodeEditForm.vue'
 import NodeMultiSelect from '../components/NodeMultiSelect.vue'
@@ -29,6 +30,12 @@ import {
 
 type NodeTab = 'single' | 'groups'
 type ViewMode = 'card' | 'list'
+type SortDir = 'asc' | 'desc'
+type NodeSortKey = 'tag' | 'server' | 'type' | 'country' | 'source'
+type GroupSortKey = 'name' | 'description' | 'nodes'
+
+const VIEW_MODES = ['card', 'list'] as const
+const NODE_TABS = ['single', 'groups'] as const
 
 const nodesStore = useNodesStore()
 const nodeGroups = useNodeGroupsStore()
@@ -41,10 +48,15 @@ const editing = ref<Node | null>(null)
 const showGroupForm = ref(false)
 const editingGroup = ref<NodeGroup | null>(null)
 const selected = ref<Set<number>>(new Set())
+const selectedGroups = ref<Set<number>>(new Set())
 const busy = ref(false)
-const activeTab = ref<NodeTab>('single')
-const nodeViewMode = ref<ViewMode>('card')
-const groupViewMode = ref<ViewMode>('card')
+const activeTab = ref<NodeTab>(readViewPref('sb-fox-view:nodes.tab', 'single', NODE_TABS))
+const nodeViewMode = ref<ViewMode>(readViewPref('sb-fox-view:nodes.single', 'card', VIEW_MODES))
+const groupViewMode = ref<ViewMode>(readViewPref('sb-fox-view:nodes.groups', 'card', VIEW_MODES))
+const nodeSortKey = ref<NodeSortKey | ''>('')
+const nodeSortDir = ref<SortDir>('asc')
+const groupSortKey = ref<GroupSortKey | ''>('')
+const groupSortDir = ref<SortDir>('asc')
 const groupForm = ref({ name: '', description: '', node_ids: [] as number[] })
 
 const loading = computed(() => nodesStore.loading || nodeGroups.loading)
@@ -52,7 +64,19 @@ const allNodeOptions = computed(() => (nodesStore.unfilteredNodes.length ? nodes
 const allFilteredSelected = computed(
   () => nodesStore.nodes.length > 0 && nodesStore.nodes.every((n) => selected.value.has(n.id)),
 )
+const allGroupsSelected = computed(
+  () => nodeGroups.groups.length > 0 && nodeGroups.groups.every((g) => selectedGroups.value.has(g.id)),
+)
 const activeViewMode = computed(() => (activeTab.value === 'single' ? nodeViewMode.value : groupViewMode.value))
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+const sortedNodes = computed(() => {
+  if (!nodeSortKey.value) return nodesStore.nodes
+  return [...nodesStore.nodes].sort((a, b) => compareNode(a, b, nodeSortKey.value as NodeSortKey, nodeSortDir.value))
+})
+const sortedGroups = computed(() => {
+  if (!groupSortKey.value) return nodeGroups.groups
+  return [...nodeGroups.groups].sort((a, b) => compareGroup(a, b, groupSortKey.value as GroupSortKey, groupSortDir.value))
+})
 
 onMounted(load)
 
@@ -75,6 +99,10 @@ watch(
   { deep: true },
 )
 
+watch(activeTab, (value) => writeViewPref('sb-fox-view:nodes.tab', value))
+watch(nodeViewMode, (value) => writeViewPref('sb-fox-view:nodes.single', value))
+watch(groupViewMode, (value) => writeViewPref('sb-fox-view:nodes.groups', value))
+
 function toggleSelect(id: number) {
   if (selected.value.has(id)) selected.value.delete(id)
   else selected.value.add(id)
@@ -88,6 +116,22 @@ function selectAll() {
     for (const n of nodesStore.nodes) next.add(n.id)
   }
   selected.value = next
+}
+
+function toggleGroupSelect(id: number) {
+  if (selectedGroups.value.has(id)) selectedGroups.value.delete(id)
+  else selectedGroups.value.add(id)
+  selectedGroups.value = new Set(selectedGroups.value)
+}
+
+function selectAllNodeGroups() {
+  const next = new Set(selectedGroups.value)
+  if (allGroupsSelected.value) {
+    for (const g of nodeGroups.groups) next.delete(g.id)
+  } else {
+    for (const g of nodeGroups.groups) next.add(g.id)
+  }
+  selectedGroups.value = next
 }
 
 function openCreate() {
@@ -110,6 +154,60 @@ function clearSearch() {
 function setViewMode(mode: ViewMode) {
   if (activeTab.value === 'single') nodeViewMode.value = mode
   else groupViewMode.value = mode
+}
+
+function setActiveTab(tab: NodeTab) {
+  activeTab.value = tab
+}
+
+function compareText(a: string, b: string, dir: SortDir) {
+  const result = collator.compare(a || '', b || '')
+  return dir === 'asc' ? result : -result
+}
+
+function compareNumber(a: number, b: number, dir: SortDir) {
+  const result = a === b ? 0 : a > b ? 1 : -1
+  return dir === 'asc' ? result : -result
+}
+
+function compareNode(a: Node, b: Node, key: NodeSortKey, dir: SortDir) {
+  if (key === 'server') return compareText(`${a.server}:${a.server_port}`, `${b.server}:${b.server_port}`, dir)
+  if (key === 'country') return compareText(a.country_code, b.country_code, dir)
+  return compareText(String(a[key] ?? ''), String(b[key] ?? ''), dir)
+}
+
+function compareGroup(a: NodeGroup, b: NodeGroup, key: GroupSortKey, dir: SortDir) {
+  if (key === 'nodes') {
+    const byNames = compareText(groupNodeSortText(a), groupNodeSortText(b), dir)
+    if (byNames !== 0) return byNames
+    return compareNumber(a.node_ids.length, b.node_ids.length, dir)
+  }
+  return compareText(String(a[key] ?? ''), String(b[key] ?? ''), dir)
+}
+
+function groupNodeSortText(group: NodeGroup) {
+  return group.node_ids.map((id) => nodeLabel(id)).join(' ')
+}
+
+function toggleNodeSort(key: NodeSortKey) {
+  if (nodeSortKey.value === key) nodeSortDir.value = nodeSortDir.value === 'asc' ? 'desc' : 'asc'
+  else {
+    nodeSortKey.value = key
+    nodeSortDir.value = 'asc'
+  }
+}
+
+function toggleGroupSort(key: GroupSortKey) {
+  if (groupSortKey.value === key) groupSortDir.value = groupSortDir.value === 'asc' ? 'desc' : 'asc'
+  else {
+    groupSortKey.value = key
+    groupSortDir.value = 'asc'
+  }
+}
+
+function sortIndicator(active: string, dir: SortDir, key: string) {
+  if (active !== key) return '↕'
+  return dir === 'asc' ? '↑' : '↓'
 }
 
 function openCreateGroup() {
@@ -166,13 +264,63 @@ async function remove(n: Node) {
   }
 }
 
+async function removeSelectedNodes() {
+  const ids = [...selected.value]
+  if (!ids.length) return ui.info('请先选择节点')
+  const affectedProfiles = new Set<string>()
+  try {
+    for (const id of ids) {
+      const usage = await nodesStore.usage(id)
+      for (const item of usage) affectedProfiles.add(item.profile_name)
+    }
+  } catch (e) {
+    ui.error(errMsg(e))
+    return
+  }
+
+  let message = `删除选中的 ${ids.length} 个节点？`
+  if (affectedProfiles.size) {
+    message += `\n\n这些节点正在被以下订阅使用，删除后可能导致订阅失效：\n${[...affectedProfiles].join('\n')}`
+  }
+  if (!confirm(message)) return
+
+  busy.value = true
+  try {
+    for (const id of ids) await nodesStore.remove(id)
+    selected.value = new Set()
+    ui.success(`已删除 ${ids.length} 个节点`)
+  } catch (e) {
+    ui.error(errMsg(e))
+  } finally {
+    busy.value = false
+  }
+}
+
 async function removeGroup(g: NodeGroup) {
   if (!confirm(`删除组合节点 "${g.name}"？`)) return
   try {
     await nodeGroups.remove(g.id)
+    selectedGroups.value.delete(g.id)
+    selectedGroups.value = new Set(selectedGroups.value)
     ui.success('组合节点已删除')
   } catch (e) {
     ui.error(errMsg(e))
+  }
+}
+
+async function removeSelectedGroups() {
+  const ids = nodeGroups.groups.filter((g) => selectedGroups.value.has(g.id)).map((g) => g.id)
+  if (!ids.length) return ui.info('请先选择组合节点')
+  if (!confirm(`删除选中的 ${ids.length} 个组合节点？`)) return
+  busy.value = true
+  try {
+    for (const id of ids) await nodeGroups.remove(id)
+    selectedGroups.value = new Set()
+    ui.success(`已删除 ${ids.length} 个组合节点`)
+  } catch (e) {
+    ui.error(errMsg(e))
+  } finally {
+    busy.value = false
   }
 }
 
@@ -256,10 +404,10 @@ async function exportLinks() {
 
     <div class="flex items-center justify-between gap-2 flex-wrap">
       <div role="tablist" class="tabs tabs-boxed">
-        <button role="tab" class="tab" :class="{ 'tab-active': activeTab === 'single' }" @click="activeTab = 'single'">
+        <button role="tab" class="tab" :class="{ 'tab-active': activeTab === 'single' }" @click="setActiveTab('single')">
           {{ i18n.t('单节点') }}
         </button>
-        <button role="tab" class="tab" :class="{ 'tab-active': activeTab === 'groups' }" @click="activeTab = 'groups'">
+        <button role="tab" class="tab" :class="{ 'tab-active': activeTab === 'groups' }" @click="setActiveTab('groups')">
           {{ i18n.t('组合节点') }}
         </button>
       </div>
@@ -287,6 +435,9 @@ async function exportLinks() {
           <div class="flex gap-2 flex-wrap">
             <button class="btn btn-sm btn-ghost" @click="selectAll" :disabled="!nodesStore.nodes.length">
               {{ allFilteredSelected ? i18n.t('取消全选') : i18n.t('全选') }}
+            </button>
+            <button class="btn btn-sm btn-error btn-outline" @click="removeSelectedNodes" :disabled="busy || !selected.size">
+              <TrashIcon class="h-4 w-4" /> {{ i18n.t('删除') }}
             </button>
             <button class="btn btn-sm" @click="refreshCountry" :disabled="busy || !selected.size">
               <ArrowPathIcon class="h-4 w-4" /> {{ i18n.t('刷新国家') }}
@@ -327,17 +478,17 @@ async function exportLinks() {
             <thead>
               <tr>
                 <th class="w-10"></th>
-                <th>{{ i18n.t('标签') }}</th>
-                <th>{{ i18n.t('服务器') }}</th>
-                <th>{{ i18n.t('协议类型') }}</th>
-                <th>{{ i18n.t('国家') }}</th>
-                <th>{{ i18n.t('来源') }}</th>
+                <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleNodeSort('tag')">{{ i18n.t('标签') }} {{ sortIndicator(nodeSortKey, nodeSortDir, 'tag') }}</button></th>
+                <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleNodeSort('server')">{{ i18n.t('服务器') }} {{ sortIndicator(nodeSortKey, nodeSortDir, 'server') }}</button></th>
+                <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleNodeSort('type')">{{ i18n.t('协议类型') }} {{ sortIndicator(nodeSortKey, nodeSortDir, 'type') }}</button></th>
+                <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleNodeSort('country')">{{ i18n.t('国家') }} {{ sortIndicator(nodeSortKey, nodeSortDir, 'country') }}</button></th>
+                <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleNodeSort('source')">{{ i18n.t('来源') }} {{ sortIndicator(nodeSortKey, nodeSortDir, 'source') }}</button></th>
                 <th class="text-right">{{ i18n.t('操作') }}</th>
               </tr>
             </thead>
             <tbody>
               <tr
-                v-for="n in nodesStore.nodes"
+                v-for="n in sortedNodes"
                 :key="n.id"
                 class="cursor-pointer hover:bg-base-200/70"
                 :class="{ 'bg-base-200': selected.has(n.id) }"
@@ -367,29 +518,58 @@ async function exportLinks() {
       </section>
 
       <section v-else class="flex flex-col gap-3">
-        <div class="flex items-center justify-between">
+        <div class="flex items-center justify-between flex-wrap gap-2">
           <div class="flex items-center gap-2">
             <h2 class="font-semibold">{{ i18n.t('组合节点') }}</h2>
             <span class="badge badge-neutral">{{ nodeGroups.groups.length }}</span>
+            <span v-if="selectedGroups.size" class="badge badge-outline">{{ i18n.t('已选') }} {{ selectedGroups.size }}</span>
           </div>
-          <button class="btn btn-sm btn-primary" @click="openCreateGroup">
-            <RectangleStackIcon class="h-4 w-4" /> {{ i18n.t('新建组合') }}
-          </button>
+          <div class="flex gap-2 flex-wrap">
+            <button class="btn btn-sm btn-ghost" @click="selectAllNodeGroups" :disabled="!nodeGroups.groups.length">
+              {{ allGroupsSelected ? i18n.t('取消全选') : i18n.t('全选') }}
+            </button>
+            <button class="btn btn-sm btn-error btn-outline" @click="removeSelectedGroups" :disabled="busy || !selectedGroups.size">
+              <TrashIcon class="h-4 w-4" /> {{ i18n.t('删除') }}
+            </button>
+            <button class="btn btn-sm btn-primary" @click="openCreateGroup">
+              <RectangleStackIcon class="h-4 w-4" /> {{ i18n.t('新建组合') }}
+            </button>
+          </div>
         </div>
         <div v-if="!nodeGroups.groups.length" class="text-center py-10 opacity-60 bg-base-100 border border-base-300 rounded-box">
           {{ i18n.t('暂无组合节点。') }}
         </div>
-        <div v-else-if="groupViewMode === 'card'" class="flex flex-col gap-3">
-          <div v-for="g in nodeGroups.groups" :key="g.id" class="card bg-base-100 border border-base-300 shadow-sm">
+        <div v-else-if="groupViewMode === 'card'" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div
+            v-for="g in sortedGroups"
+            :key="g.id"
+            class="card bg-base-100 border border-base-300 shadow-sm cursor-pointer transition-colors hover:bg-base-200/60"
+            :class="{ 'ring-2 ring-primary': selectedGroups.has(g.id) }"
+            role="button"
+            tabindex="0"
+            @click="toggleGroupSelect(g.id)"
+            @keydown.enter.prevent="toggleGroupSelect(g.id)"
+            @keydown.space.prevent="toggleGroupSelect(g.id)"
+          >
             <div class="card-body p-4 gap-3">
               <div class="flex items-start justify-between gap-2">
-                <div class="min-w-0">
-                  <h3 class="font-semibold truncate" :title="g.name">{{ g.name }}</h3>
-                  <p v-if="g.description" class="text-xs opacity-70 truncate">{{ g.description }}</p>
+                <div class="flex items-start gap-2 min-w-0">
+                  <input
+                    type="checkbox"
+                    class="checkbox checkbox-sm mt-0.5"
+                    :checked="selectedGroups.has(g.id)"
+                    @click.stop
+                    @keydown.stop
+                    @change="toggleGroupSelect(g.id)"
+                  />
+                  <div class="min-w-0">
+                    <h3 class="font-semibold truncate" :title="g.name">{{ g.name }}</h3>
+                    <p v-if="g.description" class="text-xs opacity-70 truncate">{{ g.description }}</p>
+                  </div>
                 </div>
                 <div class="flex gap-1">
-                  <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('编辑组合节点')" @click="openEditGroup(g)"><PencilSquareIcon class="h-4 w-4" /></button>
-                  <button type="button" class="btn btn-xs btn-ghost text-error" :title="i18n.t('删除')" @click="removeGroup(g)"><TrashIcon class="h-4 w-4" /></button>
+                  <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('编辑组合节点')" @click.stop="openEditGroup(g)"><PencilSquareIcon class="h-4 w-4" /></button>
+                  <button type="button" class="btn btn-xs btn-ghost text-error" :title="i18n.t('删除')" @click.stop="removeGroup(g)"><TrashIcon class="h-4 w-4" /></button>
                 </div>
               </div>
               <div class="flex flex-wrap gap-1">
@@ -403,14 +583,24 @@ async function exportLinks() {
           <table class="table table-sm">
             <thead>
               <tr>
-                <th>{{ i18n.t('名称') }}</th>
-                <th>{{ i18n.t('描述') }}</th>
-                <th>{{ i18n.t('节点') }}</th>
+                <th class="w-10"></th>
+                <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleGroupSort('name')">{{ i18n.t('名称') }} {{ sortIndicator(groupSortKey, groupSortDir, 'name') }}</button></th>
+                <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleGroupSort('description')">{{ i18n.t('描述') }} {{ sortIndicator(groupSortKey, groupSortDir, 'description') }}</button></th>
+                <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleGroupSort('nodes')">{{ i18n.t('节点') }} {{ sortIndicator(groupSortKey, groupSortDir, 'nodes') }}</button></th>
                 <th class="text-right">{{ i18n.t('操作') }}</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="g in nodeGroups.groups" :key="g.id" class="hover:bg-base-200/70">
+              <tr
+                v-for="g in sortedGroups"
+                :key="g.id"
+                class="cursor-pointer hover:bg-base-200/70"
+                :class="{ 'bg-base-200': selectedGroups.has(g.id) }"
+                @click="toggleGroupSelect(g.id)"
+              >
+                <td>
+                  <input type="checkbox" class="checkbox checkbox-sm" :checked="selectedGroups.has(g.id)" @click.stop @change="toggleGroupSelect(g.id)" />
+                </td>
                 <td class="font-medium max-w-64 truncate" :title="g.name">{{ g.name }}</td>
                 <td class="max-w-80 truncate opacity-70" :title="g.description">{{ g.description || '-' }}</td>
                 <td>
@@ -421,8 +611,8 @@ async function exportLinks() {
                 </td>
                 <td class="text-right">
                   <div class="flex justify-end gap-1">
-                    <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('编辑组合节点')" @click="openEditGroup(g)"><PencilSquareIcon class="h-4 w-4" /></button>
-                    <button type="button" class="btn btn-xs btn-ghost text-error" :title="i18n.t('删除')" @click="removeGroup(g)"><TrashIcon class="h-4 w-4" /></button>
+                    <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('编辑组合节点')" @click.stop="openEditGroup(g)"><PencilSquareIcon class="h-4 w-4" /></button>
+                    <button type="button" class="btn btn-xs btn-ghost text-error" :title="i18n.t('删除')" @click.stop="removeGroup(g)"><TrashIcon class="h-4 w-4" /></button>
                   </div>
                 </td>
               </tr>

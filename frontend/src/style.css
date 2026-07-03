@@ -24,6 +24,10 @@ body,
   color: var(--sb-theme-fg);
 }
 
+html {
+  scrollbar-gutter: stable;
+}
+
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }

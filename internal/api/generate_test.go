@@ -78,7 +78,7 @@ func TestGenerateConfigWithGroupSelectionsAndChainProxy(t *testing.T) {
 	config, err := generateConfigWithGroupSelections(template, map[string][]*models.Node{
 		"Proxy": {proxyNode},
 		"Rule":  {ruleNode},
-	}, []*models.Node{chainNode}, models.ProfileOptions{ChainProxy: true}, nil)
+	}, nil, []*models.Node{chainNode}, models.ProfileOptions{ChainProxy: true}, nil)
 	if err != nil {
 		t.Fatalf("generateConfigWithGroupSelections: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestGenerateConfigWithGroupSelectionOutboundRef(t *testing.T) {
 	proxyNode := testNode(1, "proxy-node", "US")
 	config, err := generateConfigWithGroupSelections(template, map[string][]*models.Node{
 		"Proxy": {proxyNode},
-	}, nil, models.ProfileOptions{
+	}, nil, nil, models.ProfileOptions{
 		AutoCountryGroups: false,
 		GroupSelections: map[string]models.NodeSelection{
 			"Proxy":    {NodeIDs: []int64{1}},
@@ -133,6 +133,29 @@ func TestGenerateConfigWithGroupSelectionOutboundRef(t *testing.T) {
 	}
 }
 
+func TestGenerateConfigWithGroupSelectionUsesTemplateDefaultRefs(t *testing.T) {
+	template := `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":["Direct"]},
+    {"type":"direct","tag":"Direct"}
+  ],
+  "route": {"final":"Proxy"}
+}`
+	config, err := generateConfigWithGroupSelections(template, map[string][]*models.Node{}, nil, nil, models.ProfileOptions{
+		AutoCountryGroups: false,
+		GroupSelections: map[string]models.NodeSelection{
+			"Proxy": {},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("generateConfigWithGroupSelections: %v", err)
+	}
+	outbounds := generatedOutboundMap(t, config)
+	if got := stringSliceValue(t, outbounds["Proxy"]["outbounds"]); !sameStrings(got, []string{"Direct"}) {
+		t.Fatalf("Proxy outbounds = %v", got)
+	}
+}
+
 func TestGenerateConfigWithGroupSelectionAutoCountryGroups(t *testing.T) {
 	template := `{
   "outbounds": [
@@ -147,15 +170,17 @@ func TestGenerateConfigWithGroupSelectionAutoCountryGroups(t *testing.T) {
 }`
 	proxyNode := testNode(1, "proxy-node", "US")
 	fallbackNode := testNode(2, "fallback-node", "JP")
+	countrySourceNode := testNode(3, "source-node", "SG")
 	config, err := generateConfigWithGroupSelections(template, map[string][]*models.Node{
 		"Proxy":    {proxyNode},
 		"Fallback": {fallbackNode},
-	}, nil, models.ProfileOptions{
+	}, []*models.Node{proxyNode, countrySourceNode}, nil, models.ProfileOptions{
 		AutoCountryGroups: true,
 		GroupSelections: map[string]models.NodeSelection{
 			"Proxy":    {NodeIDs: []int64{1}},
 			"Fallback": {NodeIDs: []int64{2}},
 		},
+		AutoCountrySelected: &models.NodeSelection{NodeIDs: []int64{1, 3}},
 	}, nil)
 	if err != nil {
 		t.Fatalf("generateConfigWithGroupSelections: %v", err)
@@ -165,11 +190,14 @@ func TestGenerateConfigWithGroupSelectionAutoCountryGroups(t *testing.T) {
 	if got := stringSliceValue(t, outbounds["Proxy"]["outbounds"]); !sameStrings(got, []string{"🇺🇸 United States"}) {
 		t.Fatalf("Proxy outbounds = %v", got)
 	}
-	if got := stringSliceValue(t, outbounds["Fallback"]["outbounds"]); !sameStrings(got, []string{"🇯🇵 Japan"}) {
+	if got := stringSliceValue(t, outbounds["Fallback"]["outbounds"]); !sameStrings(got, []string{"fallback-node"}) {
 		t.Fatalf("Fallback outbounds = %v", got)
 	}
 	if got := stringSliceValue(t, outbounds["🇺🇸 United States"]["outbounds"]); !sameStrings(got, []string{"proxy-node"}) {
 		t.Fatalf("US selector outbounds = %v", got)
+	}
+	if got := stringSliceValue(t, outbounds["🇸🇬 Singapore"]["outbounds"]); !sameStrings(got, []string{"source-node"}) {
+		t.Fatalf("SG selector outbounds = %v", got)
 	}
 }
 
@@ -190,12 +218,13 @@ func TestGenerateConfigWithGroupSelectionSkipCountryGroups(t *testing.T) {
 	config, err := generateConfigWithGroupSelections(template, map[string][]*models.Node{
 		"Proxy":    {proxyNode},
 		"Fallback": {fallbackNode},
-	}, nil, models.ProfileOptions{
+	}, []*models.Node{proxyNode, fallbackNode}, nil, models.ProfileOptions{
 		AutoCountryGroups: true,
 		GroupSelections: map[string]models.NodeSelection{
 			"Proxy":    {NodeIDs: []int64{1}, SkipCountryGroups: true},
 			"Fallback": {NodeIDs: []int64{2}},
 		},
+		AutoCountrySelected: &models.NodeSelection{NodeIDs: []int64{1, 2}},
 	}, nil)
 	if err != nil {
 		t.Fatalf("generateConfigWithGroupSelections: %v", err)
@@ -207,6 +236,29 @@ func TestGenerateConfigWithGroupSelectionSkipCountryGroups(t *testing.T) {
 	}
 	if got := stringSliceValue(t, outbounds["Fallback"]["outbounds"]); !sameStrings(got, []string{"🇯🇵 Japan"}) {
 		t.Fatalf("Fallback outbounds = %v", got)
+	}
+}
+
+func TestGenerateConfigWithGroupSelectionRequiresAutoCountrySource(t *testing.T) {
+	template := `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":[]},
+    {"type":"direct","tag":"Direct"}
+  ],
+  "route": {"final":"Proxy"}
+}`
+	proxyNode := testNode(1, "proxy-node", "US")
+	_, err := generateConfigWithGroupSelections(template, map[string][]*models.Node{
+		"Proxy": {proxyNode},
+	}, nil, nil, models.ProfileOptions{
+		AutoCountryGroups: true,
+		GroupSelections: map[string]models.NodeSelection{
+			"Proxy": {NodeIDs: []int64{1}},
+		},
+		AutoCountrySelected: &models.NodeSelection{},
+	}, nil)
+	if err == nil {
+		t.Fatal("expected auto country source error")
 	}
 }
 

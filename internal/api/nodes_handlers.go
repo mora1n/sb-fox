@@ -180,6 +180,9 @@ func (s *Server) profileOptionNodeUsage(nodeID, ownerID int64, allOwners bool) (
 		if opts.ChainProxySelected != nil {
 			selections = append(selections, *opts.ChainProxySelected)
 		}
+		if opts.AutoCountrySelected != nil {
+			selections = append(selections, *opts.AutoCountrySelected)
+		}
 		for _, sel := range selections {
 			if containsInt64(sel.NodeIDs, nodeID) {
 				out = append(out, &models.NodeUsage{ProfileID: p.ID, ProfileName: p.Name})

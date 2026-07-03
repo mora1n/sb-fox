@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useTemplatesStore } from '../stores/templates'
 import { useUiStore } from '../stores/ui'
 import { useI18nStore } from '../stores/i18n'
 import { errMsg } from '../utils/error'
+import { readViewPref, writeViewPref } from '../utils/viewPrefs'
 import type { Template, TemplateStructure, TemplateStructureGroup } from '../api/types'
 import JsonViewer from '../components/JsonViewer.vue'
 import {
@@ -21,6 +22,10 @@ import {
 } from '@heroicons/vue/24/outline'
 
 type ViewMode = 'card' | 'list'
+type SortDir = 'asc' | 'desc'
+type TemplateSortKey = 'name' | 'kind' | 'description'
+
+const VIEW_MODES = ['card', 'list'] as const
 
 const store = useTemplatesStore()
 const ui = useUiStore()
@@ -37,8 +42,20 @@ const formName = ref('')
 const formDesc = ref('')
 const formContent = ref('')
 const busy = ref(false)
-const templateViewMode = ref<ViewMode>('card')
+const templateViewMode = ref<ViewMode>(readViewPref('sb-fox-view:templates', 'card', VIEW_MODES))
+const selectedTemplates = ref<Set<number>>(new Set())
+const templateSortKey = ref<TemplateSortKey | ''>('')
+const templateSortDir = ref<SortDir>('asc')
 
+const selectableTemplates = computed(() => store.templates.filter((t) => t.kind === 'user'))
+const allTemplatesSelected = computed(
+  () => selectableTemplates.value.length > 0 && selectableTemplates.value.every((t) => selectedTemplates.value.has(t.id)),
+)
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+const sortedTemplates = computed(() => {
+  if (!templateSortKey.value) return store.templates
+  return [...store.templates].sort((a, b) => compareText(String(a[templateSortKey.value as TemplateSortKey] ?? ''), String(b[templateSortKey.value as TemplateSortKey] ?? ''), templateSortDir.value))
+})
 const groupTags = computed(() => structure.value?.groups.map((g) => g.tag).filter(Boolean) ?? [])
 const availableOutbounds = computed(() => {
   if (!structure.value) return []
@@ -56,12 +73,31 @@ const availableOutbounds = computed(() => {
 })
 
 onMounted(load)
+watch(templateViewMode, (value) => writeViewPref('sb-fox-view:templates', value))
 async function load() {
   try {
     await store.fetchAll()
   } catch (e) {
     ui.error(errMsg(e))
   }
+}
+
+function compareText(a: string, b: string, dir: SortDir) {
+  const result = collator.compare(a || '', b || '')
+  return dir === 'asc' ? result : -result
+}
+
+function toggleTemplateSort(key: TemplateSortKey) {
+  if (templateSortKey.value === key) templateSortDir.value = templateSortDir.value === 'asc' ? 'desc' : 'asc'
+  else {
+    templateSortKey.value = key
+    templateSortDir.value = 'asc'
+  }
+}
+
+function sortIndicator(active: string, dir: SortDir, key: string) {
+  if (active !== key) return '↕'
+  return dir === 'asc' ? '↑' : '↓'
 }
 
 async function view(t: Template) {
@@ -125,13 +161,20 @@ function onFile(e: Event) {
   reader.readAsText(f)
 }
 
+function templateImportMessage(action: string, imported: number, deduped = 0) {
+  const parts = [action]
+  if (imported) parts.push(`已导入 ${imported} 个节点`)
+  if (deduped) parts.push(`已跳过 ${deduped} 个重复节点`)
+  return parts.join('，')
+}
+
 async function submitForm() {
   busy.value = true
   try {
     JSON.parse(formContent.value)
     if (editing.value) {
       const r = await store.update(editing.value.id, formContent.value, formDesc.value)
-      ui.success(r.imported ? `模板已更新，已导入 ${r.imported} 个节点` : '模板已更新')
+      ui.success(templateImportMessage('模板已更新', r.imported, r.deduped))
     } else {
       const name = formName.value.trim()
       if (!name) throw new Error('请填写模板名称')
@@ -140,10 +183,10 @@ async function submitForm() {
         if (existing.kind !== 'user') throw new Error(`模板 "${name}" 不能覆盖更新`)
         if (!confirm(`模板 "${name}" 已存在，是否覆盖更新？`)) return
         const r = await store.update(existing.id, formContent.value, formDesc.value)
-        ui.success(r.imported ? `模板已更新，已导入 ${r.imported} 个节点` : '模板已更新')
+        ui.success(templateImportMessage('模板已更新', r.imported, r.deduped))
       } else {
         const r = await store.create(name, formContent.value, formDesc.value)
-        ui.success(r.imported ? `模板已导入，已导入 ${r.imported} 个节点` : '模板已导入')
+        ui.success(templateImportMessage('模板已导入', r.imported, r.deduped))
       }
     }
     showForm.value = false
@@ -221,10 +264,45 @@ function onDrop(index: number) {
   dragIndex.value = index
 }
 
+function toggleTemplateSelect(t: Template) {
+  if (t.kind !== 'user') return
+  if (selectedTemplates.value.has(t.id)) selectedTemplates.value.delete(t.id)
+  else selectedTemplates.value.add(t.id)
+  selectedTemplates.value = new Set(selectedTemplates.value)
+}
+
+function selectAllTemplates() {
+  const next = new Set(selectedTemplates.value)
+  if (allTemplatesSelected.value) {
+    for (const t of selectableTemplates.value) next.delete(t.id)
+  } else {
+    for (const t of selectableTemplates.value) next.add(t.id)
+  }
+  selectedTemplates.value = next
+}
+
+async function removeSelectedTemplates() {
+  const ids = selectableTemplates.value.filter((t) => selectedTemplates.value.has(t.id)).map((t) => t.id)
+  if (!ids.length) return ui.info('请先选择模板')
+  if (!confirm(`删除选中的 ${ids.length} 个模板？`)) return
+  busy.value = true
+  try {
+    for (const id of ids) await store.remove(id)
+    selectedTemplates.value = new Set()
+    ui.success(`已删除 ${ids.length} 个模板`)
+  } catch (e) {
+    ui.error(errMsg(e))
+  } finally {
+    busy.value = false
+  }
+}
+
 async function remove(t: Template) {
   if (!confirm(`删除模板 "${t.name}"？`)) return
   try {
     await store.remove(t.id)
+    selectedTemplates.value.delete(t.id)
+    selectedTemplates.value = new Set(selectedTemplates.value)
     ui.success('模板已删除')
   } catch (e) {
     ui.error(errMsg(e))
@@ -259,26 +337,65 @@ async function remove(t: Template) {
       </div>
     </div>
 
+    <div v-if="store.templates.length" class="flex items-center justify-between gap-2 flex-wrap">
+      <div class="flex items-center gap-2">
+        <span class="badge badge-neutral">{{ store.templates.length }}</span>
+        <span v-if="selectedTemplates.size" class="badge badge-outline">{{ i18n.t('已选') }} {{ selectedTemplates.size }}</span>
+      </div>
+      <div class="flex items-center gap-2 flex-wrap">
+        <button class="btn btn-sm btn-ghost" @click="selectAllTemplates" :disabled="!selectableTemplates.length">
+          {{ allTemplatesSelected ? i18n.t('取消全选') : i18n.t('全选') }}
+        </button>
+        <button class="btn btn-sm btn-error btn-outline" @click="removeSelectedTemplates" :disabled="busy || !selectedTemplates.size">
+          <TrashIcon class="h-4 w-4" /> {{ i18n.t('删除') }}
+        </button>
+      </div>
+    </div>
+
     <div v-if="store.loading" class="flex justify-center py-10"><span class="loading loading-spinner loading-lg"></span></div>
     <div v-else-if="!store.templates.length" class="text-center py-10 opacity-60 bg-base-100 border border-base-300 rounded-box">
       {{ i18n.t('暂无模板。') }}
     </div>
     <div v-else-if="templateViewMode === 'card'" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-      <div v-for="t in store.templates" :key="t.id" class="card bg-base-100 border border-base-300 shadow-sm">
+      <div
+        v-for="t in store.templates"
+        :key="t.id"
+        class="card bg-base-100 border border-base-300 shadow-sm transition-colors"
+        :class="[
+          t.kind === 'user' ? 'cursor-pointer hover:bg-base-200/60' : '',
+          selectedTemplates.has(t.id) ? 'ring-2 ring-primary' : '',
+        ]"
+        :role="t.kind === 'user' ? 'button' : undefined"
+        :tabindex="t.kind === 'user' ? 0 : -1"
+        @click="toggleTemplateSelect(t)"
+        @keydown.enter.prevent="toggleTemplateSelect(t)"
+        @keydown.space.prevent="toggleTemplateSelect(t)"
+      >
         <div class="card-body p-4 gap-3">
           <div class="flex items-start justify-between gap-2">
-            <div class="min-w-0">
-              <h2 class="font-semibold truncate" :title="t.name">{{ t.name }}</h2>
-              <p v-if="t.description" class="text-xs opacity-70 truncate" :title="t.description">{{ t.description }}</p>
+            <div class="flex items-start gap-2 min-w-0">
+              <input
+                v-if="t.kind === 'user'"
+                type="checkbox"
+                class="checkbox checkbox-sm mt-0.5"
+                :checked="selectedTemplates.has(t.id)"
+                @click.stop
+                @keydown.stop
+                @change="toggleTemplateSelect(t)"
+              />
+              <div class="min-w-0">
+                <h2 class="font-semibold truncate" :title="t.name">{{ t.name }}</h2>
+                <p v-if="t.description" class="text-xs opacity-70 truncate" :title="t.description">{{ t.description }}</p>
+              </div>
             </div>
             <span class="badge badge-sm flex-none" :class="t.kind === 'builtin' ? 'badge-neutral' : 'badge-primary'">{{ t.kind }}</span>
           </div>
           <div class="flex gap-1 justify-end">
-            <button type="button" class="btn btn-xs btn-ghost" @click="view(t)" :title="i18n.t('查看')"><EyeIcon class="h-4 w-4" /></button>
-            <button type="button" class="btn btn-xs btn-ghost" @click="editStructure(t)" :title="i18n.t('分组管理')"><RectangleGroupIcon class="h-4 w-4" /></button>
-            <button type="button" class="btn btn-xs btn-ghost" @click="exportTemplate(t)" :title="i18n.t('导出')"><ArrowDownTrayIcon class="h-4 w-4" /></button>
-            <button v-if="t.kind === 'user'" type="button" class="btn btn-xs btn-ghost" @click="openEdit(t)" :title="i18n.t('编辑模板')"><PencilSquareIcon class="h-4 w-4" /></button>
-            <button v-if="t.kind === 'user'" type="button" class="btn btn-xs btn-ghost text-error" @click="remove(t)" :title="i18n.t('删除')"><TrashIcon class="h-4 w-4" /></button>
+            <button type="button" class="btn btn-xs btn-ghost" @click.stop="view(t)" :title="i18n.t('查看')"><EyeIcon class="h-4 w-4" /></button>
+            <button type="button" class="btn btn-xs btn-ghost" @click.stop="editStructure(t)" :title="i18n.t('分组管理')"><RectangleGroupIcon class="h-4 w-4" /></button>
+            <button type="button" class="btn btn-xs btn-ghost" @click.stop="exportTemplate(t)" :title="i18n.t('导出')"><ArrowDownTrayIcon class="h-4 w-4" /></button>
+            <button v-if="t.kind === 'user'" type="button" class="btn btn-xs btn-ghost" @click.stop="openEdit(t)" :title="i18n.t('编辑模板')"><PencilSquareIcon class="h-4 w-4" /></button>
+            <button v-if="t.kind === 'user'" type="button" class="btn btn-xs btn-ghost text-error" @click.stop="remove(t)" :title="i18n.t('删除')"><TrashIcon class="h-4 w-4" /></button>
           </div>
         </div>
       </div>
@@ -286,10 +403,34 @@ async function remove(t: Template) {
     <div v-else class="overflow-x-auto card bg-base-100 shadow-sm">
       <table class="table">
         <thead>
-          <tr><th>{{ i18n.t('名称') }}</th><th>{{ i18n.t('类型') }}</th><th>{{ i18n.t('描述') }}</th><th class="text-right">{{ i18n.t('操作') }}</th></tr>
+          <tr>
+            <th class="w-10"></th>
+            <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleTemplateSort('name')">{{ i18n.t('名称') }} {{ sortIndicator(templateSortKey, templateSortDir, 'name') }}</button></th>
+            <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleTemplateSort('kind')">{{ i18n.t('类型') }} {{ sortIndicator(templateSortKey, templateSortDir, 'kind') }}</button></th>
+            <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleTemplateSort('description')">{{ i18n.t('描述') }} {{ sortIndicator(templateSortKey, templateSortDir, 'description') }}</button></th>
+            <th class="text-right">{{ i18n.t('操作') }}</th>
+          </tr>
         </thead>
         <tbody>
-          <tr v-for="t in store.templates" :key="t.id">
+          <tr
+            v-for="t in sortedTemplates"
+            :key="t.id"
+            :class="[
+              t.kind === 'user' ? 'cursor-pointer hover:bg-base-200/70' : '',
+              selectedTemplates.has(t.id) ? 'bg-base-200' : '',
+            ]"
+            @click="toggleTemplateSelect(t)"
+          >
+            <td>
+              <input
+                v-if="t.kind === 'user'"
+                type="checkbox"
+                class="checkbox checkbox-sm"
+                :checked="selectedTemplates.has(t.id)"
+                @click.stop
+                @change="toggleTemplateSelect(t)"
+              />
+            </td>
             <td class="font-semibold">{{ t.name }}</td>
             <td>
               <span class="badge badge-sm" :class="t.kind === 'builtin' ? 'badge-neutral' : 'badge-primary'">{{ t.kind }}</span>
@@ -297,11 +438,11 @@ async function remove(t: Template) {
             <td class="text-sm opacity-70 max-w-xs truncate">{{ t.description }}</td>
             <td>
               <div class="flex gap-1 justify-end">
-                <button type="button" class="btn btn-xs btn-ghost" @click="view(t)" :title="i18n.t('查看')"><EyeIcon class="h-4 w-4" /></button>
-                <button type="button" class="btn btn-xs btn-ghost" @click="editStructure(t)" :title="i18n.t('分组管理')"><RectangleGroupIcon class="h-4 w-4" /></button>
-                <button type="button" class="btn btn-xs btn-ghost" @click="exportTemplate(t)" :title="i18n.t('导出')"><ArrowDownTrayIcon class="h-4 w-4" /></button>
-                <button v-if="t.kind === 'user'" type="button" class="btn btn-xs btn-ghost" @click="openEdit(t)" :title="i18n.t('编辑模板')"><PencilSquareIcon class="h-4 w-4" /></button>
-                <button v-if="t.kind === 'user'" type="button" class="btn btn-xs btn-ghost text-error" @click="remove(t)" :title="i18n.t('删除')"><TrashIcon class="h-4 w-4" /></button>
+                <button type="button" class="btn btn-xs btn-ghost" @click.stop="view(t)" :title="i18n.t('查看')"><EyeIcon class="h-4 w-4" /></button>
+                <button type="button" class="btn btn-xs btn-ghost" @click.stop="editStructure(t)" :title="i18n.t('分组管理')"><RectangleGroupIcon class="h-4 w-4" /></button>
+                <button type="button" class="btn btn-xs btn-ghost" @click.stop="exportTemplate(t)" :title="i18n.t('导出')"><ArrowDownTrayIcon class="h-4 w-4" /></button>
+                <button v-if="t.kind === 'user'" type="button" class="btn btn-xs btn-ghost" @click.stop="openEdit(t)" :title="i18n.t('编辑模板')"><PencilSquareIcon class="h-4 w-4" /></button>
+                <button v-if="t.kind === 'user'" type="button" class="btn btn-xs btn-ghost text-error" @click.stop="remove(t)" :title="i18n.t('删除')"><TrashIcon class="h-4 w-4" /></button>
               </div>
             </td>
           </tr>

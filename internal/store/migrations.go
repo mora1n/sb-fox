@@ -218,4 +218,7 @@ var migrations = []string{
 	`ALTER TABLE users ADD COLUMN subscription_token TEXT NOT NULL DEFAULT '';
 	UPDATE users SET subscription_token = lower(hex(randomblob(16))) WHERE subscription_token = '';
 	CREATE UNIQUE INDEX idx_users_subscription_token ON users(subscription_token);`,
+
+	// 11: per-user preferred sing-box kernel profile.
+	`ALTER TABLE users ADD COLUMN active_kernel_id TEXT NOT NULL DEFAULT '';`,
 }

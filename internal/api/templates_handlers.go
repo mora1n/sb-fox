@@ -86,7 +86,7 @@ func (s *Server) handleCreateTemplate(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "bad_request", "content is not valid JSON")
 		return
 	}
-	processed, importedNodes, ok := s.processTemplateRequest(w, u, req.Content)
+	processed, importedNodes, deduped, ok := s.processTemplateRequest(w, u, req.Content)
 	if !ok {
 		return
 	}
@@ -108,7 +108,7 @@ func (s *Server) handleCreateTemplate(w http.ResponseWriter, r *http.Request) {
 		importedNodes = created
 	}
 	t.ID = id
-	respondJSON(w, http.StatusCreated, map[string]any{"template": t, "imported": len(importedNodes), "nodes": importedNodes})
+	respondJSON(w, http.StatusCreated, map[string]any{"template": t, "imported": len(importedNodes), "deduped": deduped, "nodes": importedNodes})
 }
 
 // handleUpdateTemplate updates a user template (builtins are read-only).
@@ -152,7 +152,7 @@ func (s *Server) handleUpdateTemplate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	processed, importedNodes, ok := s.processTemplateRequest(w, owner, req.Content)
+	processed, importedNodes, deduped, ok := s.processTemplateRequest(w, owner, req.Content)
 	if !ok {
 		return
 	}
@@ -166,7 +166,7 @@ func (s *Server) handleUpdateTemplate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	respondJSON(w, http.StatusOK, map[string]any{"ok": true, "imported": len(importedNodes)})
+	respondJSON(w, http.StatusOK, map[string]any{"ok": true, "imported": len(importedNodes), "deduped": deduped})
 }
 
 // handleDeleteTemplate removes a user template.
@@ -273,17 +273,22 @@ func validJSON(s string) bool {
 	return json.Unmarshal([]byte(s), &v) == nil
 }
 
-func (s *Server) processTemplateRequest(w http.ResponseWriter, user *models.User, content string) (string, []*models.Node, bool) {
+func (s *Server) processTemplateRequest(w http.ResponseWriter, user *models.User, content string) (string, []*models.Node, int, bool) {
 	processed, proxyOutbounds, err := extractTemplateProxyOutbounds(content)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "bad_request", "template is not valid JSON: "+err.Error())
-		return "", nil, false
+		return "", nil, 0, false
 	}
 	nodes := nodesFromOutbounds(user.ID, proxyOutbounds, "config", nil)
-	if len(nodes) > 0 && !s.checkQuota(w, user, quotaNodes, len(nodes)) {
-		return "", nil, false
+	nodes, deduped, err := s.dedupeNodesForUser(user.ID, nodes, nil)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "internal", err.Error())
+		return "", nil, 0, false
 	}
-	return processed, nodes, true
+	if len(nodes) > 0 && !s.checkQuota(w, user, quotaNodes, len(nodes)) {
+		return "", nil, 0, false
+	}
+	return processed, nodes, deduped, true
 }
 
 func attachmentName(name string) string {

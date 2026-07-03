@@ -21,6 +21,9 @@ type Options struct {
 	// CountryHeatOrder ranks country selectors before the region fallback sort.
 	// Empty means DefaultCountryHeatOrder().
 	CountryHeatOrder []string
+	// CountryGroupSourceTags limits which injected node tags create country
+	// selectors. Nil means all valid proxies; an empty non-nil slice means none.
+	CountryGroupSourceTags []string
 	// ChainProxy adds a selector grouping the configured upstream options.
 	ChainProxy bool
 	// ChainProxyOutbounds is the explicit upstream tag list for the selector.
@@ -61,6 +64,10 @@ func Generate(config *OrderedMap, nodes []*Node, opts Options) (*OrderedMap, err
 	}
 
 	info := collectNodeInfo(nodes, outbounds)
+	countryInfo := info
+	if opts.CountryGroupSourceTags != nil {
+		countryInfo = collectNodeInfo(filterNodesByTags(nodes, opts.CountryGroupSourceTags), outbounds)
+	}
 	for _, n := range info.validProxies {
 		outbounds = append(outbounds, n.Raw)
 	}
@@ -89,18 +96,18 @@ func Generate(config *OrderedMap, nodes []*Node, opts Options) (*OrderedMap, err
 		return config, nil
 	}
 
-	countrySelectors := createCountrySelectors(info, opts.CountryHeatOrder)
+	countrySelectors := createCountrySelectors(countryInfo, opts.CountryHeatOrder)
 	countryTags := make([]string, len(countrySelectors))
 	for i, s := range countrySelectors {
 		countryTags[i] = s.GetString("tag")
 	}
 
 	var othersSelector *OrderedMap
-	if len(info.unrecognizedTags) > 0 {
+	if len(countryInfo.unrecognizedTags) > 0 {
 		othersSelector = NewOrderedMap()
 		othersSelector.Set("type", "selector")
 		othersSelector.Set("tag", "🏳️‍🌈 Others")
-		othersSelector.Set("outbounds", toAnySlice(info.unrecognizedTags))
+		othersSelector.Set("outbounds", toAnySlice(countryInfo.unrecognizedTags))
 	}
 
 	selectableTags := append([]string{}, countryTags...)
@@ -203,6 +210,22 @@ func nonChainProxyTags(nodes []*Node, chainTag string) []string {
 		tags = append(tags, tag)
 	}
 	return tags
+}
+
+func filterNodesByTags(nodes []*Node, tags []string) []*Node {
+	wanted := make(map[string]bool, len(tags))
+	for _, tag := range tags {
+		if tag != "" {
+			wanted[tag] = true
+		}
+	}
+	out := make([]*Node, 0, len(nodes))
+	for _, n := range nodes {
+		if n != nil && wanted[n.tag()] {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 func chinaSelectorTag(selectors []*OrderedMap) string {

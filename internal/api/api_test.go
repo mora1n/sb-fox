@@ -366,9 +366,73 @@ func TestUserSettingsPermissionsAndPublicKernelStatus(t *testing.T) {
 
 	var adminKernel map[string]any
 	decodeData(t, admin.do(http.MethodGet, "/api/settings/kernel", nil), &adminKernel)
-	if _, ok := adminKernel["path"]; !ok {
-		t.Fatalf("admin kernel status missing path: %+v", adminKernel)
+	if got, ok := adminKernel["available"].(bool); !ok || got {
+		t.Fatalf("empty admin kernel status = %+v", adminKernel)
 	}
+
+	validPath := fakeKernel(t, "sing-box version 1.13.14")
+	invalidPath := fakeKernel(t, "other-tool version 1.0")
+	var invalidProbe map[string]any
+	decodeData(t, admin.do(http.MethodPost, "/api/settings/kernels/test", map[string]string{
+		"name": "bad", "path": invalidPath,
+	}), &invalidProbe)
+	if got, ok := invalidProbe["valid"].(bool); !ok || got {
+		t.Fatalf("invalid kernel probe = %+v", invalidProbe)
+	}
+
+	decodeData(t, admin.do(http.MethodPut, "/api/settings/kernels", map[string]any{
+		"kernels": []map[string]string{
+			{"name": "stable", "path": validPath},
+			{"name": "bad", "path": invalidPath},
+		},
+	}), &struct{}{})
+
+	var adminKernels kernelStatusResponse
+	decodeData(t, admin.do(http.MethodGet, "/api/settings/kernels", nil), &adminKernels)
+	if len(adminKernels.Kernels) != 2 {
+		t.Fatalf("admin kernels = %+v", adminKernels)
+	}
+	if adminKernels.Kernels[0].Path == "" {
+		t.Fatalf("admin kernel path not returned: %+v", adminKernels.Kernels[0])
+	}
+	var validID, invalidID string
+	for _, item := range adminKernels.Kernels {
+		if item.Valid {
+			validID = item.ID
+		} else {
+			invalidID = item.ID
+		}
+	}
+	if validID == "" || invalidID == "" {
+		t.Fatalf("expected one valid and one invalid kernel: %+v", adminKernels.Kernels)
+	}
+
+	var userStatus kernelStatusResponse
+	decodeData(t, userClient.do(http.MethodGet, "/api/kernel/status", nil), &userStatus)
+	if userStatus.Path != "" {
+		t.Fatalf("user kernel status leaked path: %+v", userStatus)
+	}
+	if len(userStatus.Kernels) != 1 || userStatus.Kernels[0].ID != validID {
+		t.Fatalf("user kernel status should expose only valid kernels: %+v", userStatus)
+	}
+	status, _, _ = decodeError(t, userClient.do(http.MethodPut, "/api/kernel/active", map[string]string{"id": invalidID}))
+	if status != http.StatusBadRequest {
+		t.Fatalf("invalid active kernel status=%d", status)
+	}
+	decodeData(t, userClient.do(http.MethodPut, "/api/kernel/active", map[string]string{"id": validID}), &userStatus)
+	if !userStatus.Available || userStatus.ActiveKernelID != validID {
+		t.Fatalf("active kernel not updated: %+v", userStatus)
+	}
+}
+
+func fakeKernel(t *testing.T, versionLine string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "fake-sing-box")
+	script := "#!/bin/sh\ncase \"$1\" in\nversion) echo '" + versionLine + "' ;;\ncheck) exit 0 ;;\nformat) cat \"$3\" ;;\n*) exit 1 ;;\nesac\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func TestTemplateLookupByNameForOverwriteFlow(t *testing.T) {
@@ -521,6 +585,97 @@ func TestExportLinksRejectsUnsupportedNode(t *testing.T) {
 	}))
 	if status != http.StatusUnprocessableEntity || code != "unsupported_node" || !strings.Contains(msg, "unsupported outbound type") {
 		t.Fatalf("export unsupported status=%d code=%q msg=%q", status, code, msg)
+	}
+}
+
+func TestProfileEmptyNodeIDsAreJSONArrays(t *testing.T) {
+	_, ts := testServer(t)
+	c := newClient(t, ts.URL)
+	c.http.Jar = login(t, ts.URL)
+
+	var templates []struct {
+		ID   int64  `json:"id"`
+		Name string `json:"name"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/templates", nil), &templates)
+	var templateID int64
+	for _, tm := range templates {
+		if tm.Name == "fakeip" {
+			templateID = tm.ID
+		}
+	}
+	if templateID == 0 {
+		t.Fatal("fakeip template not seeded")
+	}
+
+	var created struct {
+		ID int64 `json:"id"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/profiles", map[string]any{
+		"name": "empty-nodes", "template_id": templateID, "options": map[string]bool{"autoCountryGroups": true},
+	}), &created)
+
+	var got struct {
+		NodeIDs      []int64 `json:"node_ids"`
+		NodeGroupIDs []int64 `json:"node_group_ids"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/profiles/"+itoa(created.ID), nil), &got)
+	if got.NodeIDs == nil {
+		t.Fatal("node_ids decoded as nil; want empty JSON array")
+	}
+	if got.NodeGroupIDs == nil {
+		t.Fatal("node_group_ids decoded as nil; want empty JSON array")
+	}
+}
+
+func TestImportConfigDedupesExactNodesButKeepsDifferentTags(t *testing.T) {
+	_, ts := testServer(t)
+	c := newClient(t, ts.URL)
+	c.http.Jar = login(t, ts.URL)
+
+	nodeA := `{"type":"shadowsocks","tag":"same","server":"dup.example.com","server_port":8388,"method":"aes-256-gcm","password":"pw"}`
+	nodeAReordered := `{"password":"pw","method":"aes-256-gcm","server_port":8388,"server":"dup.example.com","tag":"same","type":"shadowsocks"}`
+	nodeDifferentTag := `{"type":"shadowsocks","tag":"other","server":"dup.example.com","server_port":8388,"method":"aes-256-gcm","password":"pw"}`
+
+	var first struct {
+		Imported int `json:"imported"`
+		Deduped  int `json:"deduped"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/nodes/import/config", map[string]string{
+		"config": `{"outbounds":[` + nodeA + `,` + nodeA + `]}`,
+	}), &first)
+	if first.Imported != 1 || first.Deduped != 1 {
+		t.Fatalf("first import imported=%d deduped=%d, want 1/1", first.Imported, first.Deduped)
+	}
+
+	var second struct {
+		Imported int `json:"imported"`
+		Deduped  int `json:"deduped"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/nodes/import/config", map[string]string{
+		"config": `{"outbounds":[` + nodeAReordered + `]}`,
+	}), &second)
+	if second.Imported != 0 || second.Deduped != 1 {
+		t.Fatalf("second import imported=%d deduped=%d, want 0/1", second.Imported, second.Deduped)
+	}
+
+	var third struct {
+		Imported int `json:"imported"`
+		Deduped  int `json:"deduped"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/nodes/import/config", map[string]string{
+		"config": `{"outbounds":[` + nodeDifferentTag + `]}`,
+	}), &third)
+	if third.Imported != 1 || third.Deduped != 0 {
+		t.Fatalf("third import imported=%d deduped=%d, want 1/0", third.Imported, third.Deduped)
+	}
+
+	var nodes []struct {
+		Tag string `json:"tag"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/nodes", nil), &nodes)
+	if len(nodes) != 2 {
+		t.Fatalf("node count = %d, want 2", len(nodes))
 	}
 }
 

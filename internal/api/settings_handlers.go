@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
-	"github.com/mora1n/sb-fox/internal/kernel"
 	"github.com/mora1n/sb-fox/internal/merge"
 )
 
@@ -18,6 +16,7 @@ const (
 	settingAppDisplayName      = "app_display_name"
 	settingCountryHeat         = "country_heat_order"
 	settingKernelPath          = "kernel_path"
+	settingKernelProfiles      = "kernel_profiles"
 	settingKernelVersion       = "kernel_version"
 	settingAllowPrivate        = "subfetch_allow_private"
 	settingSubHostPrefix       = "subscription_host_prefix"
@@ -162,7 +161,7 @@ func defaultSettings() map[string]string {
 
 func adminOnlySetting(key string) bool {
 	switch key {
-	case settingAppDisplayName, settingKernelPath, settingKernelVersion, settingAllowPrivate, settingSubHostPrefix, SettingRegistrationEnabled:
+	case settingAppDisplayName, settingKernelPath, settingKernelProfiles, settingKernelVersion, settingAllowPrivate, settingSubHostPrefix, SettingRegistrationEnabled:
 		return true
 	default:
 		return false
@@ -199,6 +198,20 @@ func normalizeSetting(key, value string) (string, error) {
 		}
 	case settingSubHostPrefix:
 		return normalizeSubscriptionHostPrefix(value)
+	case settingKernelProfiles:
+		profiles, err := parseKernelProfiles(value)
+		if err != nil {
+			return "", err
+		}
+		normalized, err := normalizeKernelProfiles(profiles)
+		if err != nil {
+			return "", err
+		}
+		data, err := json.Marshal(normalized)
+		if err != nil {
+			return "", err
+		}
+		return string(data), nil
 	}
 	return value, nil
 }
@@ -240,58 +253,4 @@ func countryHeatOrderJSON(order []string) string {
 		panic(err)
 	}
 	return string(data)
-}
-
-// kernelStatus is the response for the kernel status endpoint.
-type kernelStatus struct {
-	Available bool   `json:"available"`
-	Path      string `json:"path"`
-	Version   string `json:"version"`
-}
-
-// handleKernelStatus probes the configured sing-box binary.
-func (s *Server) handleKernelStatus(w http.ResponseWriter, r *http.Request) {
-	if _, ok := requireAdmin(w, r); !ok {
-		return
-	}
-	status := kernelStatus{Path: s.Kernel.Path, Available: s.Kernel.Available()}
-	if status.Available {
-		if ver, err := s.Kernel.Version(); err == nil {
-			status.Version = ver
-			_ = s.Store.SetSetting(settingKernelVersion, ver)
-		}
-	}
-	respondJSON(w, http.StatusOK, status)
-}
-
-type publicKernelStatus struct {
-	Available bool   `json:"available"`
-	Version   string `json:"version"`
-}
-
-func (s *Server) handlePublicKernelStatus(w http.ResponseWriter, r *http.Request) {
-	status := publicKernelStatus{Available: s.Kernel.Available()}
-	if status.Available {
-		if ver, err := s.Kernel.Version(); err == nil {
-			status.Version = ver
-		}
-	}
-	respondJSON(w, http.StatusOK, status)
-}
-
-// refreshKernelVersion updates the cached kernel version setting.
-func (s *Server) refreshKernelVersion() {
-	if !s.Kernel.Available() {
-		return
-	}
-	if ver, err := s.Kernel.Version(); err == nil {
-		_ = s.Store.SetSetting(settingKernelVersion, ver)
-	}
-}
-
-// validateWithKernel runs a check and returns the result (advisory).
-func (s *Server) validateWithKernel(config []byte) kernel.Result {
-	// bound total time defensively
-	_ = time.Now()
-	return s.Kernel.Check(config)
 }

@@ -17,6 +17,10 @@ export const useProfilesStore = defineStore('profiles', () => {
     }
   }
 
+  async function getOne(id: number): Promise<Profile> {
+    return get<Profile>('/profiles/' + id)
+  }
+
   async function create(payload: ProfilePayload): Promise<Profile> {
     const p = await post<Profile>('/profiles', payload)
     await fetchAll()
@@ -51,6 +55,7 @@ export const useProfilesStore = defineStore('profiles', () => {
     subscriptionToken,
     loading,
     fetchAll,
+    getOne,
     create,
     update,
     remove,
