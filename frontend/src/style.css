@@ -28,6 +28,19 @@ html {
   scrollbar-gutter: stable;
 }
 
+@media (min-width: 1024px) {
+  html:has(.lg\:drawer-open.lg\:drawer-open) {
+    scrollbar-gutter: stable !important;
+  }
+
+  html:has(.lg\:drawer-open.lg\:drawer-open):has(
+      :is(.modal-open, .modal:target, .modal-toggle:checked + .modal, .modal[open])
+    ) {
+    overflow-y: hidden !important;
+    scrollbar-gutter: stable !important;
+  }
+}
+
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
