@@ -816,7 +816,15 @@ async function remove(p: Profile) {
 
     <div v-if="showForm" class="modal modal-open">
       <div class="modal-box w-[96vw] max-w-[100rem] max-h-[90vh] overflow-y-auto">
-        <h3 class="font-bold text-lg mb-3">{{ editing ? i18n.t('编辑订阅') : i18n.t('新建订阅') }}</h3>
+        <div class="mb-3 flex items-center justify-between gap-3">
+          <h3 class="font-bold text-lg truncate">{{ editing ? i18n.t('编辑订阅') : i18n.t('新建订阅') }}</h3>
+          <div class="flex shrink-0 items-center gap-2">
+            <button class="btn btn-ghost btn-sm" @click="showForm = false" :disabled="busy">{{ i18n.t('取消') }}</button>
+            <button class="btn btn-primary btn-sm" @click="submit" :disabled="formLocked">
+              <span v-if="formLocked" class="loading loading-spinner loading-sm"></span> {{ i18n.t('保存') }}
+            </button>
+          </div>
+        </div>
         <div v-if="formLoading" class="alert py-2 mb-3">
           <span class="loading loading-spinner loading-sm"></span>
           <span class="text-sm">{{ i18n.t('正在加载订阅...') }}</span>
@@ -1021,17 +1029,11 @@ async function remove(p: Profile) {
               <button class="btn btn-sm" @click="formatGenerated" :disabled="formLocked" :class="{ 'opacity-50 cursor-not-allowed': !config || !settings.kernel?.available }" :title="settings.kernel?.available ? '' : kernelHint">{{ i18n.t('格式化') }}</button>
             </div>
             <ValidationBadge :status="validation?.status ?? null" :messages="validation?.messages" />
-            <div class="border border-base-300 rounded-box bg-base-100 min-h-[28rem] min-w-80 overflow-auto resize">
+            <div class="border border-base-300 rounded-box bg-base-100 min-h-[28rem] min-w-80 overflow-auto resize-y">
               <JsonViewer v-if="config" :content="config" max-height="none" />
               <div v-else class="opacity-60 text-sm py-24 text-center">{{ i18n.t('点击「生成」查看配置。') }}</div>
             </div>
           </div>
-        </div>
-        <div class="modal-action">
-          <button class="btn btn-ghost" @click="showForm = false" :disabled="busy">{{ i18n.t('取消') }}</button>
-          <button class="btn btn-primary" @click="submit" :disabled="formLocked">
-            <span v-if="formLocked" class="loading loading-spinner loading-sm"></span> {{ i18n.t('保存') }}
-          </button>
         </div>
       </div>
       <div class="modal-backdrop" @click="showForm = false"></div>
