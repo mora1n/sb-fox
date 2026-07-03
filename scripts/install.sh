@@ -32,8 +32,11 @@ esac
 version="${SB_FOX_VERSION:-}"
 if [ -z "$version" ]; then
   info "resolving latest release"
-  version="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-    | grep -m1 '"tag_name"' | cut -d'"' -f4)"
+  latest_json="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest")"
+  version="$(printf '%s\n' "$latest_json" \
+    | grep '"tag_name"' \
+    | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/' \
+    | head -n 1)"
   [ -n "$version" ] || err "could not determine latest version; set SB_FOX_VERSION"
 fi
 
