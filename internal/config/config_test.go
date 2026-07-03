@@ -95,6 +95,9 @@ func TestParseDaemonInstallDefaults(t *testing.T) {
 	if cfg.Action != ActionInstallDaemon {
 		t.Fatalf("action = %q, want %q", cfg.Action, ActionInstallDaemon)
 	}
+	if cfg.DaemonCommand != DaemonEnable {
+		t.Fatalf("daemon command = %q, want %q", cfg.DaemonCommand, DaemonEnable)
+	}
 	if cfg.DataDir != defaultDaemonDataDir {
 		t.Fatalf("data dir = %q, want %q", cfg.DataDir, defaultDaemonDataDir)
 	}
@@ -103,6 +106,46 @@ func TestParseDaemonInstallDefaults(t *testing.T) {
 	}
 	if cfg.SocketPath != "" {
 		t.Fatalf("socket path = %q, want empty", cfg.SocketPath)
+	}
+
+	cfg, err = Parse([]string{"--daemon=true"})
+	if err != nil {
+		t.Fatalf("Parse daemon bool form: %v", err)
+	}
+	if cfg.DaemonCommand != DaemonEnable || cfg.DataDir != defaultDaemonDataDir {
+		t.Fatalf("daemon bool form command=%q data dir=%q", cfg.DaemonCommand, cfg.DataDir)
+	}
+}
+
+func TestParseDaemonCommands(t *testing.T) {
+	clearEnv(t)
+
+	for _, tc := range []struct {
+		args []string
+		want DaemonCommand
+	}{
+		{[]string{"--daemon", "enable"}, DaemonEnable},
+		{[]string{"--daemon", "start"}, DaemonStart},
+		{[]string{"--daemon", "stop"}, DaemonStop},
+		{[]string{"--daemon", "restart"}, DaemonRestart},
+		{[]string{"--daemon", "disable"}, DaemonDisable},
+		{[]string{"-d", "stop"}, DaemonStop},
+	} {
+		cfg, err := Parse(tc.args)
+		if err != nil {
+			t.Fatalf("Parse(%v): %v", tc.args, err)
+		}
+		if cfg.Action != ActionInstallDaemon || cfg.DaemonCommand != tc.want {
+			t.Fatalf("Parse(%v) action=%q command=%q, want %q/%q", tc.args, cfg.Action, cfg.DaemonCommand, ActionInstallDaemon, tc.want)
+		}
+	}
+}
+
+func TestParseDaemonRejectsInvalidCommand(t *testing.T) {
+	clearEnv(t)
+
+	if _, err := Parse([]string{"--daemon", "reload"}); err == nil {
+		t.Fatal("expected invalid daemon command error")
 	}
 }
 
@@ -141,6 +184,12 @@ func TestParseManagementConflicts(t *testing.T) {
 
 	if _, err := Parse([]string{"--daemon", "--update"}); err == nil {
 		t.Fatal("expected management conflict")
+	}
+	if _, err := Parse([]string{"--daemon", "restart", "--update"}); err == nil {
+		t.Fatal("expected management conflict after daemon command")
+	}
+	if _, err := Parse([]string{"--daemon", "stop", "--purge"}); err == nil {
+		t.Fatal("expected purge conflict after daemon command")
 	}
 	if _, err := Parse([]string{"--purge"}); err == nil {
 		t.Fatal("expected purge without uninstall error")

@@ -1,4 +1,4 @@
-# sb-fox
+# <img src="frontend/public/favicon-32x32.png" alt="sb-fox" width="28" height="28"> sb-fox
 
 [![Release](https://img.shields.io/github/v/release/mora1n/sb-fox?sort=semver)](https://github.com/mora1n/sb-fox/releases)
 [![sing-box](https://img.shields.io/badge/sing--box-recommended%201.13.14-neutral)](https://github.com/SagerNet/sing-box)
@@ -60,9 +60,10 @@ sudo sb-fox --reg off
 
 ```sh
 sudo sb-fox --daemon
+sudo sb-fox --daemon restart
 ```
 
-该命令会生成 systemd service，执行 `systemctl enable --now sb-fox`，并使用以下默认位置：
+`--daemon` 默认等同 `--daemon enable`，会生成 systemd service，执行 `systemctl enable --now sb-fox`，并使用以下默认位置。可用命令为 `enable`、`start`、`stop`、`restart`、`disable`，其中 `enable` / `disable` 会带 `--now` 同时影响当前运行状态。
 
 - 单实例 socket：`/var/run/sb-fox.sock`
 - 数据目录：`/var/lib/sb-fox`
@@ -119,7 +120,7 @@ data/templates/fakeip.json
 | `--addr`, `-a` | `SB_FOX_ADDR` | `127.0.0.1:7878` |
 | `--data-dir`, `-D` | `SB_FOX_DATA_DIR` | root: `/var/lib/sb-fox`；普通用户: `~/.local/share/sb-fox` |
 | `--kernel`, `-k` | `SB_FOX_KERNEL` | `sing-box` |
-| `--daemon`, `-d` |  | 安装、启用并启动 systemd 服务 |
+| `--daemon [enable\|start\|stop\|restart\|disable]`, `-d ...` |  | 管理 systemd 服务，默认 `enable` |
 | `--update`, `-u` |  | 更新已安装版本 |
 | `--uninstall`, `-U` |  | 卸载服务和二进制 |
 | `--purge`, `-p` |  | 卸载时同时删除配置和数据 |

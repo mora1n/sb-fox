@@ -67,7 +67,14 @@ func run(args []string) error {
 	}
 	switch cfg.Action {
 	case config.ActionInstallDaemon:
-		return manage.InstallDaemon(manage.Options{Addr: cfg.Addr, DataDir: cfg.DataDir, KernelPath: cfg.KernelPath, RegMode: cfg.RegMode, LogLevel: cfg.LogLevel})
+		opts := manage.Options{
+			Addr:       cfg.Addr,
+			DataDir:    cfg.DataDir,
+			KernelPath: cfg.KernelPath,
+			RegMode:    cfg.RegMode,
+			LogLevel:   cfg.LogLevel,
+		}
+		return manage.ControlDaemon(opts, string(cfg.DaemonCommand))
 	case config.ActionUpdate:
 		return manage.Update(manage.Options{Addr: cfg.Addr, DataDir: cfg.DataDir, KernelPath: cfg.KernelPath, Version: version})
 	case config.ActionUninstall:

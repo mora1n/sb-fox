@@ -99,6 +99,127 @@ func TestInstallDaemonWritesServiceConfig(t *testing.T) {
 	}
 }
 
+func TestControlDaemonStartCommands(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("systemd management is Linux-only")
+	}
+	for _, tc := range []struct {
+		command string
+		want    string
+	}{
+		{"", "systemctl enable --now sb-fox"},
+		{"enable", "systemctl enable --now sb-fox"},
+		{"start", "systemctl start sb-fox"},
+		{"restart", "systemctl restart sb-fox"},
+	} {
+		name := tc.command
+		if name == "" {
+			name = "default"
+		}
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			source := filepath.Join(t.TempDir(), "templates")
+			if err := os.MkdirAll(source, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(source, "fakeip.json"), []byte(`{"ok":true}`), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			healthChecks := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api/app" {
+					http.NotFound(w, r)
+					return
+				}
+				healthChecks++
+				_, _ = w.Write([]byte(`{"data":{},"error":null}`))
+			}))
+			defer server.Close()
+
+			var commands []string
+			err := ControlDaemon(Options{
+				Root:              root,
+				BinaryPath:        "/usr/local/bin/sb-fox",
+				Addr:              server.URL,
+				DataDir:           DefaultDataDir,
+				TemplateSourceDir: source,
+				HTTPClient:        server.Client(),
+				Stdout:            io.Discard,
+				Runner: func(name string, args ...string) ([]byte, error) {
+					commands = append(commands, name+" "+strings.Join(args, " "))
+					return nil, nil
+				},
+			}, tc.command)
+			if err != nil {
+				t.Fatalf("ControlDaemon(%q): %v", tc.command, err)
+			}
+			if _, err := os.Stat(filepath.Join(root, "etc/systemd/system/sb-fox.service")); err != nil {
+				t.Fatalf("service file not written: %v", err)
+			}
+			got := strings.Join(commands, "\n")
+			if !strings.Contains(got, "systemctl daemon-reload") || !strings.Contains(got, tc.want) {
+				t.Fatalf("unexpected systemctl calls for %s:\n%s", tc.command, got)
+			}
+			if healthChecks == 0 {
+				t.Fatal("expected health-check after daemon start command")
+			}
+		})
+	}
+}
+
+func TestControlDaemonStopCommands(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("systemd management is Linux-only")
+	}
+	for _, tc := range []struct {
+		command string
+		want    string
+	}{
+		{"stop", "systemctl stop sb-fox"},
+		{"disable", "systemctl disable --now sb-fox"},
+	} {
+		t.Run(tc.command, func(t *testing.T) {
+			root := t.TempDir()
+			var commands []string
+			err := ControlDaemon(Options{
+				Root:   root,
+				Stdout: io.Discard,
+				Runner: func(name string, args ...string) ([]byte, error) {
+					commands = append(commands, name+" "+strings.Join(args, " "))
+					return nil, nil
+				},
+			}, tc.command)
+			if err != nil {
+				t.Fatalf("ControlDaemon(%q): %v", tc.command, err)
+			}
+			got := strings.Join(commands, "\n")
+			if got != tc.want {
+				t.Fatalf("systemctl calls = %q, want %q", got, tc.want)
+			}
+			if _, err := os.Stat(filepath.Join(root, "etc/systemd/system/sb-fox.service")); !os.IsNotExist(err) {
+				t.Fatalf("stop-like command should not write service, stat err=%v", err)
+			}
+		})
+	}
+}
+
+func TestControlDaemonDoesNotIgnoreSystemctlErrors(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("systemd management is Linux-only")
+	}
+
+	err := ControlDaemon(Options{
+		Root:   t.TempDir(),
+		Stdout: io.Discard,
+		Runner: func(name string, args ...string) ([]byte, error) {
+			return []byte("Access denied"), errors.New("exit status 1")
+		},
+	}, "stop")
+	if err == nil || !strings.Contains(err.Error(), "Access denied") {
+		t.Fatalf("ControlDaemon error = %v", err)
+	}
+}
+
 func TestUpdateReplacesBinaryWithoutPrintingSourceURL(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("systemd management is Linux-only")

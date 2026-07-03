@@ -104,10 +104,62 @@ func (o Options) withDefaults() Options {
 
 // InstallDaemon writes the systemd service and enables it immediately.
 func InstallDaemon(opts Options) error {
+	return ControlDaemon(opts, "enable")
+}
+
+// ControlDaemon manages the systemd service. The empty command defaults to
+// enable for compatibility with the original --daemon behavior.
+func ControlDaemon(opts Options, command string) error {
 	opts = opts.withDefaults()
 	if err := requireLinuxRoot(opts.Root); err != nil {
 		return err
 	}
+	if command == "" {
+		command = "enable"
+	}
+	switch command {
+	case "enable":
+		if err := prepareDaemonService(opts); err != nil {
+			return err
+		}
+		if err := runSystemctl(opts, "enable", "--now", ServiceName); err != nil {
+			return err
+		}
+		return finishDaemonStart(opts, "sb-fox service enabled and started")
+	case "start":
+		if err := prepareDaemonService(opts); err != nil {
+			return err
+		}
+		if err := runSystemctl(opts, "start", ServiceName); err != nil {
+			return err
+		}
+		return finishDaemonStart(opts, "sb-fox service started")
+	case "restart":
+		if err := prepareDaemonService(opts); err != nil {
+			return err
+		}
+		if err := runSystemctl(opts, "restart", ServiceName); err != nil {
+			return err
+		}
+		return finishDaemonStart(opts, "sb-fox service restarted")
+	case "stop":
+		if err := runSystemctl(opts, "stop", ServiceName); err != nil {
+			return err
+		}
+		fmt.Fprintln(opts.Stdout, "sb-fox service stopped")
+		return nil
+	case "disable":
+		if err := runSystemctl(opts, "disable", "--now", ServiceName); err != nil {
+			return err
+		}
+		fmt.Fprintln(opts.Stdout, "sb-fox service disabled and stopped")
+		return nil
+	default:
+		return fmt.Errorf("unsupported daemon command %q", command)
+	}
+}
+
+func prepareDaemonService(opts Options) error {
 	binaryPath, err := resolveBinaryPath(opts.BinaryPath)
 	if err != nil {
 		return err
@@ -128,13 +180,14 @@ func InstallDaemon(opts Options) error {
 	if err := runSystemctl(opts, "daemon-reload"); err != nil {
 		return err
 	}
-	if err := runSystemctl(opts, "enable", "--now", ServiceName); err != nil {
-		return err
-	}
+	return nil
+}
+
+func finishDaemonStart(opts Options, message string) error {
 	if err := HealthCheck(opts, envAddr(opts)); err != nil {
 		return fmt.Errorf("health-check failed: %w", err)
 	}
-	fmt.Fprintln(opts.Stdout, "sb-fox service installed and started")
+	fmt.Fprintln(opts.Stdout, message)
 	return nil
 }
 

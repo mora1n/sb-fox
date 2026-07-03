@@ -37,6 +37,17 @@ const (
 	ActionResetAdmin    Action = "reset-admin"
 )
 
+// DaemonCommand is the systemd operation requested through --daemon.
+type DaemonCommand string
+
+const (
+	DaemonEnable  DaemonCommand = "enable"
+	DaemonStart   DaemonCommand = "start"
+	DaemonStop    DaemonCommand = "stop"
+	DaemonRestart DaemonCommand = "restart"
+	DaemonDisable DaemonCommand = "disable"
+)
+
 // Config is the resolved runtime configuration.
 type Config struct {
 	Addr                string // listen address, e.g. "127.0.0.1:7878"
@@ -46,6 +57,7 @@ type Config struct {
 	SocketPath          string // daemon singleton socket path
 	Mode                Mode   // serve or daemon
 	Action              Action // management operation, if any
+	DaemonCommand       DaemonCommand
 	Purge               bool   // uninstall removes config/data without prompting
 	RegMode             string // on or off
 	RegExplicit         bool   // --reg/-r was provided
@@ -68,7 +80,7 @@ func Parse(args []string) (*Config, error) {
 	dataDirEnv, hasDataDirEnv := os.LookupEnv("SB_FOX_DATA_DIR")
 	hasDataDirFlag := flagPresent(args, "--data-dir", "-D")
 	addrExplicit := flagPresent(args, "--addr", "-a")
-	daemonRequested := hasFlag(args, "--daemon", "-d")
+	daemonRequested := flagPresent(args, "--daemon", "-d")
 
 	dataDirDefault, err := defaultServeDataDir()
 	if err != nil {
@@ -108,8 +120,8 @@ func Parse(args []string) (*Config, error) {
 		fmt.Fprintf(out, "\tdata directory (sqlite + temp) (default %q)\n", dataDir)
 		fmt.Fprintln(out, "  --kernel, -k string")
 		fmt.Fprintf(out, "\tsing-box binary path for config validation (default %q)\n", kernel)
-		fmt.Fprintln(out, "  --daemon, -d")
-		fmt.Fprintln(out, "\tinstall, enable and start the system daemon")
+		fmt.Fprintln(out, "  --daemon, -d [enable|start|stop|restart|disable]")
+		fmt.Fprintln(out, "\tmanage the system daemon (default enable)")
 		fmt.Fprintln(out, "  --update, -u")
 		fmt.Fprintln(out, "\tupdate installed binary")
 		fmt.Fprintln(out, "  --uninstall, -U")
@@ -154,7 +166,11 @@ func Parse(args []string) (*Config, error) {
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
-	if fs.NArg() > 0 {
+	daemonCommand, err := resolveDaemonCommand(installDaemon, fs.Args())
+	if err != nil {
+		return nil, err
+	}
+	if !installDaemon && fs.NArg() > 0 {
 		return nil, fmt.Errorf("unknown argument %q", fs.Arg(0))
 	}
 	action, err := resolveAction(installDaemon, update, uninstall, resetAdmin, purge)
@@ -180,6 +196,7 @@ func Parse(args []string) (*Config, error) {
 		SocketPath:          "",
 		Mode:                mode,
 		Action:              action,
+		DaemonCommand:       daemonCommand,
 		Purge:               purge,
 		RegMode:             regMode,
 		RegExplicit:         regExplicit,
@@ -230,17 +247,6 @@ func envOr(key, def string) string {
 	return def
 }
 
-func hasFlag(args []string, names ...string) bool {
-	for _, arg := range args {
-		for _, name := range names {
-			if arg == name {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 func flagPresent(args []string, names ...string) bool {
 	for _, arg := range args {
 		for _, name := range names {
@@ -273,6 +279,38 @@ func normalizeLogLevel(value string) (string, error) {
 		return "debug", nil
 	default:
 		return "", fmt.Errorf("--log must be one of error, warn, info or debug")
+	}
+}
+
+func resolveDaemonCommand(enabled bool, args []string) (DaemonCommand, error) {
+	if !enabled {
+		return "", nil
+	}
+	if len(args) == 0 {
+		return DaemonEnable, nil
+	}
+	if len(args) > 1 {
+		for _, arg := range args[1:] {
+			if isManagementArg(arg) {
+				return "", errors.New("only one management flag can be used at a time")
+			}
+		}
+		return "", fmt.Errorf("unknown argument %q", args[1])
+	}
+	switch DaemonCommand(args[0]) {
+	case DaemonEnable, DaemonStart, DaemonStop, DaemonRestart, DaemonDisable:
+		return DaemonCommand(args[0]), nil
+	default:
+		return "", fmt.Errorf("--daemon command must be one of enable, start, stop, restart or disable")
+	}
+}
+
+func isManagementArg(arg string) bool {
+	switch arg {
+	case "--daemon", "-d", "--update", "-u", "--uninstall", "-U", "--purge", "-p", "--reset-admin", "-P":
+		return true
+	default:
+		return false
 	}
 }
 
