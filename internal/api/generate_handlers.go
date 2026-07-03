@@ -29,6 +29,9 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 	req.NodeIDs = uniqueInt64s(req.NodeIDs)
 	req.NodeGroupIDs = uniqueInt64s(req.NodeGroupIDs)
 	normalizePreviewRequestOptions(&req)
+	if !s.validateOptionSelectionAccess(w, u.ID, u.IsAdmin(), req.Options) {
+		return
+	}
 	if !validateChainProxySelection(w, req.NodeIDs, req.NodeGroupIDs, req.Options) {
 		return
 	}
@@ -41,9 +44,8 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 		}
 		content = t.Content
 	}
-	nodes, err := s.resolveNodesForUser(req.NodeIDs, req.NodeGroupIDs, req.Options, u.ID, u.IsAdmin())
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "internal", err.Error())
+	if err := validateOptionOutboundRefs(content, req.Options); err != nil {
+		respondError(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
 	order, err := s.countryHeatOrder()
@@ -51,7 +53,7 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusUnprocessableEntity, "generate_error", err.Error())
 		return
 	}
-	config, err := generateConfig(content, nodes, req.Options, order)
+	config, err := s.generateFromInputs(content, req.NodeIDs, req.NodeGroupIDs, req.Options, u.ID, u.IsAdmin(), order)
 	if err != nil {
 		respondError(w, http.StatusUnprocessableEntity, "generate_error", err.Error())
 		return
@@ -122,15 +124,11 @@ func (s *Server) renderProfile(profileID int64) ([]byte, error) {
 		return nil, err
 	}
 	opts := parseProfileOptions(p.Options)
-	nodes, err := s.resolveNodesForUser(p.NodeIDs, p.NodeGroupIDs, opts, p.OwnerUserID, false)
-	if err != nil {
-		return nil, err
-	}
 	order, err := s.countryHeatOrder()
 	if err != nil {
 		return nil, err
 	}
-	return generateConfig(t.Content, nodes, opts, order)
+	return s.generateFromInputs(t.Content, p.NodeIDs, p.NodeGroupIDs, opts, p.OwnerUserID, false, order)
 }
 
 func (s *Server) renderProfileForUser(profileID, ownerUserID int64, allOwners bool) ([]byte, error) {
@@ -143,23 +141,28 @@ func (s *Server) renderProfileForUser(profileID, ownerUserID int64, allOwners bo
 		return nil, err
 	}
 	opts := parseProfileOptions(p.Options)
-	nodes, err := s.resolveNodesForUser(p.NodeIDs, p.NodeGroupIDs, opts, p.OwnerUserID, allOwners)
-	if err != nil {
-		return nil, err
-	}
 	order, err := s.countryHeatOrder()
 	if err != nil {
 		return nil, err
 	}
-	return generateConfig(t.Content, nodes, opts, order)
+	return s.generateFromInputs(t.Content, p.NodeIDs, p.NodeGroupIDs, opts, p.OwnerUserID, allOwners, order)
 }
 
 // handleSubscription is the PUBLIC, unauthenticated endpoint returning a
 // profile's config.json by token (requirement f). Anyone with the token gets
 // the full config including server secrets — tokens are 128-bit random and can
 // be rotated.
-func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request, token string) {
-	p, err := s.Store.GetProfileByToken(token)
+func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request, token, profileName string) {
+	if token == "" || profileName == "" {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	u, err := s.Store.GetUserBySubscriptionToken(token)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	p, err := s.Store.GetProfileByNameForUser(profileName, u.ID)
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
@@ -170,17 +173,12 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request, toke
 		return
 	}
 	opts := parseProfileOptions(p.Options)
-	nodes, err := s.resolveNodesForUser(p.NodeIDs, p.NodeGroupIDs, opts, p.OwnerUserID, false)
-	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
 	order, err := s.countryHeatOrder()
 	if err != nil {
 		http.Error(w, "generate error: "+err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
-	config, err := generateConfig(t.Content, nodes, opts, order)
+	config, err := s.generateFromInputs(t.Content, p.NodeIDs, p.NodeGroupIDs, opts, p.OwnerUserID, false, order)
 	if err != nil {
 		http.Error(w, "generate error: "+err.Error(), http.StatusUnprocessableEntity)
 		return
@@ -188,6 +186,33 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request, toke
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="config.json"`)
 	_, _ = w.Write(config)
+}
+
+func (s *Server) generateFromInputs(templateContent string, nodeIDs, groupIDs []int64, opts models.ProfileOptions, ownerUserID int64, allOwners bool, order []string) ([]byte, error) {
+	if len(opts.GroupSelections) == 0 {
+		nodes, err := s.resolveNodesForUser(nodeIDs, groupIDs, opts, ownerUserID, allOwners)
+		if err != nil {
+			return nil, err
+		}
+		return generateConfig(templateContent, nodes, opts, order)
+	}
+	groupNodes := make(map[string][]*models.Node, len(opts.GroupSelections))
+	for tag, sel := range opts.GroupSelections {
+		nodes, err := s.resolveNodesForUser(sel.NodeIDs, sel.NodeGroupIDs, opts, ownerUserID, allOwners)
+		if err != nil {
+			return nil, err
+		}
+		groupNodes[tag] = nodes
+	}
+	var chainNodes []*models.Node
+	if opts.ChainProxy && opts.ChainProxySelected != nil {
+		nodes, err := s.resolveNodesForUser(opts.ChainProxySelected.NodeIDs, opts.ChainProxySelected.NodeGroupIDs, opts, ownerUserID, allOwners)
+		if err != nil {
+			return nil, err
+		}
+		chainNodes = nodes
+	}
+	return generateConfigWithGroupSelections(templateContent, groupNodes, chainNodes, opts, order)
 }
 
 func (s *Server) getNodesForUser(ids []int64, ownerUserID int64, allOwners bool) ([]*models.Node, error) {

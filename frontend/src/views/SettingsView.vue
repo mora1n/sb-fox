@@ -22,6 +22,7 @@ const i18n = useI18nStore()
 const kernelPath = ref('')
 const allowPrivate = ref(false)
 const appName = ref('')
+const subscriptionHostPrefix = ref('')
 const countryOrder = ref<string[]>([])
 const draggedIndex = ref<number | null>(null)
 const busy = ref(false)
@@ -44,6 +45,7 @@ function syncSettingsFields() {
   kernelPath.value = settings.settings.kernel_path || ''
   allowPrivate.value = settings.settings.subfetch_allow_private === 'true'
   appName.value = settings.appDisplayName
+  subscriptionHostPrefix.value = settings.settings.subscription_host_prefix || ''
   countryOrder.value = completeCountryHeatOrder(settings.countryHeatOrder)
 }
 
@@ -66,6 +68,19 @@ async function saveKernel() {
     await settings.update({ kernel_path: kernelPath.value })
     await settings.fetchKernel()
     ui.success('内核路径已保存')
+  } catch (e) {
+    ui.error(errMsg(e))
+  } finally {
+    busy.value = false
+  }
+}
+
+async function saveSubscriptionHostPrefix() {
+  busy.value = true
+  try {
+    await settings.update({ subscription_host_prefix: subscriptionHostPrefix.value })
+    syncSettingsFields()
+    ui.success('订阅 Host 已保存')
   } catch (e) {
     ui.error(errMsg(e))
   } finally {
@@ -132,7 +147,7 @@ async function saveCountryOrder() {
 }
 
 async function changePassword() {
-  if (newPw.value.length < 8) return ui.error('新密码至少 8 位')
+  if (newPw.value.length < 4) return ui.error('新密码至少 4 位')
   if (newPw.value !== confirmPw.value) return ui.error('两次输入的新密码不一致')
   busy.value = true
   try {
@@ -186,6 +201,20 @@ async function changePassword() {
 
     <div v-if="auth.isAdmin" class="card bg-base-100 shadow-sm">
       <div class="card-body gap-3">
+        <h2 class="card-title text-base">{{ i18n.t('订阅 Host') }}</h2>
+        <label class="form-control">
+          <span class="label-text mb-1">{{ i18n.t('订阅链接前缀') }}</span>
+          <div class="join">
+            <input v-model="subscriptionHostPrefix" class="input input-bordered input-sm join-item flex-1 mono" placeholder="https://example.com" />
+            <button class="btn btn-sm join-item" @click="saveSubscriptionHostPrefix" :disabled="busy">{{ i18n.t('保存') }}</button>
+          </div>
+        </label>
+        <p class="text-xs opacity-60">{{ i18n.t('留空时使用当前浏览器 Host。') }}</p>
+      </div>
+    </div>
+
+    <div v-if="auth.isAdmin" class="card bg-base-100 shadow-sm">
+      <div class="card-body gap-3">
         <div class="flex items-center justify-between gap-3">
           <h2 class="card-title text-base">{{ i18n.t('国家热度排序') }}</h2>
           <div class="flex gap-2">
@@ -198,13 +227,20 @@ async function changePassword() {
             v-for="(code, index) in countryOrder"
             :key="code"
             class="flex items-center gap-2 bg-base-100 px-3 py-2"
-            draggable="true"
-            @dragstart="draggedIndex = index"
+            :class="{ 'bg-base-200': draggedIndex === index }"
             @dragover.prevent
             @drop="dropCountry(index)"
-            @dragend="draggedIndex = null"
           >
-            <Bars3Icon class="h-4 w-4 opacity-60 cursor-move" />
+            <button
+              class="btn btn-xs btn-ghost cursor-move"
+              type="button"
+              draggable="true"
+              :title="i18n.t('拖拽排序')"
+              @dragstart="draggedIndex = index"
+              @dragend="draggedIndex = null"
+            >
+              <Bars3Icon class="h-4 w-4" />
+            </button>
             <span class="badge badge-sm w-8">{{ index + 1 }}</span>
             <CountryFlag :code="code" />
             <span class="flex-1 min-w-0 truncate">{{ code }} — {{ countryName(code) }}</span>
@@ -248,7 +284,7 @@ async function changePassword() {
         <h2 class="card-title text-base">{{ i18n.t('修改密码') }}</h2>
         <form @submit.prevent="changePassword" class="flex flex-col gap-3">
           <input v-model="oldPw" type="password" class="input input-bordered input-sm" :placeholder="i18n.t('当前密码')" autocomplete="current-password" required />
-          <input v-model="newPw" type="password" class="input input-bordered input-sm" :placeholder="i18n.t('新密码至少 8 位')" autocomplete="new-password" required />
+          <input v-model="newPw" type="password" class="input input-bordered input-sm" :placeholder="i18n.t('新密码至少 4 位')" autocomplete="new-password" required />
           <input v-model="confirmPw" type="password" class="input input-bordered input-sm" :placeholder="i18n.t('确认新密码')" autocomplete="new-password" required />
           <button class="btn btn-primary btn-sm self-start" :disabled="busy">{{ i18n.t('修改密码') }}</button>
         </form>

@@ -71,20 +71,52 @@ func TestWriteTemplateStructureValidation(t *testing.T) {
 	}
 }
 
-func TestWriteTemplateStructureAddsChildSelector(t *testing.T) {
+func TestWriteTemplateStructureRejectsGroupAddDeleteAndPreservesReferences(t *testing.T) {
+	deleteContent := `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":["Direct"]},
+    {"type":"selector","tag":"RuleGroup","outbounds":["Direct"]},
+    {"type":"direct","tag":"Direct"}
+  ],
+  "route": {
+    "rules": [{"domain":["example.com"],"outbound":"RuleGroup"}],
+    "final":"Proxy"
+  }
+}`
+	_, err := writeTemplateStructure(deleteContent, templateStructure{
+		Final: "Proxy",
+		Groups: []templateStructureGroup{
+			{Tag: "Proxy", Type: "selector", Outbounds: []string{"Direct"}},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "cannot be deleted") {
+		t.Fatalf("expected delete rejection, got %v", err)
+	}
+
 	content := `{
   "outbounds": [
     {"type":"selector","tag":"Proxy","outbounds":["Direct"]},
+    {"type":"selector","tag":"Child","outbounds":["Direct"]},
     {"type":"direct","tag":"Direct"}
   ],
   "route": {"final":"Proxy"}
 }`
 
+	_, err = writeTemplateStructure(content, templateStructure{
+		Final: "Proxy",
+		Groups: []templateStructureGroup{
+			{Tag: "Proxy", Type: "selector", Outbounds: []string{"Direct"}},
+			{Tag: "New", Type: "selector", Outbounds: []string{"Direct"}},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "not referenced") {
+		t.Fatalf("expected add rejection, got %v", err)
+	}
+
 	updated, err := writeTemplateStructure(content, templateStructure{
 		Final: "Proxy",
 		Groups: []templateStructureGroup{
 			{Tag: "Proxy", Type: "selector", Outbounds: []string{"Child", "Direct"}, Default: "Child"},
-			{Tag: "Child", Type: "selector", Outbounds: []string{"Direct"}},
 		},
 	})
 	if err != nil {
@@ -94,13 +126,16 @@ func TestWriteTemplateStructureAddsChildSelector(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.Final != "Proxy" || len(st.Groups) != 2 {
+	if st.Final != "Proxy" || len(st.Groups) != 1 {
 		t.Fatalf("structure = %+v", st)
 	}
 	if st.Groups[0].Tag != "Proxy" || st.Groups[0].Default != "Child" {
 		t.Fatalf("proxy group = %+v", st.Groups[0])
 	}
-	if st.Groups[1].Tag != "Child" {
-		t.Fatalf("child group order = %+v", st.Groups)
+	if !containsString(st.AvailableOutbounds, "Child") {
+		t.Fatalf("child selector should remain available: %+v", st.AvailableOutbounds)
+	}
+	if !strings.Contains(updated, `"tag": "Child"`) {
+		t.Fatalf("unmanaged child selector was not preserved:\n%s", updated)
 	}
 }

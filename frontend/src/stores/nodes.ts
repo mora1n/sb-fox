@@ -21,6 +21,7 @@ export interface NodeInput {
 export const useNodesStore = defineStore('nodes', () => {
   const settings = useSettingsStore()
   const nodes = ref<Node[]>([])
+  const unfilteredNodes = ref<Node[]>([])
   const loading = ref(false)
   const filters = ref<NodeFilters>({ search: '', source: '', country: '', type: '' })
 
@@ -44,7 +45,8 @@ export const useNodesStore = defineStore('nodes', () => {
   }
 
   async function fetchUnfiltered(): Promise<Node[]> {
-    return (await get<Node[]>('/nodes')) ?? []
+    unfilteredNodes.value = (await get<Node[]>('/nodes')) ?? []
+    return unfilteredNodes.value
   }
 
   async function create(input: NodeInput): Promise<Node> {
@@ -62,6 +64,7 @@ export const useNodesStore = defineStore('nodes', () => {
   async function remove(id: number): Promise<void> {
     await del('/nodes/' + id)
     nodes.value = nodes.value.filter((n) => n.id !== id)
+    unfilteredNodes.value = unfilteredNodes.value.filter((n) => n.id !== id)
   }
 
   async function usage(id: number): Promise<NodeUsage[]> {
@@ -96,10 +99,14 @@ export const useNodesStore = defineStore('nodes', () => {
   const countries = computed(() =>
     sortCountryCodes([...new Set(nodes.value.map((n) => n.country_code).filter(Boolean))], settings.countryHeatOrder),
   )
-  const types = computed(() => [...new Set(nodes.value.map((n) => n.type).filter(Boolean))].sort())
+  const types = computed(() => {
+    const source = unfilteredNodes.value.length ? unfilteredNodes.value : nodes.value
+    return [...new Set(source.map((n) => n.type).filter(Boolean))].sort()
+  })
 
   return {
     nodes,
+    unfilteredNodes,
     loading,
     filters,
     countries,

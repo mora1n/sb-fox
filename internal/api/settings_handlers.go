@@ -20,6 +20,7 @@ const (
 	settingKernelPath     = "kernel_path"
 	settingKernelVersion  = "kernel_version"
 	settingAllowPrivate   = "subfetch_allow_private"
+	settingSubHostPrefix  = "subscription_host_prefix"
 )
 
 // redactedKeys are never returned to the client.
@@ -103,6 +104,7 @@ type appInfo struct {
 	DisplayName         string   `json:"display_name"`
 	CountryHeatOrder    []string `json:"country_heat_order"`
 	RegistrationEnabled bool     `json:"registration_enabled"`
+	SubscriptionHost    string   `json:"subscription_host_prefix"`
 }
 
 func (s *Server) handleAppInfo(w http.ResponseWriter, r *http.Request) {
@@ -116,10 +118,16 @@ func (s *Server) handleAppInfo(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
+	subHost, err := s.Store.GetSettingDefault(settingSubHostPrefix, "")
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
 	respondJSON(w, http.StatusOK, appInfo{
 		DisplayName:         displayName,
 		CountryHeatOrder:    order,
 		RegistrationEnabled: s.RegistrationEnabled,
+		SubscriptionHost:    subHost,
 	})
 }
 
@@ -143,12 +151,13 @@ func defaultSettings() map[string]string {
 	return map[string]string{
 		settingAppDisplayName: defaultAppDisplayName,
 		settingCountryHeat:    defaultCountryHeatOrderJSON(),
+		settingSubHostPrefix:  "",
 	}
 }
 
 func adminOnlySetting(key string) bool {
 	switch key {
-	case settingAppDisplayName, settingKernelPath, settingKernelVersion, settingAllowPrivate:
+	case settingAppDisplayName, settingKernelPath, settingKernelVersion, settingAllowPrivate, settingSubHostPrefix:
 		return true
 	default:
 		return false
@@ -179,6 +188,8 @@ func normalizeSetting(key, value string) (string, error) {
 		if value != "true" && value != "false" {
 			return "", fmt.Errorf("%s must be \"true\" or \"false\"", settingAllowPrivate)
 		}
+	case settingSubHostPrefix:
+		return normalizeSubscriptionHostPrefix(value)
 	}
 	return value, nil
 }
@@ -187,6 +198,17 @@ func normalizeDisplayName(value string) (string, error) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
 		return "", errors.New("display name cannot be empty")
+	}
+	return trimmed, nil
+}
+
+func normalizeSubscriptionHostPrefix(value string) (string, error) {
+	trimmed := strings.TrimRight(strings.TrimSpace(value), "/")
+	if trimmed == "" {
+		return "", nil
+	}
+	if !strings.HasPrefix(trimmed, "http://") && !strings.HasPrefix(trimmed, "https://") {
+		return "", errors.New("subscription host prefix must start with http:// or https://")
 	}
 	return trimmed, nil
 }

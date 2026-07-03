@@ -155,6 +155,61 @@ func TestAuthGuard(t *testing.T) {
 	}
 }
 
+func TestAuthErrorsPasswordMinimumAndSubscriptionHostPrefix(t *testing.T) {
+	srv, ts := testServer(t)
+	c := newClient(t, ts.URL)
+
+	status, code, msg := decodeError(t, c.do(http.MethodPost, "/api/auth/login", map[string]string{
+		"username": "admin", "password": "wrong",
+	}))
+	if status != http.StatusUnauthorized || code != "unauthorized" || msg != "invalid username or password" {
+		t.Fatalf("bad login status=%d code=%q msg=%q", status, code, msg)
+	}
+
+	srv.RegistrationEnabled = true
+	status, _, msg = decodeError(t, c.do(http.MethodPost, "/api/auth/register", map[string]string{
+		"username": "short", "password": "123",
+	}))
+	if status != http.StatusBadRequest || !strings.Contains(msg, "at least 4") {
+		t.Fatalf("short register status=%d msg=%q", status, msg)
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/auth/register", map[string]string{
+		"username": "ok4", "password": "1234",
+	}), nil)
+
+	admin := newClient(t, ts.URL)
+	admin.http.Jar = login(t, ts.URL)
+	status, _, msg = decodeError(t, admin.do(http.MethodPost, "/api/auth/password", map[string]string{
+		"old_password": "password123", "new_password": "123",
+	}))
+	if status != http.StatusBadRequest || !strings.Contains(msg, "at least 4") {
+		t.Fatalf("short password change status=%d msg=%q", status, msg)
+	}
+	status, _, msg = decodeError(t, admin.do(http.MethodPost, "/api/auth/password", map[string]string{
+		"old_password": "bad", "new_password": "1234",
+	}))
+	if status != http.StatusUnauthorized || msg != "current password is incorrect" {
+		t.Fatalf("wrong current password status=%d msg=%q", status, msg)
+	}
+
+	status, _, msg = decodeError(t, admin.do(http.MethodPut, "/api/settings", map[string]string{
+		"subscription_host_prefix": "ftp://example.com",
+	}))
+	if status != http.StatusBadRequest || !strings.Contains(msg, "http:// or https://") {
+		t.Fatalf("invalid host prefix status=%d msg=%q", status, msg)
+	}
+	decodeData(t, admin.do(http.MethodPut, "/api/settings", map[string]string{
+		"subscription_host_prefix": "https://example.com/subs/",
+	}), nil)
+	var app struct {
+		SubscriptionHost string `json:"subscription_host_prefix"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/app", nil), &app)
+	if app.SubscriptionHost != "https://example.com/subs" {
+		t.Fatalf("subscription host prefix = %q", app.SubscriptionHost)
+	}
+}
+
 func TestRegistrationAdminResetAndQuota(t *testing.T) {
 	srv, ts := testServer(t)
 	c := newClient(t, ts.URL)
@@ -276,6 +331,9 @@ func TestUserSettingsPermissionsAndPublicKernelStatus(t *testing.T) {
 	if _, ok := settings["kernel_path"]; ok {
 		t.Fatalf("non-admin settings leaked kernel_path: %+v", settings)
 	}
+	if _, ok := settings["subscription_host_prefix"]; ok {
+		t.Fatalf("non-admin settings leaked subscription_host_prefix: %+v", settings)
+	}
 	if _, ok := settings["country_heat_order"]; !ok {
 		t.Fatalf("non-admin settings missing country_heat_order: %+v", settings)
 	}
@@ -287,6 +345,10 @@ func TestUserSettingsPermissionsAndPublicKernelStatus(t *testing.T) {
 	status, _, msg = decodeError(t, userClient.do(http.MethodPut, "/api/settings", map[string]string{"subfetch_allow_private": "true"}))
 	if status != http.StatusForbidden || !strings.Contains(msg, "admin only") {
 		t.Fatalf("private fetch setting status=%d msg=%q", status, msg)
+	}
+	status, _, msg = decodeError(t, userClient.do(http.MethodPut, "/api/settings", map[string]string{"subscription_host_prefix": "https://example.com"}))
+	if status != http.StatusForbidden || !strings.Contains(msg, "admin only") {
+		t.Fatalf("host prefix setting status=%d msg=%q", status, msg)
 	}
 	status, _, _ = decodeError(t, userClient.do(http.MethodGet, "/api/settings/kernel", nil))
 	if status != http.StatusForbidden {
@@ -449,19 +511,34 @@ func TestFullFlow(t *testing.T) {
 
 	// create a profile with these nodes
 	var profile struct {
-		ID    int64  `json:"id"`
-		Token string `json:"token"`
+		ID int64 `json:"id"`
 	}
 	decodeData(t, c.do(http.MethodPost, "/api/profiles", map[string]any{
 		"name": "myprofile", "template_id": fakeipID,
 		"node_ids": nodeIDs, "options": map[string]bool{"autoCountryGroups": true},
 	}), &profile)
-	if profile.Token == "" {
-		t.Fatal("no token issued")
+	if profile.ID == 0 {
+		t.Fatal("profile id is empty")
+	}
+
+	var tokenResp struct {
+		Token string `json:"token"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/auth/subscription-token", nil), &tokenResp)
+	if tokenResp.Token == "" {
+		t.Fatal("no shared subscription token issued")
+	}
+	oldResp, err := http.Get(ts.URL + "/sub/" + tokenResp.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldResp.Body.Close()
+	if oldResp.StatusCode != http.StatusNotFound {
+		t.Fatalf("old public sub status %d", oldResp.StatusCode)
 	}
 
 	// fetch the PUBLIC subscription (no auth) and validate with the kernel
-	pubResp, err := http.Get(ts.URL + "/sub/" + profile.Token)
+	pubResp, err := http.Get(ts.URL + "/sub/" + tokenResp.Token + "/myprofile")
 	if err != nil {
 		t.Fatal(err)
 	}

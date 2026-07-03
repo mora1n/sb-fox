@@ -98,6 +98,15 @@ export interface ProfileOptions {
   chainProxy: boolean
   chainProxyNodeId?: number
   chainProxyNodeIds?: number[]
+  groupSelections?: Record<string, NodeSelection>
+  chainProxySelection?: NodeSelection
+}
+
+export interface NodeSelection {
+  nodeIds: number[]
+  nodeGroupIds: number[]
+  outboundRefs: string[]
+  skipCountryGroups: boolean
 }
 
 // Profile.Options is a JSON string on the wire (see models.Profile.Options).
@@ -107,7 +116,6 @@ export interface Profile {
   name: string
   template_id: number
   options: string
-  token: string
   node_ids: number[]
   node_group_ids: number[]
   created_at: string
@@ -150,6 +158,7 @@ export interface ImportResult {
   imported: number
   nodes: Node[]
   source_id?: number
+  warnings?: string[]
 }
 
 export interface NodeUsage {
@@ -165,6 +174,7 @@ export interface AppInfo {
   display_name: string
   country_heat_order: string[]
   registration_enabled: boolean
+  subscription_host_prefix: string
 }
 
 export type UserRole = 'admin' | 'user'

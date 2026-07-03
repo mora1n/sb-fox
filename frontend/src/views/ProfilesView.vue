@@ -9,7 +9,16 @@ import { useSettingsStore } from '../stores/settings'
 import { useUiStore } from '../stores/ui'
 import { useI18nStore } from '../stores/i18n'
 import { errMsg } from '../utils/error'
-import type { KernelResult, Node, PreviewPayload, Profile, ProfileOptions, ProfilePayload } from '../api/types'
+import type {
+  KernelResult,
+  Node,
+  NodeSelection,
+  PreviewPayload,
+  Profile,
+  ProfileOptions,
+  ProfilePayload,
+  TemplateStructure,
+} from '../api/types'
 import TokenLinkField from '../components/TokenLinkField.vue'
 import NodeMultiSelect from '../components/NodeMultiSelect.vue'
 import JsonViewer from '../components/JsonViewer.vue'
@@ -30,13 +39,10 @@ const busy = ref(false)
 const config = ref('')
 const validation = ref<KernelResult | null>(null)
 const allNodes = ref<Node[]>([])
+const structure = ref<TemplateStructure | null>(null)
+const activeGroup = ref('')
 const kernelHint = computed(() => i18n.t('请先安装 sing-box 内核或在设置中配置路径'))
-const chainProxyNodeIds = computed<number[]>({
-  get: () => form.value.options.chainProxyNodeIds ?? [],
-  set: (ids) => {
-    form.value.options.chainProxyNodeIds = ids
-  },
-})
+const tokenHost = computed(() => settings.subscriptionHostPrefix || '')
 
 const form = ref<{
   name: string
@@ -49,17 +55,35 @@ const form = ref<{
   template_id: 0,
   node_ids: [],
   node_group_ids: [],
-  options: { autoCountryGroups: true, chainProxy: false, chainProxyNodeIds: [] },
+  options: { autoCountryGroups: true, chainProxy: false, groupSelections: {} },
+})
+
+const activeStructureGroup = computed(() => structure.value?.groups.find((g) => g.tag === activeGroup.value) ?? null)
+
+const activeNodeIds = computed<number[]>({
+  get: () => selectionFor(activeGroup.value).nodeIds,
+  set: (ids) => {
+    selectionFor(activeGroup.value).nodeIds = ids
+  },
+})
+
+const chainNodeIds = computed<number[]>({
+  get: () => chainSelection().nodeIds,
+  set: (ids) => {
+    chainSelection().nodeIds = ids
+  },
 })
 
 onMounted(async () => {
   try {
-    const [, , loadedNodes] = await Promise.all([
+    const [, , , loadedNodes] = await Promise.all([
       store.fetchAll(),
+      store.fetchSubscriptionToken(),
       templates.fetchAll(),
       nodes.fetchUnfiltered(),
       nodeGroups.fetchAll(),
       settings.fetchKernelStatus(),
+      settings.fetchAppInfo(),
     ])
     allNodes.value = loadedNodes
   } catch (e) {
@@ -68,29 +92,48 @@ onMounted(async () => {
 })
 
 watch(
-  () => form.value.node_ids,
-  () => {
-    const selected = new Set(form.value.node_ids)
-    form.value.options.chainProxyNodeIds = (form.value.options.chainProxyNodeIds ?? []).filter((id) => selected.has(id))
+  () => form.value.template_id,
+  async (id) => {
+    if (!showForm.value || !id) return
+    await loadStructure(id)
   },
 )
 
+function emptySelection(): NodeSelection {
+  return { nodeIds: [], nodeGroupIds: [], outboundRefs: [], skipCountryGroups: false }
+}
+
 function parseOptions(s: string): ProfileOptions {
   try {
-    const o = JSON.parse(s || '{}')
-    const legacyID = Number(o.chainProxyNodeId || 0)
-    return {
-      autoCountryGroups: !!o.autoCountryGroups,
-      chainProxy: !!o.chainProxy,
-      chainProxyNodeId: legacyID,
-      chainProxyNodeIds: Array.isArray(o.chainProxyNodeIds)
-        ? o.chainProxyNodeIds.map((id: unknown) => Number(id)).filter(Boolean)
-        : legacyID
-          ? [legacyID]
+    const raw = JSON.parse(s || '{}')
+    const groups: Record<string, NodeSelection> = {}
+    for (const [tag, sel] of Object.entries(raw.groupSelections || {})) {
+      const item = sel as Partial<NodeSelection>
+      groups[tag] = {
+        nodeIds: Array.isArray(item.nodeIds) ? item.nodeIds.map(Number).filter(Boolean) : [],
+        nodeGroupIds: Array.isArray(item.nodeGroupIds) ? item.nodeGroupIds.map(Number).filter(Boolean) : [],
+        outboundRefs: Array.isArray(item.outboundRefs)
+          ? item.outboundRefs.map(String).map((v) => v.trim()).filter(Boolean)
           : [],
+        skipCountryGroups: !!item.skipCountryGroups,
+      }
+    }
+    const chain = raw.chainProxySelection as Partial<NodeSelection> | undefined
+    return {
+      autoCountryGroups: raw.autoCountryGroups !== false,
+      chainProxy: !!raw.chainProxy,
+      groupSelections: groups,
+      chainProxySelection: chain
+        ? {
+            nodeIds: Array.isArray(chain.nodeIds) ? chain.nodeIds.map(Number).filter(Boolean) : [],
+            nodeGroupIds: Array.isArray(chain.nodeGroupIds) ? chain.nodeGroupIds.map(Number).filter(Boolean) : [],
+            outboundRefs: [],
+            skipCountryGroups: false,
+          }
+        : undefined,
     }
   } catch {
-    return { autoCountryGroups: false, chainProxy: false, chainProxyNodeIds: [] }
+    return { autoCountryGroups: true, chainProxy: false, groupSelections: {} }
   }
 }
 
@@ -98,16 +141,41 @@ function templateName(id: number) {
   return templates.templates.find((t) => t.id === id)?.name || `#${id}`
 }
 
-function groupName(id: number) {
-  return nodeGroups.groups.find((g) => g.id === id)?.name || `#${id}`
-}
-
 function optionBadges(p: Profile) {
   const opts = parseOptions(p.options)
   const badges: string[] = []
-  if (opts.autoCountryGroups) badges.push(i18n.t('自动国家分组'))
+  if (Object.keys(opts.groupSelections ?? {}).length) badges.push(i18n.t('出口选择'))
   if (opts.chainProxy) badges.push(i18n.t('链式代理'))
   return badges
+}
+
+async function loadStructure(templateID: number) {
+  structure.value = await templates.structure(templateID)
+  if (!structure.value.groups.length) {
+    activeGroup.value = ''
+    return
+  }
+  if (!activeGroup.value || !structure.value.groups.some((g) => g.tag === activeGroup.value)) {
+    activeGroup.value = structure.value.groups[0].tag
+  }
+  ensureGroupSelections()
+}
+
+function ensureGroupSelections() {
+  if (!structure.value) return
+  if (!form.value.options.groupSelections) form.value.options.groupSelections = {}
+  for (const g of structure.value.groups) selectionFor(g.tag)
+}
+
+function selectionFor(tag: string): NodeSelection {
+  if (!form.value.options.groupSelections) form.value.options.groupSelections = {}
+  if (!form.value.options.groupSelections[tag]) form.value.options.groupSelections[tag] = emptySelection()
+  return form.value.options.groupSelections[tag]
+}
+
+function chainSelection(): NodeSelection {
+  if (!form.value.options.chainProxySelection) form.value.options.chainProxySelection = emptySelection()
+  return form.value.options.chainProxySelection
 }
 
 function openCreate() {
@@ -117,11 +185,14 @@ function openCreate() {
     template_id: templates.templates[0]?.id || 0,
     node_ids: [],
     node_group_ids: [],
-    options: { autoCountryGroups: true, chainProxy: false, chainProxyNodeIds: [] },
+    options: { autoCountryGroups: true, chainProxy: false, groupSelections: {} },
   }
   config.value = ''
   validation.value = null
+  structure.value = null
+  activeGroup.value = ''
   showForm.value = true
+  if (form.value.template_id) loadStructure(form.value.template_id).catch((e) => ui.error(errMsg(e)))
 }
 
 function openEdit(p: Profile) {
@@ -135,47 +206,107 @@ function openEdit(p: Profile) {
   }
   config.value = ''
   validation.value = null
+  structure.value = null
+  activeGroup.value = ''
   showForm.value = true
+  loadStructure(p.template_id).catch((e) => ui.error(errMsg(e)))
 }
 
-function toggleGroup(id: number) {
-  const set = new Set(form.value.node_group_ids)
-  if (set.has(id)) set.delete(id)
-  else set.add(id)
-  form.value.node_group_ids = [...set]
+function cleanSelections(options: ProfileOptions): ProfileOptions {
+  const groupSelections: Record<string, NodeSelection> = {}
+  if (structure.value) {
+    for (const g of structure.value.groups) {
+      const sel = selectionFor(g.tag)
+      groupSelections[g.tag] = {
+        nodeIds: [...sel.nodeIds],
+        nodeGroupIds: [...sel.nodeGroupIds],
+        outboundRefs: [...sel.outboundRefs],
+        skipCountryGroups: !!sel.skipCountryGroups,
+      }
+    }
+  }
+  const next: ProfileOptions = {
+    autoCountryGroups: !!options.autoCountryGroups,
+    chainProxy: !!options.chainProxy,
+    groupSelections,
+  }
+  if (next.chainProxy) {
+    const chain = chainSelection()
+    next.chainProxySelection = {
+      nodeIds: [...chain.nodeIds],
+      nodeGroupIds: [...chain.nodeGroupIds],
+      outboundRefs: [],
+      skipCountryGroups: false,
+    }
+  }
+  return next
 }
 
 function buildPayload(): ProfilePayload {
-  const options = { ...form.value.options }
-  options.chainProxyNodeIds = options.chainProxy ? [...(options.chainProxyNodeIds ?? [])] : []
-  options.chainProxyNodeId = 0
   return {
     name: form.value.name.trim(),
     template_id: form.value.template_id,
-    node_ids: form.value.node_ids,
-    node_group_ids: form.value.node_group_ids,
-    options,
+    node_ids: [],
+    node_group_ids: [],
+    options: cleanSelections(form.value.options),
   }
+}
+
+function hasSelection(sel: NodeSelection) {
+  return sel.nodeIds.length > 0 || sel.nodeGroupIds.length > 0 || sel.outboundRefs.length > 0
 }
 
 function validateForm() {
   if (!form.value.name.trim()) throw new Error('请填写名称')
   if (!form.value.template_id) throw new Error('请选择模板')
-  if (form.value.options.chainProxy && !(form.value.options.chainProxyNodeIds?.length)) {
-    throw new Error('请选择链式代理节点')
+  if (!structure.value || !structure.value.groups.length) throw new Error('模板没有可用出口分组')
+  const finalTag = structure.value.final || structure.value.groups[0].tag
+  const finalSelection = selectionFor(finalTag)
+  if (!hasSelection(finalSelection) && !form.value.options.chainProxy) {
+    throw new Error(`最终出口 "${finalTag}" 至少需要选择一个节点、组合节点或引用出口`)
   }
-  if (
-    form.value.options.chainProxy &&
-    (form.value.options.chainProxyNodeIds?.length ?? 0) >= form.value.node_ids.length &&
-    !form.value.node_group_ids.length
-  ) {
-    throw new Error('链式代理需要至少一个上游节点')
+  if (form.value.options.chainProxy && !hasSelection(chainSelection())) {
+    throw new Error('请选择链式代理节点')
   }
 }
 
-function chainProxyCandidates() {
-  const selected = new Set(form.value.node_ids)
-  return allNodes.value.filter((n) => selected.has(n.id))
+function groupSelectionCount(tag: string) {
+  const sel = selectionFor(tag)
+  return sel.nodeIds.length + sel.nodeGroupIds.length + sel.outboundRefs.length
+}
+
+function outboundRefOptions(tag: string) {
+  const group = structure.value?.groups.find((g) => g.tag === tag)
+  if (!group) return []
+  const seen = new Set<string>()
+  return group.outbounds.filter((item) => {
+    const clean = item.trim()
+    if (!clean || clean === tag || seen.has(clean)) return false
+    seen.add(clean)
+    return true
+  })
+}
+
+function toggleOutboundRef(sel: NodeSelection, tag: string) {
+  const set = new Set(sel.outboundRefs)
+  if (set.has(tag)) set.delete(tag)
+  else set.add(tag)
+  sel.outboundRefs = [...set]
+}
+
+function toggleGroupForSelection(sel: NodeSelection, id: number) {
+  const set = new Set(sel.nodeGroupIds)
+  if (set.has(id)) set.delete(id)
+  else set.add(id)
+  sel.nodeGroupIds = [...set]
+}
+
+function selectAllGroups(sel: NodeSelection) {
+  sel.nodeGroupIds = nodeGroups.groups.map((g) => g.id)
+}
+
+function clearGroups(sel: NodeSelection) {
+  sel.nodeGroupIds = []
 }
 
 async function submit() {
@@ -205,8 +336,8 @@ async function generate() {
     validateForm()
     const payload: PreviewPayload = {
       template_id: form.value.template_id,
-      node_ids: form.value.node_ids,
-      node_group_ids: form.value.node_group_ids,
+      node_ids: [],
+      node_group_ids: [],
       options: buildPayload().options,
     }
     const r = await post<{ config: string }>('/generate/preview', payload)
@@ -253,10 +384,10 @@ async function formatGenerated() {
   }
 }
 
-async function rotate(p: Profile) {
-  if (!confirm('轮换 token 后旧订阅链接立即失效，确认？')) return
+async function rotateSharedToken() {
+  if (!confirm('轮换共享 token 后所有订阅链接都会变化，确认？')) return
   try {
-    await store.rotateToken(p.id)
+    await store.rotateSubscriptionToken()
     ui.success('token 已轮换')
   } catch (e) {
     ui.error(errMsg(e))
@@ -278,7 +409,24 @@ async function remove(p: Profile) {
   <div class="flex flex-col gap-4">
     <div class="flex items-center justify-between">
       <h1 class="text-2xl font-bold">{{ i18n.t('订阅') }}</h1>
-      <button class="btn btn-sm btn-primary" @click="openCreate"><PlusIcon class="h-4 w-4" /> {{ i18n.t('新建订阅') }}</button>
+      <button class="btn btn-sm btn-primary" @click="openCreate">
+        <PlusIcon class="h-4 w-4" /> {{ i18n.t('新建订阅') }}
+      </button>
+    </div>
+
+    <div class="card bg-base-100 shadow-sm border border-base-300">
+      <div class="card-body p-4 gap-3">
+        <div class="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h2 class="card-title text-base">{{ i18n.t('共享 token') }}</h2>
+            <p class="text-xs opacity-60">{{ i18n.t('所有订阅链接共享同一 token，并按订阅名称区分。') }}</p>
+          </div>
+          <button class="btn btn-sm" @click="rotateSharedToken">
+            <ArrowPathIcon class="h-4 w-4" /> {{ i18n.t('轮换共享 token') }}
+          </button>
+        </div>
+        <div class="mono text-xs bg-base-200 rounded-box px-3 py-2 break-all">{{ store.subscriptionToken || '...' }}</div>
+      </div>
     </div>
 
     <div v-if="store.loading" class="flex justify-center py-10"><span class="loading loading-spinner loading-lg"></span></div>
@@ -291,8 +439,6 @@ async function remove(p: Profile) {
               <h2 class="card-title text-base">{{ p.name }}</h2>
               <div class="text-xs opacity-70 mt-1 flex flex-wrap gap-2">
                 <span>{{ i18n.t('模板:') }} {{ templateName(p.template_id) }}</span>
-                <span>{{ p.node_ids.length }} {{ i18n.t('个节点') }}</span>
-                <span v-if="p.node_group_ids?.length">{{ p.node_group_ids.length }} {{ i18n.t('个组合') }}</span>
               </div>
             </div>
             <div class="flex gap-1">
@@ -302,21 +448,22 @@ async function remove(p: Profile) {
           </div>
           <div class="flex flex-wrap gap-1">
             <span v-for="badge in optionBadges(p)" :key="badge" class="badge badge-sm badge-neutral">{{ badge }}</span>
-            <span v-for="gid in p.node_group_ids ?? []" :key="gid" class="badge badge-sm badge-ghost">{{ groupName(gid) }}</span>
           </div>
-          <TokenLinkField :token="p.token" />
-          <div class="flex items-center justify-between">
-            <span class="text-xs opacity-60">{{ i18n.t('公开订阅链接') }}</span>
-            <button class="btn btn-xs btn-ghost" @click="rotate(p)"><ArrowPathIcon class="h-3 w-3" /> {{ i18n.t('轮换 token') }}</button>
-          </div>
+          <TokenLinkField
+            v-if="store.subscriptionToken"
+            :token="store.subscriptionToken"
+            :profile-name="p.name"
+            :host-prefix="tokenHost"
+          />
+          <span class="text-xs opacity-60">{{ i18n.t('公开订阅链接') }}</span>
         </div>
       </div>
     </div>
 
     <div v-if="showForm" class="modal modal-open">
-      <div class="modal-box max-w-6xl">
+      <div class="modal-box max-w-7xl max-h-[88vh] overflow-y-auto">
         <h3 class="font-bold text-lg mb-3">{{ editing ? i18n.t('编辑订阅') : i18n.t('新建订阅') }}</h3>
-        <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)] gap-4">
+        <div class="grid grid-cols-1 xl:grid-cols-[280px_minmax(0,1fr)_minmax(0,1fr)] gap-4">
           <div class="flex flex-col gap-3">
             <label class="form-control">
               <span class="label-text mb-1">{{ i18n.t('名称') }}</span>
@@ -329,42 +476,119 @@ async function remove(p: Profile) {
                 <option v-for="t in templates.templates" :key="t.id" :value="t.id">{{ t.name }} · {{ t.kind }}</option>
               </select>
             </label>
-            <div class="flex flex-wrap gap-4">
-              <label class="label cursor-pointer justify-start gap-2">
-                <input type="checkbox" class="toggle toggle-sm" v-model="form.options.autoCountryGroups" />
-                <span class="label-text">{{ i18n.t('自动国家分组') }}</span>
-              </label>
-              <label class="label cursor-pointer justify-start gap-2">
-                <input type="checkbox" class="toggle toggle-sm" v-model="form.options.chainProxy" />
-                <span class="label-text">{{ i18n.t('链式代理') }}</span>
-              </label>
-            </div>
-            <label v-if="form.options.chainProxy" class="form-control">
-              <span class="label-text mb-1">{{ i18n.t('链式代理节点') }}</span>
-              <NodeMultiSelect :nodes="chainProxyCandidates()" v-model="chainProxyNodeIds" />
-            </label>
             <div class="form-control">
-              <span class="label-text mb-1">{{ i18n.t('单节点') }}</span>
-              <NodeMultiSelect :nodes="allNodes" v-model="form.node_ids" />
-            </div>
-            <div class="form-control">
-              <span class="label-text mb-1">{{ i18n.t('组合节点') }}</span>
-              <div class="border border-base-300 rounded-box max-h-44 overflow-y-auto divide-y divide-base-200">
-                <label
-                  v-for="g in nodeGroups.groups"
-                  :key="g.id"
-                  class="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-base-200"
+              <span class="label-text mb-1">{{ i18n.t('分组管理') }}</span>
+              <div class="border border-base-300 rounded-box divide-y divide-base-200 overflow-hidden">
+                <button
+                  v-for="g in structure?.groups ?? []"
+                  :key="g.tag"
+                  type="button"
+                  class="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-base-200"
+                  :class="{ 'bg-base-200': activeGroup === g.tag }"
+                  @click="activeGroup = g.tag"
                 >
+                  <span class="truncate text-sm">{{ g.tag }}</span>
+                  <span class="badge badge-sm">{{ groupSelectionCount(g.tag) }}</span>
+                </button>
+                <div v-if="!structure?.groups.length" class="px-3 py-4 text-sm opacity-60 text-center">
+                  {{ i18n.t('未检测到 selector/urltest 分组。') }}
+                </div>
+              </div>
+            </div>
+            <label class="label cursor-pointer justify-start gap-2">
+              <input type="checkbox" class="toggle toggle-sm" v-model="form.options.autoCountryGroups" />
+              <span class="label-text">{{ i18n.t('自动国家分组') }}</span>
+            </label>
+            <label class="label cursor-pointer justify-start gap-2">
+              <input type="checkbox" class="toggle toggle-sm" v-model="form.options.chainProxy" />
+              <span class="label-text">{{ i18n.t('链式代理') }}</span>
+            </label>
+          </div>
+
+          <div class="flex flex-col gap-3 min-w-0">
+            <div class="rounded-box border border-base-300 p-3 bg-base-100">
+              <div class="flex items-start justify-between gap-2 flex-wrap mb-3">
+                <h4 class="font-semibold text-sm">{{ i18n.t('当前出口分组') }} · {{ activeGroup || '-' }}</h4>
+                <label v-if="activeGroup" class="label cursor-pointer justify-start gap-2 p-0">
                   <input
                     type="checkbox"
-                    class="checkbox checkbox-sm"
-                    :checked="form.node_group_ids.includes(g.id)"
-                    @change="toggleGroup(g.id)"
+                    class="toggle toggle-xs"
+                    v-model="selectionFor(activeGroup).skipCountryGroups"
+                    :disabled="!form.options.autoCountryGroups"
                   />
-                  <span class="truncate flex-1 text-sm">{{ g.name }}</span>
-                  <span class="badge badge-ghost badge-sm">{{ g.node_ids.length }}</span>
+                  <span class="label-text text-xs">{{ i18n.t('跳过国家分组') }}</span>
                 </label>
-                <div v-if="!nodeGroups.groups.length" class="px-3 py-4 text-sm opacity-60 text-center">{{ i18n.t('暂无组合节点。') }}</div>
+              </div>
+              <div v-if="activeStructureGroup" class="mb-3">
+                <div class="label-text mb-1">{{ i18n.t('引用出口') }}</div>
+                <div class="border border-base-300 rounded-box max-h-32 overflow-y-auto divide-y divide-base-200">
+                  <label
+                    v-for="tag in outboundRefOptions(activeGroup)"
+                    :key="tag"
+                    class="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-base-200"
+                  >
+                    <input
+                      type="checkbox"
+                      class="checkbox checkbox-sm"
+                      :checked="selectionFor(activeGroup).outboundRefs.includes(tag)"
+                      @change="toggleOutboundRef(selectionFor(activeGroup), tag)"
+                    />
+                    <span class="truncate flex-1 text-sm" :title="tag">{{ tag }}</span>
+                  </label>
+                  <div v-if="!outboundRefOptions(activeGroup).length" class="px-3 py-4 text-sm opacity-60 text-center">
+                    {{ i18n.t('无可选出口') }}
+                  </div>
+                </div>
+              </div>
+              <NodeMultiSelect :nodes="allNodes" v-model="activeNodeIds" />
+              <div class="mt-3">
+                <div class="flex items-center justify-between gap-2 flex-wrap mb-2">
+                  <span class="label-text">{{ i18n.t('组合节点') }}</span>
+                  <span class="flex gap-1 flex-wrap">
+                    <button class="btn btn-xs min-h-7 h-7" type="button" @click="selectAllGroups(selectionFor(activeGroup))">{{ i18n.t('全选') }}</button>
+                    <button class="btn btn-xs min-h-7 h-7" type="button" @click="clearGroups(selectionFor(activeGroup))">{{ i18n.t('全不选') }}</button>
+                  </span>
+                </div>
+                <div class="border border-base-300 rounded-box max-h-36 overflow-y-auto divide-y divide-base-200">
+                  <label v-for="g in nodeGroups.groups" :key="g.id" class="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-base-200">
+                    <input
+                      type="checkbox"
+                      class="checkbox checkbox-sm"
+                      :checked="selectionFor(activeGroup).nodeGroupIds.includes(g.id)"
+                      @change="toggleGroupForSelection(selectionFor(activeGroup), g.id)"
+                    />
+                    <span class="truncate flex-1 text-sm">{{ g.name }}</span>
+                    <span class="badge badge-ghost badge-sm">{{ g.node_ids.length }}</span>
+                  </label>
+                  <div v-if="!nodeGroups.groups.length" class="px-3 py-4 text-sm opacity-60 text-center">{{ i18n.t('暂无组合节点。') }}</div>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="form.options.chainProxy" class="rounded-box border border-base-300 p-3 bg-base-100">
+              <h4 class="font-semibold text-sm mb-2">{{ i18n.t('链式代理节点') }}</h4>
+              <NodeMultiSelect :nodes="allNodes" v-model="chainNodeIds" />
+              <div class="mt-3">
+                <div class="flex items-center justify-between gap-2 flex-wrap mb-2">
+                  <span class="label-text">{{ i18n.t('组合节点') }}</span>
+                  <span class="flex gap-1 flex-wrap">
+                    <button class="btn btn-xs min-h-7 h-7" type="button" @click="selectAllGroups(chainSelection())">{{ i18n.t('全选') }}</button>
+                    <button class="btn btn-xs min-h-7 h-7" type="button" @click="clearGroups(chainSelection())">{{ i18n.t('全不选') }}</button>
+                  </span>
+                </div>
+                <div class="border border-base-300 rounded-box max-h-32 overflow-y-auto divide-y divide-base-200">
+                  <label v-for="g in nodeGroups.groups" :key="g.id" class="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-base-200">
+                    <input
+                      type="checkbox"
+                      class="checkbox checkbox-sm"
+                      :checked="chainSelection().nodeGroupIds.includes(g.id)"
+                      @change="toggleGroupForSelection(chainSelection(), g.id)"
+                    />
+                    <span class="truncate flex-1 text-sm">{{ g.name }}</span>
+                    <span class="badge badge-ghost badge-sm">{{ g.node_ids.length }}</span>
+                  </label>
+                  <div v-if="!nodeGroups.groups.length" class="px-3 py-4 text-sm opacity-60 text-center">{{ i18n.t('暂无组合节点。') }}</div>
+                </div>
               </div>
             </div>
           </div>

@@ -78,7 +78,7 @@ const kernel = computed(() => settingsStore.kernel)
         </div>
         <div class="stat bg-base-100 rounded-box shadow">
           <div class="stat-figure text-accent"><UserGroupIcon class="h-8 w-8" /></div>
-          <div class="stat-title">{{ i18n.t('订阅分组') }}</div>
+          <div class="stat-title">{{ i18n.t('订阅') }}</div>
           <div class="stat-value text-accent">{{ profilesStore.profiles.length }}</div>
         </div>
         <div class="stat bg-base-100 rounded-box shadow">

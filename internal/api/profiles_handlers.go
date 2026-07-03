@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/mora1n/sb-fox/internal/models"
 	"github.com/mora1n/sb-fox/internal/store"
@@ -42,8 +43,8 @@ type profileRequest struct {
 	Options      models.ProfileOptions `json:"options"`
 }
 
-// handleCreateProfile creates a profile and generates its public token
-// (requirement f).
+// handleCreateProfile creates a profile. Public subscription access uses the
+// owner's shared subscription token plus the profile name.
 func (s *Server) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 	u, ok := requireCurrentUser(w, r)
 	if !ok {
@@ -60,8 +61,13 @@ func (s *Server) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 	req.NodeIDs = uniqueInt64s(req.NodeIDs)
 	req.NodeGroupIDs = uniqueInt64s(req.NodeGroupIDs)
 	normalizeProfileRequestOptions(&req)
-	if _, err := s.Store.GetTemplateForUser(req.TemplateID, u.ID, u.IsAdmin()); err != nil {
+	t, err := s.Store.GetTemplateForUser(req.TemplateID, u.ID, u.IsAdmin())
+	if err != nil {
 		respondError(w, http.StatusBadRequest, "bad_request", "template not found")
+		return
+	}
+	if err := validateOptionOutboundRefs(t.Content, req.Options); err != nil {
+		respondError(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
 	if !s.validateNodeAccess(w, u, req.NodeIDs) {
@@ -73,15 +79,13 @@ func (s *Server) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 	if req.Options.ChainProxy && !s.validateNodeAccess(w, u, req.Options.ChainProxyNodeIDs) {
 		return
 	}
+	if !s.validateOptionSelectionAccess(w, u.ID, u.IsAdmin(), req.Options) {
+		return
+	}
 	if !validateChainProxySelection(w, req.NodeIDs, req.NodeGroupIDs, req.Options) {
 		return
 	}
 	if !s.checkQuota(w, u, quotaProfiles, 1) {
-		return
-	}
-	token, err := newToken()
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	p := &models.Profile{
@@ -89,7 +93,6 @@ func (s *Server) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 		Name:         req.Name,
 		TemplateID:   req.TemplateID,
 		Options:      marshalOptions(req.Options),
-		Token:        token,
 		NodeIDs:      req.NodeIDs,
 		NodeGroupIDs: req.NodeGroupIDs,
 	}
@@ -131,8 +134,13 @@ func (s *Server) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 	normalizeProfileRequestOptions(&req)
 	refOwner := existing.OwnerUserID
 	refAllOwners := u.IsAdmin()
-	if _, err := s.Store.GetTemplateForUser(req.TemplateID, refOwner, refAllOwners); err != nil {
+	t, err := s.Store.GetTemplateForUser(req.TemplateID, refOwner, refAllOwners)
+	if err != nil {
 		respondError(w, http.StatusBadRequest, "bad_request", "template not found")
+		return
+	}
+	if err := validateOptionOutboundRefs(t.Content, req.Options); err != nil {
+		respondError(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
 	if !s.validateNodeAccessForOwner(w, refOwner, refAllOwners, req.NodeIDs) {
@@ -142,6 +150,9 @@ func (s *Server) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Options.ChainProxy && !s.validateNodeAccessForOwner(w, refOwner, refAllOwners, req.Options.ChainProxyNodeIDs) {
+		return
+	}
+	if !s.validateOptionSelectionAccess(w, refOwner, refAllOwners, req.Options) {
 		return
 	}
 	if !validateChainProxySelection(w, req.NodeIDs, req.NodeGroupIDs, req.Options) {
@@ -157,26 +168,6 @@ func (s *Server) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondJSON(w, http.StatusOK, existing)
-}
-
-// handleRotateToken issues a new public token, revoking the old link.
-func (s *Server) handleRotateToken(w http.ResponseWriter, r *http.Request) {
-	id := pathID(r)
-	ownerID, allOwners := ownerScope(r)
-	if _, err := s.Store.GetProfileForUser(id, ownerID, allOwners); err != nil {
-		respondError(w, http.StatusNotFound, "not_found", "profile not found")
-		return
-	}
-	token, err := newToken()
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "internal", err.Error())
-		return
-	}
-	if err := s.Store.SetProfileToken(id, token); err != nil {
-		respondError(w, http.StatusInternalServerError, "internal", err.Error())
-		return
-	}
-	respondJSON(w, http.StatusOK, map[string]string{"token": token})
 }
 
 // handleDeleteProfile removes a profile.
@@ -198,9 +189,15 @@ func (s *Server) handleDeleteProfile(w http.ResponseWriter, r *http.Request) {
 
 func marshalOptions(o models.ProfileOptions) string {
 	o.ChainProxyNodeIDs = uniqueInt64s(o.ChainProxyNodeIDs)
+	o.GroupSelections = normalizeGroupSelections(o.GroupSelections)
+	if o.ChainProxySelected != nil {
+		normalized := normalizeNodeSelection(*o.ChainProxySelected)
+		o.ChainProxySelected = &normalized
+	}
 	if !o.ChainProxy {
 		o.ChainProxyNodeID = 0
 		o.ChainProxyNodeIDs = nil
+		o.ChainProxySelected = nil
 	} else if len(o.ChainProxyNodeIDs) > 0 {
 		o.ChainProxyNodeID = 0
 	}
@@ -212,9 +209,15 @@ func marshalOptions(o models.ProfileOptions) string {
 }
 
 func normalizeProfileRequestOptions(req *profileRequest) {
+	req.Options.GroupSelections = normalizeGroupSelections(req.Options.GroupSelections)
+	if req.Options.ChainProxySelected != nil {
+		normalized := normalizeNodeSelection(*req.Options.ChainProxySelected)
+		req.Options.ChainProxySelected = &normalized
+	}
 	if !req.Options.ChainProxy {
 		req.Options.ChainProxyNodeID = 0
 		req.Options.ChainProxyNodeIDs = nil
+		req.Options.ChainProxySelected = nil
 		return
 	}
 	req.Options.ChainProxyNodeIDs = uniqueInt64s(req.Options.ChainProxyNodeIDs)
@@ -225,6 +228,13 @@ func normalizeProfileRequestOptions(req *profileRequest) {
 
 func validateChainProxySelection(w http.ResponseWriter, nodeIDs, nodeGroupIDs []int64, opts models.ProfileOptions) bool {
 	if !opts.ChainProxy {
+		return true
+	}
+	if len(opts.GroupSelections) > 0 {
+		if opts.ChainProxySelected == nil || (len(opts.ChainProxySelected.NodeIDs) == 0 && len(opts.ChainProxySelected.NodeGroupIDs) == 0) {
+			respondError(w, http.StatusBadRequest, "bad_request", "chain proxy nodes are required")
+			return false
+		}
 		return true
 	}
 	if len(opts.ChainProxyNodeIDs) == 0 {
@@ -246,6 +256,47 @@ func validateChainProxySelection(w http.ResponseWriter, nodeIDs, nodeGroupIDs []
 		return false
 	}
 	return true
+}
+
+func normalizeGroupSelections(in map[string]models.NodeSelection) map[string]models.NodeSelection {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]models.NodeSelection, len(in))
+	for tag, sel := range in {
+		tag = strings.TrimSpace(tag)
+		if tag == "" {
+			continue
+		}
+		out[tag] = normalizeNodeSelection(sel)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func normalizeNodeSelection(sel models.NodeSelection) models.NodeSelection {
+	return models.NodeSelection{
+		NodeIDs:           uniqueInt64s(sel.NodeIDs),
+		NodeGroupIDs:      uniqueInt64s(sel.NodeGroupIDs),
+		OutboundRefs:      normalizeOutboundRefList(sel.OutboundRefs),
+		SkipCountryGroups: sel.SkipCountryGroups,
+	}
+}
+
+func normalizeOutboundRefList(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := map[string]bool{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
 }
 
 func (s *Server) validateNodeAccess(w http.ResponseWriter, u *models.User, nodeIDs []int64) bool {
@@ -276,6 +327,26 @@ func (s *Server) validateNodeGroupAccessForOwner(w http.ResponseWriter, ownerUse
 			return false
 		} else if err != nil {
 			respondError(w, http.StatusInternalServerError, "internal", err.Error())
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Server) validateOptionSelectionAccess(w http.ResponseWriter, ownerUserID int64, allOwners bool, opts models.ProfileOptions) bool {
+	for _, sel := range opts.GroupSelections {
+		if !s.validateNodeAccessForOwner(w, ownerUserID, allOwners, sel.NodeIDs) {
+			return false
+		}
+		if !s.validateNodeGroupAccessForOwner(w, ownerUserID, allOwners, sel.NodeGroupIDs) {
+			return false
+		}
+	}
+	if opts.ChainProxySelected != nil {
+		if !s.validateNodeAccessForOwner(w, ownerUserID, allOwners, opts.ChainProxySelected.NodeIDs) {
+			return false
+		}
+		if !s.validateNodeGroupAccessForOwner(w, ownerUserID, allOwners, opts.ChainProxySelected.NodeGroupIDs) {
 			return false
 		}
 	}

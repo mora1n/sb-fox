@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { EyeIcon, EyeSlashIcon } from '@heroicons/vue/24/outline'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useSettingsStore } from '../stores/settings'
@@ -16,6 +17,7 @@ const password = ref('')
 const error = ref('')
 const loading = ref(false)
 const mode = ref<'login' | 'register'>('login')
+const showPassword = ref(false)
 
 onMounted(async () => {
   // if already logged in, skip to dashboard
@@ -28,7 +30,7 @@ async function submit() {
   loading.value = true
   try {
     if (mode.value === 'register') {
-      if (password.value.length < 8) throw new Error('密码至少 8 位')
+      if (password.value.length < 4) throw new Error('密码至少 4 位')
       await auth.register(username.value, password.value)
     } else {
       await auth.login(username.value, password.value)
@@ -70,13 +72,25 @@ async function submit() {
           </label>
           <label class="form-control">
             <span class="label-text mb-1">{{ i18n.t('密码') }}</span>
-            <input
-              v-model="password"
-              type="password"
-              class="input input-bordered"
-              autocomplete="current-password"
-              required
-            />
+            <div class="join w-full">
+              <input
+                v-model="password"
+                :type="showPassword ? 'text' : 'password'"
+                class="input input-bordered join-item min-w-0 flex-1"
+                :autocomplete="mode === 'register' ? 'new-password' : 'current-password'"
+                required
+              />
+              <button
+                type="button"
+                class="btn btn-square join-item"
+                :title="showPassword ? i18n.t('隐藏密码') : i18n.t('显示密码')"
+                :aria-label="showPassword ? i18n.t('隐藏密码') : i18n.t('显示密码')"
+                @click="showPassword = !showPassword"
+              >
+                <EyeSlashIcon v-if="showPassword" class="h-5 w-5" />
+                <EyeIcon v-else class="h-5 w-5" />
+              </button>
+            </div>
           </label>
           <button class="btn btn-primary mt-2" :disabled="loading">
             <span v-if="loading" class="loading loading-spinner loading-sm"></span>

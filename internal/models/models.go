@@ -48,15 +48,15 @@ type SubscriptionSource struct {
 	CreatedAt   time.Time  `json:"created_at"`
 }
 
-// Profile ties a template + selected nodes + generation options into a
-// tokenized subscription that renders a full config.json.
+// Profile ties a template + selected nodes + generation options into a public
+// subscription rendered through the owner's shared subscription token.
 type Profile struct {
 	ID           int64     `json:"id"`
 	OwnerUserID  int64     `json:"owner_user_id"`
 	Name         string    `json:"name"`
 	TemplateID   int64     `json:"template_id"`
 	Options      string    `json:"options"` // JSON: {autoCountryGroups, chainProxy, ...}
-	Token        string    `json:"token"`
+	Token        string    `json:"-"`
 	NodeIDs      []int64   `json:"node_ids"`
 	NodeGroupIDs []int64   `json:"node_group_ids"`
 	CreatedAt    time.Time `json:"created_at"`
@@ -65,10 +65,19 @@ type Profile struct {
 
 // ProfileOptions is the parsed Profile.Options blob.
 type ProfileOptions struct {
-	AutoCountryGroups bool    `json:"autoCountryGroups"`
-	ChainProxy        bool    `json:"chainProxy"`
-	ChainProxyNodeID  int64   `json:"chainProxyNodeId,omitempty"`
-	ChainProxyNodeIDs []int64 `json:"chainProxyNodeIds,omitempty"`
+	AutoCountryGroups  bool                     `json:"autoCountryGroups"`
+	ChainProxy         bool                     `json:"chainProxy"`
+	ChainProxyNodeID   int64                    `json:"chainProxyNodeId,omitempty"`
+	ChainProxyNodeIDs  []int64                  `json:"chainProxyNodeIds,omitempty"`
+	GroupSelections    map[string]NodeSelection `json:"groupSelections,omitempty"`
+	ChainProxySelected *NodeSelection           `json:"chainProxySelection,omitempty"`
+}
+
+type NodeSelection struct {
+	NodeIDs           []int64  `json:"nodeIds"`
+	NodeGroupIDs      []int64  `json:"nodeGroupIds"`
+	OutboundRefs      []string `json:"outboundRefs,omitempty"`
+	SkipCountryGroups bool     `json:"skipCountryGroups,omitempty"`
 }
 
 // NodeGroup is a reusable, ordered collection of nodes.
@@ -105,15 +114,16 @@ const (
 
 // User is an authenticated panel account. A zero limit means unlimited.
 type User struct {
-	ID            int64     `json:"id"`
-	Username      string    `json:"username"`
-	Role          string    `json:"role"`
-	NodeLimit     int       `json:"node_limit"`
-	ProfileLimit  int       `json:"profile_limit"`
-	TemplateLimit int       `json:"template_limit"`
-	PasswordHash  string    `json:"-"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID                int64     `json:"id"`
+	Username          string    `json:"username"`
+	Role              string    `json:"role"`
+	NodeLimit         int       `json:"node_limit"`
+	ProfileLimit      int       `json:"profile_limit"`
+	TemplateLimit     int       `json:"template_limit"`
+	SubscriptionToken string    `json:"-"`
+	PasswordHash      string    `json:"-"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 func (u *User) IsAdmin() bool {

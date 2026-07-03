@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/mora1n/sb-fox/internal/merge"
 	"github.com/mora1n/sb-fox/internal/models"
@@ -44,6 +45,370 @@ func generateConfig(templateContent string, nodes []*models.Node, opts models.Pr
 		return nil, err
 	}
 	return merge.Indent(compact)
+}
+
+func generateConfigWithGroupSelections(templateContent string, groupNodes map[string][]*models.Node, chainNodes []*models.Node, opts models.ProfileOptions, countryHeatOrder []string) ([]byte, error) {
+	st, err := readTemplateStructure(templateContent)
+	if err != nil {
+		return nil, fmt.Errorf("read template groups: %w", err)
+	}
+	if st.Final == "" {
+		return nil, fmt.Errorf("template route.final is required for group selections")
+	}
+	opts = ensureGroupSelectionsFromNodes(opts, groupNodes)
+	if err := validateGroupSelectionRefs(st, opts); err != nil {
+		return nil, err
+	}
+	validGroups := map[string]bool{}
+	for _, g := range st.Groups {
+		validGroups[g.Tag] = true
+	}
+	for tag := range opts.GroupSelections {
+		if !validGroups[tag] {
+			return nil, fmt.Errorf("group selection references unknown outbound group %q", tag)
+		}
+	}
+
+	cfg, err := merge.ParseOrdered([]byte(templateContent))
+	if err != nil {
+		return nil, fmt.Errorf("parse template: %w", err)
+	}
+	templateOutbounds, err := generatedOutbounds(cfg)
+	if err != nil {
+		return nil, err
+	}
+	templateGroupTags, err := templateGroupTagSet(templateOutbounds)
+	if err != nil {
+		return nil, err
+	}
+
+	allNodes := uniqueNodes(groupNodes, chainNodes)
+	mergeNodes, err := toMergeNodes(allNodes)
+	if err != nil {
+		return nil, err
+	}
+	chainIDs := nodeIDs(chainNodes)
+	if opts.ChainProxy {
+		if len(chainIDs) == 0 {
+			return nil, fmt.Errorf("chain proxy nodes are required")
+		}
+		chainOpts := opts
+		chainOpts.ChainProxyNodeIDs = chainIDs
+		if err := applyChainProxy(allNodes, mergeNodes, chainOpts); err != nil {
+			return nil, err
+		}
+	}
+
+	out, err := merge.Generate(cfg, mergeNodes, merge.Options{
+		AutoCountryGroups: opts.AutoCountryGroups,
+		CountryHeatOrder:  countryHeatOrder,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	outbounds, err := generatedOutbounds(out)
+	if err != nil {
+		return nil, err
+	}
+
+	chainTags := nodeTags(chainNodes)
+	if opts.ChainProxy {
+		upstreamTags := upstreamNodeTags(groupNodes, chainIDs)
+		if len(upstreamTags) == 0 {
+			return nil, fmt.Errorf("chain proxy selector has no upstream nodes")
+		}
+		outbounds = append(outbounds, chainSelector(upstreamTags))
+		out.Set("outbounds", outbounds)
+	}
+
+	for _, g := range st.Groups {
+		sel := opts.GroupSelections[g.Tag]
+		configured := selectionHasInputs(sel)
+		if opts.ChainProxy && g.Tag == st.Final && len(chainTags) > 0 {
+			configured = true
+		}
+		if !configured {
+			continue
+		}
+
+		group := findOutboundByTag(outbounds, g.Tag)
+		if group == nil {
+			return nil, fmt.Errorf("template outbound group %q is missing", g.Tag)
+		}
+		tags := selectableTagsForSelection(sel, groupNodes[g.Tag], outbounds, templateGroupTags, opts)
+		if opts.ChainProxy {
+			tags = appendUniqueStrings(tags, chainTags)
+		}
+		if g.Tag == st.Final && len(tags) == 0 {
+			return nil, fmt.Errorf("final selector %q has no selected nodes", g.Tag)
+		}
+		group.Set("outbounds", stringSliceToAny(tags))
+		if def := group.GetString("default"); def != "" && !containsString(tags, def) {
+			group.Delete("default")
+		}
+	}
+	if err := validateFinalGroupHasOutbounds(outbounds, st.Final); err != nil {
+		return nil, err
+	}
+
+	compact, err := out.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	return merge.Indent(compact)
+}
+
+func ensureGroupSelectionsFromNodes(opts models.ProfileOptions, groupNodes map[string][]*models.Node) models.ProfileOptions {
+	if len(opts.GroupSelections) > 0 {
+		return opts
+	}
+	selections := make(map[string]models.NodeSelection, len(groupNodes))
+	for tag, nodes := range groupNodes {
+		if len(nodes) == 0 {
+			continue
+		}
+		selections[tag] = models.NodeSelection{NodeIDs: nodeIDs(nodes)}
+	}
+	opts.GroupSelections = normalizeGroupSelections(selections)
+	return opts
+}
+
+func validateOptionOutboundRefs(templateContent string, opts models.ProfileOptions) error {
+	if len(opts.GroupSelections) == 0 {
+		return nil
+	}
+	st, err := readTemplateStructure(templateContent)
+	if err != nil {
+		return fmt.Errorf("read template groups: %w", err)
+	}
+	return validateGroupSelectionRefs(st, opts)
+}
+
+func validateGroupSelectionRefs(st templateStructure, opts models.ProfileOptions) error {
+	groups := make(map[string]templateStructureGroup, len(st.Groups))
+	for _, g := range st.Groups {
+		groups[g.Tag] = g
+	}
+	for tag, sel := range opts.GroupSelections {
+		g, ok := groups[tag]
+		if !ok {
+			return fmt.Errorf("group selection references unknown outbound group %q", tag)
+		}
+		allowed := make(map[string]bool, len(g.Outbounds))
+		for _, outbound := range g.Outbounds {
+			allowed[outbound] = true
+		}
+		if _, err := normalizeOutboundRefs(tag, sel.OutboundRefs, allowed); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func templateGroupTagSet(outbounds []any) (map[string]bool, error) {
+	groups, err := templateGroups(outbounds)
+	if err != nil {
+		return nil, err
+	}
+	tags := make(map[string]bool, len(groups))
+	for _, g := range groups {
+		tags[g.Tag] = true
+	}
+	return tags, nil
+}
+
+func selectionHasInputs(sel models.NodeSelection) bool {
+	return len(sel.NodeIDs) > 0 || len(sel.NodeGroupIDs) > 0 || len(sel.OutboundRefs) > 0
+}
+
+func selectableTagsForSelection(sel models.NodeSelection, nodes []*models.Node, outbounds []any, templateGroupTags map[string]bool, opts models.ProfileOptions) []string {
+	tags := appendUniqueStrings(nil, sel.OutboundRefs)
+	if opts.AutoCountryGroups && !sel.SkipCountryGroups {
+		return appendUniqueStrings(tags, countryCandidateTags(outbounds, nodes, templateGroupTags))
+	}
+	return appendUniqueStrings(tags, nodeTags(nodes))
+}
+
+func countryCandidateTags(outbounds []any, nodes []*models.Node, templateGroupTags map[string]bool) []string {
+	nodeTags := make(map[string]bool, len(nodes))
+	for _, n := range nodes {
+		if n != nil && n.Tag != "" {
+			nodeTags[n.Tag] = true
+		}
+	}
+	if len(nodeTags) == 0 {
+		return nil
+	}
+
+	covered := map[string]bool{}
+	var out []string
+	for _, ob := range outbounds {
+		group, ok := ob.(*merge.OrderedMap)
+		if !ok {
+			continue
+		}
+		tag := group.GetString("tag")
+		if tag == "" || templateGroupTags[tag] || tag == merge.ChainProxyTag {
+			continue
+		}
+		typ := group.GetString("type")
+		if typ != "selector" && typ != "urltest" {
+			continue
+		}
+		hasSelectedNode := false
+		for _, outbound := range outboundStringList(group) {
+			if nodeTags[outbound] {
+				hasSelectedNode = true
+				covered[outbound] = true
+			}
+		}
+		if hasSelectedNode {
+			out = appendUniqueStrings(out, []string{tag})
+		}
+	}
+	for _, n := range nodes {
+		if n != nil && n.Tag != "" && !covered[n.Tag] {
+			out = appendUniqueStrings(out, []string{n.Tag})
+		}
+	}
+	return out
+}
+
+func validateFinalGroupHasOutbounds(outbounds []any, final string) error {
+	group := findOutboundByTag(outbounds, final)
+	if group == nil {
+		return fmt.Errorf("final selector %q is missing", final)
+	}
+	if len(outboundStringList(group)) == 0 {
+		return fmt.Errorf("final selector %q has no selected nodes", final)
+	}
+	return nil
+}
+
+func generatedOutbounds(cfg *merge.OrderedMap) ([]any, error) {
+	raw, ok := cfg.Get("outbounds")
+	if !ok {
+		return nil, fmt.Errorf("template has no outbounds")
+	}
+	outbounds, ok := raw.([]any)
+	if !ok {
+		return nil, fmt.Errorf("template outbounds is not an array")
+	}
+	return outbounds, nil
+}
+
+func uniqueNodes(groupNodes map[string][]*models.Node, chainNodes []*models.Node) []*models.Node {
+	var out []*models.Node
+	seen := map[int64]bool{}
+	add := func(nodes []*models.Node) {
+		for _, n := range nodes {
+			if n == nil || seen[n.ID] {
+				continue
+			}
+			seen[n.ID] = true
+			out = append(out, n)
+		}
+	}
+	keys := make([]string, 0, len(groupNodes))
+	for key := range groupNodes {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		add(groupNodes[key])
+	}
+	add(chainNodes)
+	return out
+}
+
+func nodeIDs(nodes []*models.Node) []int64 {
+	out := make([]int64, 0, len(nodes))
+	seen := map[int64]bool{}
+	for _, n := range nodes {
+		if n == nil || seen[n.ID] {
+			continue
+		}
+		seen[n.ID] = true
+		out = append(out, n.ID)
+	}
+	return out
+}
+
+func nodeTags(nodes []*models.Node) []string {
+	out := make([]string, 0, len(nodes))
+	seen := map[string]bool{}
+	for _, n := range nodes {
+		if n == nil || n.Tag == "" || seen[n.Tag] {
+			continue
+		}
+		seen[n.Tag] = true
+		out = append(out, n.Tag)
+	}
+	return out
+}
+
+func upstreamNodeTags(groupNodes map[string][]*models.Node, chainIDs []int64) []string {
+	chainSet := make(map[int64]bool, len(chainIDs))
+	for _, id := range chainIDs {
+		chainSet[id] = true
+	}
+	var out []string
+	seen := map[string]bool{}
+	keys := make([]string, 0, len(groupNodes))
+	for key := range groupNodes {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		nodes := groupNodes[key]
+		for _, n := range nodes {
+			if n == nil || chainSet[n.ID] || n.Tag == "" || seen[n.Tag] {
+				continue
+			}
+			seen[n.Tag] = true
+			out = append(out, n.Tag)
+		}
+	}
+	return out
+}
+
+func chainSelector(tags []string) *merge.OrderedMap {
+	sel := merge.NewOrderedMap()
+	sel.Set("type", "selector")
+	sel.Set("tag", merge.ChainProxyTag)
+	sel.Set("outbounds", stringSliceToAny(tags))
+	return sel
+}
+
+func findOutboundByTag(outbounds []any, tag string) *merge.OrderedMap {
+	for _, ob := range outbounds {
+		om, ok := ob.(*merge.OrderedMap)
+		if ok && om.GetString("tag") == tag {
+			return om
+		}
+	}
+	return nil
+}
+
+func appendUniqueStrings(base, extra []string) []string {
+	seen := make(map[string]bool, len(base)+len(extra))
+	out := make([]string, 0, len(base)+len(extra))
+	for _, v := range base {
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	for _, v := range extra {
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	return out
 }
 
 func applyChainProxy(nodes []*models.Node, mergeNodes []*merge.Node, opts models.ProfileOptions) error {
@@ -146,10 +511,12 @@ func parseProfileOptions(blob string) models.ProfileOptions {
 	// Preserve an explicitly-false autoCountryGroups: decode into a probe with
 	// pointer so we can tell "absent" from "false".
 	var probe struct {
-		AutoCountryGroups *bool   `json:"autoCountryGroups"`
-		ChainProxy        bool    `json:"chainProxy"`
-		ChainProxyNodeID  int64   `json:"chainProxyNodeId"`
-		ChainProxyNodeIDs []int64 `json:"chainProxyNodeIds"`
+		AutoCountryGroups  *bool                           `json:"autoCountryGroups"`
+		ChainProxy         bool                            `json:"chainProxy"`
+		ChainProxyNodeID   int64                           `json:"chainProxyNodeId"`
+		ChainProxyNodeIDs  []int64                         `json:"chainProxyNodeIds"`
+		GroupSelections    map[string]models.NodeSelection `json:"groupSelections"`
+		ChainProxySelected *models.NodeSelection           `json:"chainProxySelection"`
 	}
 	if err := json.Unmarshal([]byte(blob), &probe); err != nil {
 		return opts
@@ -162,6 +529,11 @@ func parseProfileOptions(blob string) models.ProfileOptions {
 	opts.ChainProxyNodeIDs = uniqueInt64s(probe.ChainProxyNodeIDs)
 	if len(opts.ChainProxyNodeIDs) == 0 && opts.ChainProxyNodeID != 0 {
 		opts.ChainProxyNodeIDs = []int64{opts.ChainProxyNodeID}
+	}
+	opts.GroupSelections = normalizeGroupSelections(probe.GroupSelections)
+	if probe.ChainProxySelected != nil {
+		normalized := normalizeNodeSelection(*probe.ChainProxySelected)
+		opts.ChainProxySelected = &normalized
 	}
 	return opts
 }

@@ -30,8 +30,14 @@ func Parse(uri string) (*merge.OrderedMap, error) {
 		return parseHysteria2(strings.TrimPrefix(uri, "hysteria2://"))
 	case strings.HasPrefix(uri, "hy2://"):
 		return parseHysteria2(strings.TrimPrefix(uri, "hy2://"))
+	case strings.HasPrefix(uri, "hysteria://"):
+		return nil, fmt.Errorf("sblink: hysteria v1 is recognized but not converted to sing-box")
 	case strings.HasPrefix(uri, "tuic://"):
 		return parseTUIC(uri)
+	case strings.HasPrefix(uri, "naive://"), strings.HasPrefix(uri, "naive+"):
+		return parseNaive(uri)
+	case strings.HasPrefix(uri, "ssr://"):
+		return nil, fmt.Errorf("sblink: ssr is recognized but not converted to sing-box")
 	default:
 		return nil, fmt.Errorf("sblink: unknown scheme in %q", uri)
 	}
@@ -41,39 +47,70 @@ func Parse(uri string) (*merge.OrderedMap, error) {
 // input does not look like links, it tries base64-decoding first. Blank lines
 // are skipped. It errors only when every candidate line fails.
 func ParseMany(text string) ([]*merge.OrderedMap, error) {
+	out, _, err := ParseManyWithWarnings(text)
+	return out, err
+}
+
+func ParseManyWithWarnings(text string) ([]*merge.OrderedMap, []string, error) {
+	return parseManyWithWarnings(text, 0)
+}
+
+func parseManyWithWarnings(text string, depth int) ([]*merge.OrderedMap, []string, error) {
 	lines := splitLinks(text)
 	if !anyLooksLikeLink(lines) {
 		if decoded, ok := tryBase64(text); ok {
-			lines = splitLinks(decoded)
+			if depth < 2 {
+				return parseManyWithWarnings(decoded, depth+1)
+			}
 		}
 	}
 
 	var out []*merge.OrderedMap
+	var warnings []string
 	var lastErr error
 	seen := false
-	for _, ln := range lines {
-		ln = strings.TrimSpace(ln)
-		if ln == "" {
-			continue
+	if anyLooksLikeLink(lines) {
+		for _, ln := range lines {
+			ln = strings.TrimSpace(ln)
+			if ln == "" {
+				continue
+			}
+			seen = true
+			m, err := Parse(ln)
+			if err != nil {
+				lastErr = err
+				warnings = append(warnings, err.Error())
+				continue
+			}
+			out = append(out, m)
 		}
-		seen = true
-		m, err := Parse(ln)
-		if err != nil {
-			lastErr = err
-			continue
+		if len(out) > 0 {
+			return out, warnings, nil
 		}
-		out = append(out, m)
+	}
+
+	if sip, err := parseSIP008(text); err == nil && len(sip) > 0 {
+		return sip, warnings, nil
+	} else if err != nil {
+		lastErr = err
+	}
+	if clash, clashWarnings, err := parseClashYAML(text); err == nil && len(clash) > 0 {
+		warnings = append(warnings, clashWarnings...)
+		return clash, warnings, nil
+	} else if err != nil {
+		warnings = append(warnings, clashWarnings...)
+		lastErr = err
 	}
 	if len(out) == 0 {
 		if lastErr != nil {
-			return nil, fmt.Errorf("sblink: no links parsed: %w", lastErr)
+			return nil, warnings, fmt.Errorf("sblink: no links parsed: %w", lastErr)
 		}
 		if seen {
-			return nil, fmt.Errorf("sblink: no links parsed")
+			return nil, warnings, fmt.Errorf("sblink: no links parsed")
 		}
-		return nil, fmt.Errorf("sblink: empty input")
+		return nil, warnings, fmt.Errorf("sblink: empty input")
 	}
-	return out, nil
+	return out, warnings, nil
 }
 
 func splitLinks(text string) []string {
@@ -92,7 +129,7 @@ func anyLooksLikeLink(lines []string) bool {
 }
 
 func looksLikeLink(ln string) bool {
-	for _, p := range []string{"ss://", "vmess://", "vless://", "trojan://", "hysteria2://", "hy2://", "tuic://"} {
+	for _, p := range []string{"ss://", "ssr://", "vmess://", "vless://", "trojan://", "hysteria://", "hysteria2://", "hy2://", "tuic://", "naive://", "naive+"} {
 		if strings.HasPrefix(ln, p) {
 			return true
 		}

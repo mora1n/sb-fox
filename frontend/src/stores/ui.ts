@@ -14,9 +14,9 @@ export type UiTheme = 'light-neutral' | 'dark-neutral'
 
 const DEFAULT_THEME: UiTheme = 'light-neutral'
 const DARK_THEME: UiTheme = 'dark-neutral'
-const THEME_COLORS: Record<UiTheme, { bg: string; fg: string; scheme: 'light' | 'dark' }> = {
-  'light-neutral': { bg: '#f5f5f7', fg: '#27272a', scheme: 'light' },
-  'dark-neutral': { bg: '#1a1a1a', fg: '#e5e5e5', scheme: 'dark' },
+const THEME_COLORS: Record<UiTheme, { bg: string; fg: string; scheme: 'light' | 'dark'; themeColor: string }> = {
+  'light-neutral': { bg: '#f5f5f7', fg: '#27272a', scheme: 'light', themeColor: '#f5f5f7' },
+  'dark-neutral': { bg: '#1a1a1a', fg: '#e5e5e5', scheme: 'dark', themeColor: '#1a1a1a' },
 }
 
 function isUiTheme(value: string | null): value is UiTheme {
@@ -46,12 +46,21 @@ function readTheme(): UiTheme {
 
 function applyTheme(next: UiTheme): void {
   const colors = THEME_COLORS[next]
-  document.documentElement.setAttribute('data-theme', next)
-  document.documentElement.style.colorScheme = colors.scheme
-  document.documentElement.style.backgroundColor = colors.bg
-  document.documentElement.style.color = colors.fg
+  const root = document.documentElement
+  const app = document.getElementById('app')
+  root.setAttribute('data-theme', next)
+  root.style.colorScheme = colors.scheme
+  root.style.setProperty('--sb-theme-bg', colors.bg)
+  root.style.setProperty('--sb-theme-fg', colors.fg)
+  root.style.backgroundColor = colors.bg
+  root.style.color = colors.fg
   document.body.style.backgroundColor = colors.bg
   document.body.style.color = colors.fg
+  if (app) {
+    app.style.backgroundColor = colors.bg
+    app.style.color = colors.fg
+  }
+  document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute('content', colors.themeColor)
 }
 
 export const useUiStore = defineStore('ui', () => {

@@ -45,8 +45,8 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "bad_request", "username is required")
 		return
 	}
-	if len(req.Password) < 8 {
-		respondError(w, http.StatusBadRequest, "bad_request", "password must be at least 8 characters")
+	if len(req.Password) < minPasswordLength {
+		respondError(w, http.StatusBadRequest, "bad_request", "password must be at least 4 characters")
 		return
 	}
 	role, err := store.NormalizeRole(req.Role)

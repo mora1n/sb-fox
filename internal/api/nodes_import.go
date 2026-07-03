@@ -21,7 +21,7 @@ func (s *Server) handleImportLinks(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	outbounds, err := sblink.ParseMany(req.Links)
+	outbounds, warnings, err := sblink.ParseManyWithWarnings(req.Links)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "parse_error", err.Error())
 		return
@@ -30,7 +30,7 @@ func (s *Server) handleImportLinks(w http.ResponseWriter, r *http.Request) {
 	if created == nil {
 		return
 	}
-	respondJSON(w, http.StatusCreated, map[string]any{"imported": len(created), "nodes": created})
+	respondJSON(w, http.StatusCreated, importResponse(created, 0, warnings))
 }
 
 // handleImportConfig extracts outbound nodes from an uploaded config or a
@@ -70,7 +70,7 @@ func (s *Server) handleImportConfig(w http.ResponseWriter, r *http.Request) {
 	if created == nil {
 		return
 	}
-	respondJSON(w, http.StatusCreated, map[string]any{"imported": len(created), "nodes": created})
+	respondJSON(w, http.StatusCreated, importResponse(created, 0, nil))
 }
 
 // handleImportSubscription creates a source, fetches it and imports nodes
@@ -96,7 +96,7 @@ func (s *Server) handleImportSubscription(w http.ResponseWriter, r *http.Request
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	nodes, ferr := s.fetchSourceNodes(u, sourceID, req.URL)
+	nodes, warnings, ferr := s.fetchSourceNodes(u, sourceID, req.URL)
 	if ferr != nil {
 		if ferr == errQuotaExceeded {
 			_ = s.Store.DeleteSource(sourceID)
@@ -106,7 +106,7 @@ func (s *Server) handleImportSubscription(w http.ResponseWriter, r *http.Request
 		respondError(w, http.StatusBadGateway, "fetch_error", ferr.Error())
 		return
 	}
-	respondJSON(w, http.StatusCreated, map[string]any{"source_id": sourceID, "imported": len(nodes), "nodes": nodes})
+	respondJSON(w, http.StatusCreated, importResponse(nodes, sourceID, warnings))
 }
 
 // handleRefreshSource re-fetches a subscription source, replacing its nodes.
@@ -122,7 +122,7 @@ func (s *Server) handleRefreshSource(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusNotFound, "not_found", "source not found")
 		return
 	}
-	nodes, ferr := s.refreshSourceNodes(u, src)
+	nodes, _, ferr := s.refreshSourceNodes(u, src)
 	if ferr != nil {
 		if ferr == errQuotaExceeded {
 			respondError(w, http.StatusForbidden, "quota_exceeded", "nodes limit exceeded")
@@ -136,56 +136,67 @@ func (s *Server) handleRefreshSource(w http.ResponseWriter, r *http.Request) {
 
 // fetchSourceNodes fetches a subscription URL, parses links, persists nodes and
 // records the fetch outcome on the source.
-func (s *Server) fetchSourceNodes(user *models.User, sourceID int64, url string) ([]*models.Node, error) {
-	outbounds, err := s.fetchSourceOutbounds(sourceID, url)
+func (s *Server) fetchSourceNodes(user *models.User, sourceID int64, url string) ([]*models.Node, []string, error) {
+	outbounds, warnings, err := s.fetchSourceOutbounds(sourceID, url)
 	if err != nil {
-		return nil, err
+		return nil, warnings, err
 	}
 	nodes := nodesFromOutbounds(user.ID, outbounds, "subscription", &sourceID)
 	if ok, _, err := s.quotaAllowed(user, quotaNodes, len(nodes)); err != nil {
-		return nil, err
+		return nil, warnings, err
 	} else if !ok {
-		return nil, errQuotaExceeded
+		return nil, warnings, errQuotaExceeded
 	}
-	return s.insertNodes(nodes)
+	created, err := s.insertNodes(nodes)
+	if len(warnings) > 0 {
+		_ = s.Store.UpdateSourceFetch(sourceID, "ok with warnings", len(created))
+	}
+	return created, warnings, err
 }
 
-func (s *Server) refreshSourceNodes(user *models.User, src *models.SubscriptionSource) ([]*models.Node, error) {
-	outbounds, err := s.fetchSourceOutbounds(src.ID, src.URL)
+func (s *Server) refreshSourceNodes(user *models.User, src *models.SubscriptionSource) ([]*models.Node, []string, error) {
+	outbounds, warnings, err := s.fetchSourceOutbounds(src.ID, src.URL)
 	if err != nil {
-		return nil, err
+		return nil, warnings, err
 	}
 	nodes := nodesFromOutbounds(src.OwnerUserID, outbounds, "subscription", &src.ID)
 	oldCount, err := s.Store.CountNodesBySource(src.ID)
 	if err != nil {
-		return nil, err
+		return nil, warnings, err
 	}
 	if ok, _, err := s.quotaAllowed(user, quotaNodes, len(nodes)-oldCount); err != nil {
-		return nil, err
+		return nil, warnings, err
 	} else if !ok {
-		return nil, errQuotaExceeded
+		return nil, warnings, errQuotaExceeded
 	}
 	if err := s.Store.DeleteNodesBySource(src.ID); err != nil {
-		return nil, err
+		return nil, warnings, err
 	}
-	return s.insertNodes(nodes)
+	created, err := s.insertNodes(nodes)
+	if len(warnings) > 0 {
+		_ = s.Store.UpdateSourceFetch(src.ID, "ok with warnings", len(created))
+	}
+	return created, warnings, err
 }
 
-func (s *Server) fetchSourceOutbounds(sourceID int64, url string) ([]*merge.OrderedMap, error) {
+func (s *Server) fetchSourceOutbounds(sourceID int64, url string) ([]*merge.OrderedMap, []string, error) {
 	ctx, cancel := contextWithTimeout(25 * time.Second)
 	defer cancel()
 
 	body, err := s.Fetcher.Fetch(ctx, url)
 	if err != nil {
 		_ = s.Store.UpdateSourceFetch(sourceID, "error: "+err.Error(), 0)
-		return nil, err
+		return nil, nil, err
 	}
-	outbounds, err := sblink.ParseMany(body)
+	outbounds, warnings, err := sblink.ParseManyWithWarnings(body)
 	if err != nil {
 		_ = s.Store.UpdateSourceFetch(sourceID, "error: "+err.Error(), 0)
-		return nil, err
+		return nil, warnings, err
 	}
-	return outbounds, nil
+	if len(warnings) > 0 {
+		_ = s.Store.UpdateSourceFetch(sourceID, "ok with warnings", len(outbounds))
+	}
+	return outbounds, warnings, nil
 }
 
 func (s *Server) insertNodes(nodes []*models.Node) ([]*models.Node, error) {
@@ -264,6 +275,17 @@ func (s *Server) persistOutbounds(w http.ResponseWriter, user *models.User, outb
 		return nil
 	}
 	return created
+}
+
+func importResponse(nodes []*models.Node, sourceID int64, warnings []string) map[string]any {
+	resp := map[string]any{"imported": len(nodes), "nodes": nodes}
+	if sourceID != 0 {
+		resp["source_id"] = sourceID
+	}
+	if len(warnings) > 0 {
+		resp["warnings"] = warnings
+	}
+	return resp
 }
 
 func nodesFromOutbounds(ownerUserID int64, outbounds []*merge.OrderedMap, source string, sourceRef *int64) []*models.Node {

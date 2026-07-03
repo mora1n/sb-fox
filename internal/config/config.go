@@ -17,7 +17,7 @@ const (
 	ModeServe  Mode = "serve"
 	ModeDaemon Mode = "daemon"
 
-	defaultAddr          = "127.0.0.1:17890"
+	defaultAddr          = "127.0.0.1:7878"
 	defaultServeDataDir  = "./data"
 	defaultDaemonDataDir = "/var/lib/sb-fox"
 	defaultDaemonSocket  = "/var/run/sb-fox.sock"
@@ -39,7 +39,7 @@ const (
 
 // Config is the resolved runtime configuration.
 type Config struct {
-	Addr                string // listen address, e.g. "127.0.0.1:17890"
+	Addr                string // listen address, e.g. "127.0.0.1:7878"
 	DataDir             string // directory for the SQLite db and temp files
 	DBPath              string // resolved sqlite path (DataDir/sb-fox.db)
 	KernelPath          string // initial sing-box binary path (overridable in settings)

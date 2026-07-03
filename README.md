@@ -3,9 +3,9 @@
 [![Release](https://img.shields.io/github/v/release/mora1n/sb-fox?sort=semver)](https://github.com/mora1n/sb-fox/releases)
 [![sing-box](https://img.shields.io/badge/sing--box-recommended%201.13.14-neutral)](https://github.com/SagerNet/sing-box)
 
-`sb-fox` 是一个轻量的 sing-box Web 面板，用于管理节点、模板和公开订阅分组。
+`sb-fox` 是一个轻量的 sing-box Web 面板，用于管理节点、模板和公开订阅。
 
-它围绕日常使用流程设计：导入节点，按国家整理，选择模板，然后发布带 token 的 sing-box 订阅链接。
+它围绕日常使用流程设计：导入节点，按国家整理，选择模板，然后发布带共享 token 的 sing-box 订阅链接。
 
 ## 功能
 
@@ -13,9 +13,9 @@
 - 自动识别节点国家，也支持手动修正
 - 按可自定义的国家热度顺序生成国家 selector
 - 在设置页通过拖拽调整国家优先级
-- 在简洁的 Web UI 中管理模板、节点和订阅分组
+- 在简洁的 Web UI 中管理模板、节点和订阅
 - 支持多用户，管理员可管理用户、重置密码并设置资源上限
-- 生成可轮换 token 的公开订阅链接
+- 生成可轮换共享 token 的公开订阅链接，并按订阅名称区分
 - 调用本机 sing-box 校验和格式化生成配置，未安装内核时相关按钮会置灰提示
 
 ## 安装
@@ -33,10 +33,10 @@ root 用户安装时，种子模板默认复制到 `/var/lib/sb-fox/templates`�
 ## 运行
 
 ```sh
-sb-fox --addr 127.0.0.1:17890 --data-dir ./data
+sb-fox --addr 127.0.0.1:7878 --data-dir ./data
 ```
 
-启动后打开 `http://127.0.0.1:17890`。
+启动后打开 `http://127.0.0.1:7878`。
 
 首次运行时，`sb-fox` 会创建管理员账号，并在终端打印一次性密码。默认用户名是 `admin`。
 
@@ -98,7 +98,7 @@ data/templates/fakeip.json
 
 | 选项 | 环境变量 | 默认值 |
 |---|---|---|
-| `--addr`, `-a` | `SB_FOX_ADDR` | `127.0.0.1:17890` |
+| `--addr`, `-a` | `SB_FOX_ADDR` | `127.0.0.1:7878` |
 | `--data-dir`, `-D` | `SB_FOX_DATA_DIR` | `./data` |
 | `--kernel`, `-k` | `SB_FOX_KERNEL` | `sing-box` |
 | `--daemon`, `-d` |  | 安装、启用并启动 systemd 服务 |
@@ -124,7 +124,7 @@ sudo sb-fox -P           # daemon /var/lib/sb-fox
 ```sh
 make frontend
 make build
-./sb-fox --addr 127.0.0.1:17890 --data-dir ./data
+./sb-fox --addr 127.0.0.1:7878 --data-dir ./data
 ```
 
 常用检查：
@@ -139,7 +139,7 @@ sing-box check -c data/templates/fakeip.json
 
 ## 安全
 
-`/sub/{token}` 链接是公开下载入口。任何拿到 token 的人都可以下载生成配置；如果 token 泄露，应及时轮换。
+`/sub/{token}/{订阅名称}` 链接是公开下载入口。token 是用户级共享凭据，同一用户的所有订阅共用一个 token，并通过订阅名称区分。任何拿到完整链接的人都可以下载生成配置；如果 token 泄露，应及时轮换。
 
 远程订阅抓取默认拒绝私网、环回和云元数据地址。只有在可信网络环境中才建议开启私网地址抓取。
 

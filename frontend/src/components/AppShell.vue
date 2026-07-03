@@ -50,9 +50,7 @@ async function logout() {
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
           </label>
         </div>
-        <div class="flex-1">
-          <span class="text-lg font-bold px-2">{{ settings.appDisplayName }}</span>
-        </div>
+        <div class="flex-1"></div>
         <div class="flex-none gap-2">
           <button class="btn btn-ghost btn-sm min-w-16" :title="i18n.t('语言')" @click="i18n.toggleLocale()">
             <span aria-hidden="true">🌐</span>
@@ -75,7 +73,10 @@ async function logout() {
     <div class="drawer-side z-40">
       <label for="app-drawer" class="drawer-overlay"></label>
       <aside class="w-60 min-h-full bg-base-100 border-r border-base-300 flex flex-col">
-        <div class="p-4 text-xl font-bold">{{ settings.appDisplayName }}</div>
+        <div class="p-4 text-xl font-bold flex items-center gap-2 min-w-0">
+          <img src="/favicon-32x32.png" alt="sb-fox" class="h-8 w-8 flex-none" />
+          <span class="truncate">{{ settings.appDisplayName }}</span>
+        </div>
         <ul class="menu px-2 gap-1 flex-1">
           <li v-for="item in nav" :key="item.name">
             <RouterLink

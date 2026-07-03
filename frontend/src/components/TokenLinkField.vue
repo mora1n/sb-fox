@@ -3,12 +3,14 @@ import { computed } from 'vue'
 import { useUiStore } from '../stores/ui'
 import { useI18nStore } from '../stores/i18n'
 
-const props = defineProps<{ token: string }>()
+const props = defineProps<{ token: string; profileName: string; hostPrefix?: string }>()
 const ui = useUiStore()
 const i18n = useI18nStore()
 
-// Full public subscription URL built from the current origin.
-const url = computed(() => `${window.location.origin}/sub/${props.token}`)
+const url = computed(() => {
+  const base = (props.hostPrefix?.trim() || window.location.origin).replace(/\/+$/, '')
+  return `${base}/sub/${encodeURIComponent(props.token)}/${encodeURIComponent(props.profileName)}`
+})
 
 async function copy() {
   try {

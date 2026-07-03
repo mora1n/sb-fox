@@ -73,8 +73,8 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if len(req.NewPassword) < 8 {
-		respondError(w, http.StatusBadRequest, "bad_request", "new password must be at least 8 characters")
+	if len(req.NewPassword) < minPasswordLength {
+		respondError(w, http.StatusBadRequest, "bad_request", "new password must be at least 4 characters")
 		return
 	}
 	u, ok := requireCurrentUser(w, r)
@@ -116,8 +116,8 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "bad_request", "username is required")
 		return
 	}
-	if len(req.Password) < 8 {
-		respondError(w, http.StatusBadRequest, "bad_request", "password must be at least 8 characters")
+	if len(req.Password) < minPasswordLength {
+		respondError(w, http.StatusBadRequest, "bad_request", "password must be at least 4 characters")
 		return
 	}
 	hash, err := auth.HashPassword(req.Password)
@@ -138,6 +138,43 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Auth.SetSessionCookie(w, strconv.FormatInt(u.ID, 10), s.Secure)
 	respondJSON(w, http.StatusCreated, userMe(u))
+}
+
+func (s *Server) handleGetSubscriptionToken(w http.ResponseWriter, r *http.Request) {
+	u, ok := requireCurrentUser(w, r)
+	if !ok {
+		return
+	}
+	if u.SubscriptionToken == "" {
+		token, err := newToken()
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "internal", err.Error())
+			return
+		}
+		if err := s.Store.SetUserSubscriptionToken(u.ID, token); err != nil {
+			respondError(w, http.StatusInternalServerError, "internal", err.Error())
+			return
+		}
+		u.SubscriptionToken = token
+	}
+	respondJSON(w, http.StatusOK, map[string]string{"token": u.SubscriptionToken})
+}
+
+func (s *Server) handleRotateSubscriptionToken(w http.ResponseWriter, r *http.Request) {
+	u, ok := requireCurrentUser(w, r)
+	if !ok {
+		return
+	}
+	token, err := newToken()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	if err := s.Store.SetUserSubscriptionToken(u.ID, token); err != nil {
+		respondError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]string{"token": token})
 }
 
 func userMe(u *models.User) meResponse {

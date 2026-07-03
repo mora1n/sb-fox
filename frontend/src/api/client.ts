@@ -42,13 +42,12 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
     body,
   })
 
-  if (res.status === 401) {
+  // 204 or empty body
+  const text = await res.text()
+  if (res.status === 401 && !text) {
     if (!opts.silent401 && onUnauthorized) onUnauthorized()
     throw new ApiRequestError('未登录或会话已过期', 'unauthorized', 401)
   }
-
-  // 204 or empty body
-  const text = await res.text()
   if (!text) {
     if (!res.ok) throw new ApiRequestError(res.statusText, 'http_error', res.status)
     return undefined as T
@@ -62,9 +61,17 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   }
 
   if (env.error) {
-    throw new ApiRequestError(env.error.message || '请求失败', env.error.code || 'error', res.status)
+    const message = env.error.message || '请求失败'
+    if (res.status === 401 && isSessionUnauthorized(message) && !opts.silent401 && onUnauthorized) {
+      onUnauthorized()
+    }
+    throw new ApiRequestError(message, env.error.code || 'error', res.status)
   }
   return env.data as T
+}
+
+function isSessionUnauthorized(message: string): boolean {
+  return message === 'not authenticated' || message === 'invalid session' || message === 'user not found'
 }
 
 export function get<T>(path: string, silent401 = false): Promise<T> {

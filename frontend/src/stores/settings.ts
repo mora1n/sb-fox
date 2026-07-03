@@ -12,6 +12,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const appDisplayName = ref(DEFAULT_APP_DISPLAY_NAME)
   const countryHeatOrder = ref<string[]>(completeCountryHeatOrder(DEFAULT_COUNTRY_HEAT_ORDER))
   const registrationEnabled = ref(false)
+  const subscriptionHostPrefix = ref('')
   const loading = ref(false)
 
   async function fetchAll(): Promise<void> {
@@ -29,6 +30,7 @@ export const useSettingsStore = defineStore('settings', () => {
     appDisplayName.value = app?.display_name?.trim() || DEFAULT_APP_DISPLAY_NAME
     countryHeatOrder.value = completeCountryHeatOrder(app?.country_heat_order || DEFAULT_COUNTRY_HEAT_ORDER)
     registrationEnabled.value = !!app?.registration_enabled
+    subscriptionHostPrefix.value = app?.subscription_host_prefix?.trim() || ''
   }
 
   async function update(patch: Settings): Promise<void> {
@@ -48,6 +50,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
   function applySettings(next: Settings): void {
     appDisplayName.value = next.app_display_name?.trim() || DEFAULT_APP_DISPLAY_NAME
+    subscriptionHostPrefix.value = next.subscription_host_prefix?.trim() || ''
     const rawOrder = next.country_heat_order ? JSON.parse(next.country_heat_order) : DEFAULT_COUNTRY_HEAT_ORDER
     countryHeatOrder.value = completeCountryHeatOrder(rawOrder)
   }
@@ -58,6 +61,7 @@ export const useSettingsStore = defineStore('settings', () => {
     appDisplayName,
     countryHeatOrder,
     registrationEnabled,
+    subscriptionHostPrefix,
     loading,
     fetchAll,
     fetchAppInfo,

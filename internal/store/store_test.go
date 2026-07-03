@@ -104,6 +104,9 @@ func TestMigrateSingleAdminDataToUsers(t *testing.T) {
 	if admin.ID != 1 || admin.Username != "admin" {
 		t.Fatalf("admin = %+v", admin)
 	}
+	if admin.SubscriptionToken == "" {
+		t.Fatal("admin subscription token was not backfilled")
+	}
 	profiles, err := s.ListProfiles(1, false)
 	if err != nil {
 		t.Fatal(err)
@@ -218,10 +221,20 @@ func TestProfileWithNodes(t *testing.T) {
 	if len(got.NodeIDs) != 3 || got.NodeIDs[0] != nodeIDs[2] || got.NodeIDs[2] != nodeIDs[1] {
 		t.Errorf("node order not preserved: %v", got.NodeIDs)
 	}
-	// lookup by token
-	byTok, err := s.GetProfileByToken("tok123")
-	if err != nil || byTok.ID != pid {
-		t.Fatalf("by token: %v", err)
+	byName, err := s.GetProfileByNameForUser("prof1", ownerID)
+	if err != nil || byName.ID != pid {
+		t.Fatalf("by name: %v", err)
+	}
+	u, err := s.GetUser(ownerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.SubscriptionToken == "" {
+		t.Fatal("user subscription token is empty")
+	}
+	byToken, err := s.GetUserBySubscriptionToken(u.SubscriptionToken)
+	if err != nil || byToken.ID != ownerID {
+		t.Fatalf("user by subscription token: %v", err)
 	}
 	// deleting a node cascades from profile_nodes
 	if err := s.DeleteNode(nodeIDs[0]); err != nil {

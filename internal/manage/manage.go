@@ -25,7 +25,7 @@ import (
 
 const (
 	ServiceName       = "sb-fox"
-	DefaultAddr       = "127.0.0.1:17890"
+	DefaultAddr       = "127.0.0.1:7878"
 	DefaultDataDir    = "/var/lib/sb-fox"
 	DefaultSocketPath = "/var/run/sb-fox.sock"
 

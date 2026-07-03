@@ -59,7 +59,7 @@ async function save() {
       await store.update(editing.value.id, payload)
       ui.success('用户已更新')
     } else {
-      if (!payload.password || payload.password.length < 8) throw new Error('密码至少 8 位')
+      if (!payload.password || payload.password.length < 4) throw new Error('密码至少 4 位')
       await store.create(payload)
       ui.success('用户已创建')
     }

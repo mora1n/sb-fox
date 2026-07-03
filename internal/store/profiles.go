@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"strings"
 
 	"github.com/mora1n/sb-fox/internal/models"
 )
@@ -105,9 +106,9 @@ func (s *Store) GetProfileForUser(id, ownerUserID int64, allOwners bool) (*model
 	return p, err
 }
 
-// GetProfileByToken returns one profile by its public token.
-func (s *Store) GetProfileByToken(token string) (*models.Profile, error) {
-	row := s.db.QueryRow(`SELECT `+profileCols+` FROM profiles WHERE token = ?`, token)
+func (s *Store) GetProfileByNameForUser(name string, ownerUserID int64) (*models.Profile, error) {
+	row := s.db.QueryRow(`SELECT `+profileCols+` FROM profiles WHERE owner_user_id = ? AND name = ?`,
+		ownerUserID, strings.TrimSpace(name))
 	p, err := scanProfile(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -160,6 +161,13 @@ func (s *Store) profileNodeGroupIDs(profileID int64) ([]int64, error) {
 // CreateProfile inserts a profile and its ordered node membership in a tx.
 func (s *Store) CreateProfile(p *models.Profile) (int64, error) {
 	ts := now()
+	if strings.TrimSpace(p.Token) == "" {
+		token, err := randomToken()
+		if err != nil {
+			return 0, err
+		}
+		p.Token = token
+	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return 0, err
@@ -214,12 +222,6 @@ func (s *Store) UpdateProfile(p *models.Profile) error {
 		return err
 	}
 	return tx.Commit()
-}
-
-// SetProfileToken replaces a profile's public token.
-func (s *Store) SetProfileToken(id int64, token string) error {
-	_, err := s.db.Exec(`UPDATE profiles SET token = ?, updated_at = ? WHERE id = ?`, token, now(), id)
-	return err
 }
 
 // DeleteProfile removes a profile (node membership cascades).

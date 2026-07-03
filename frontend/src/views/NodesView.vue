@@ -23,6 +23,8 @@ import {
   XMarkIcon,
 } from '@heroicons/vue/24/outline'
 
+type NodeTab = 'single' | 'groups'
+
 const nodesStore = useNodesStore()
 const nodeGroups = useNodeGroupsStore()
 const ui = useUiStore()
@@ -35,16 +37,21 @@ const showGroupForm = ref(false)
 const editingGroup = ref<NodeGroup | null>(null)
 const selected = ref<Set<number>>(new Set())
 const busy = ref(false)
+const activeTab = ref<NodeTab>('single')
 const groupForm = ref({ name: '', description: '', node_ids: [] as number[] })
 
 const SOURCES: NodeSource[] = ['protocol', 'subscription', 'config', 'manual']
 const loading = computed(() => nodesStore.loading || nodeGroups.loading)
+const allNodeOptions = computed(() => (nodesStore.unfilteredNodes.length ? nodesStore.unfilteredNodes : nodesStore.nodes))
+const allFilteredSelected = computed(
+  () => nodesStore.nodes.length > 0 && nodesStore.nodes.every((n) => selected.value.has(n.id)),
+)
 
 onMounted(load)
 
 async function load() {
   try {
-    await Promise.all([nodesStore.fetchAll(), nodeGroups.fetchAll()])
+    await Promise.all([nodesStore.fetchAll(), nodesStore.fetchUnfiltered(), nodeGroups.fetchAll()])
   } catch (e) {
     ui.error(errMsg(e))
   }
@@ -67,8 +74,13 @@ function toggleSelect(id: number) {
   selected.value = new Set(selected.value)
 }
 function selectAll() {
-  if (selected.value.size === nodesStore.nodes.length) selected.value = new Set()
-  else selected.value = new Set(nodesStore.nodes.map((n) => n.id))
+  const next = new Set(selected.value)
+  if (allFilteredSelected.value) {
+    for (const n of nodesStore.nodes) next.delete(n.id)
+  } else {
+    for (const n of nodesStore.nodes) next.add(n.id)
+  }
+  selected.value = next
 }
 
 function openCreate() {
@@ -81,7 +93,7 @@ function openEdit(n: Node) {
 }
 
 function nodeLabel(id: number) {
-  return nodesStore.nodes.find((n) => n.id === id)?.tag || `#${id}`
+  return allNodeOptions.value.find((n) => n.id === id)?.tag || `#${id}`
 }
 
 function clearSearch() {
@@ -187,23 +199,6 @@ async function exportTemplate() {
   <div class="flex flex-col gap-4">
     <div class="flex items-center justify-between flex-wrap gap-2">
       <h1 class="text-2xl font-bold">{{ i18n.t('节点') }} <span class="text-base font-normal opacity-60">· {{ nodesStore.nodes.length }}</span></h1>
-      <div class="flex gap-2 flex-wrap">
-        <button class="btn btn-sm" @click="refreshCountry" :disabled="busy || !selected.size">
-          <ArrowPathIcon class="h-4 w-4" /> {{ i18n.t('刷新国家') }}
-        </button>
-        <button class="btn btn-sm" @click="exportTemplate" :disabled="busy || !selected.size">
-          <DocumentArrowDownIcon class="h-4 w-4" /> {{ i18n.t('导出模板') }}
-        </button>
-        <button class="btn btn-sm btn-primary" @click="showImport = true">
-          <ArrowDownTrayIcon class="h-4 w-4" /> {{ i18n.t('导入') }}
-        </button>
-        <button class="btn btn-sm" @click="openCreateGroup">
-          <RectangleStackIcon class="h-4 w-4" /> {{ i18n.t('新建组合') }}
-        </button>
-        <button class="btn btn-sm btn-primary" @click="openCreate">
-          <PlusIcon class="h-4 w-4" /> {{ i18n.t('新建') }}
-        </button>
-      </div>
     </div>
 
     <!-- toolbar -->
@@ -228,24 +223,49 @@ async function exportTemplate() {
           <option v-for="c in nodesStore.countries" :key="c" :value="c">{{ c }}</option>
         </select>
         <select v-model="nodesStore.filters.type" class="select select-bordered select-sm">
-          <option value="">{{ i18n.t('全部类型') }}</option>
+          <option value="">{{ i18n.t('全部协议') }}</option>
           <option v-for="ty in nodesStore.types" :key="ty" :value="ty">{{ ty }}</option>
         </select>
-        <button class="btn btn-sm btn-ghost" @click="selectAll">
-          {{ selected.size === nodesStore.nodes.length && nodesStore.nodes.length ? i18n.t('取消全选') : i18n.t('全选') }}
-        </button>
-        <span v-if="selected.size" class="badge badge-neutral">{{ i18n.t('已选') }} {{ selected.size }}</span>
       </div>
+    </div>
+
+    <div role="tablist" class="tabs tabs-boxed self-start">
+      <button role="tab" class="tab" :class="{ 'tab-active': activeTab === 'single' }" @click="activeTab = 'single'">
+        {{ i18n.t('单节点') }}
+      </button>
+      <button role="tab" class="tab" :class="{ 'tab-active': activeTab === 'groups' }" @click="activeTab = 'groups'">
+        {{ i18n.t('组合节点') }}
+      </button>
     </div>
 
     <div v-if="loading" class="flex justify-center py-10">
       <span class="loading loading-spinner loading-lg"></span>
     </div>
-    <div v-else class="grid grid-cols-1 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)] gap-4">
-      <section class="flex flex-col gap-3">
-        <div class="flex items-center justify-between">
-          <h2 class="font-semibold">{{ i18n.t('节点列表') }}</h2>
-          <span class="badge badge-neutral">{{ nodesStore.nodes.length }}</span>
+    <template v-else>
+      <section v-if="activeTab === 'single'" class="flex flex-col gap-3">
+        <div class="flex items-center justify-between flex-wrap gap-2">
+          <div class="flex items-center gap-2">
+            <h2 class="font-semibold">{{ i18n.t('节点列表') }}</h2>
+            <span class="badge badge-neutral">{{ nodesStore.nodes.length }}</span>
+            <span v-if="selected.size" class="badge badge-outline">{{ i18n.t('已选') }} {{ selected.size }}</span>
+          </div>
+          <div class="flex gap-2 flex-wrap">
+            <button class="btn btn-sm btn-ghost" @click="selectAll" :disabled="!nodesStore.nodes.length">
+              {{ allFilteredSelected ? i18n.t('取消全选') : i18n.t('全选') }}
+            </button>
+            <button class="btn btn-sm" @click="refreshCountry" :disabled="busy || !selected.size">
+              <ArrowPathIcon class="h-4 w-4" /> {{ i18n.t('刷新国家') }}
+            </button>
+            <button class="btn btn-sm" @click="exportTemplate" :disabled="busy || !selected.size">
+              <DocumentArrowDownIcon class="h-4 w-4" /> {{ i18n.t('导出模板') }}
+            </button>
+            <button class="btn btn-sm btn-primary" @click="showImport = true">
+              <ArrowDownTrayIcon class="h-4 w-4" /> {{ i18n.t('导入') }}
+            </button>
+            <button class="btn btn-sm btn-primary" @click="openCreate">
+              <PlusIcon class="h-4 w-4" /> {{ i18n.t('新建') }}
+            </button>
+          </div>
         </div>
         <div v-if="!nodesStore.nodes.length" class="text-center py-10 opacity-60 bg-base-100 border border-base-300 rounded-box">
           {{ i18n.t('暂无节点，点击「导入」或「新建」添加。') }}
@@ -263,10 +283,15 @@ async function exportTemplate() {
         </div>
       </section>
 
-      <section class="flex flex-col gap-3">
+      <section v-else class="flex flex-col gap-3">
         <div class="flex items-center justify-between">
-          <h2 class="font-semibold">{{ i18n.t('组合节点') }}</h2>
-          <button class="btn btn-xs" @click="openCreateGroup"><PlusIcon class="h-3 w-3" /> {{ i18n.t('新建') }}</button>
+          <div class="flex items-center gap-2">
+            <h2 class="font-semibold">{{ i18n.t('组合节点') }}</h2>
+            <span class="badge badge-neutral">{{ nodeGroups.groups.length }}</span>
+          </div>
+          <button class="btn btn-sm btn-primary" @click="openCreateGroup">
+            <RectangleStackIcon class="h-4 w-4" /> {{ i18n.t('新建组合') }}
+          </button>
         </div>
         <div v-if="!nodeGroups.groups.length" class="text-center py-10 opacity-60 bg-base-100 border border-base-300 rounded-box">
           {{ i18n.t('暂无组合节点。') }}
@@ -292,7 +317,7 @@ async function exportTemplate() {
           </div>
         </div>
       </section>
-    </div>
+    </template>
 
     <ImportDialog v-if="showImport" @close="showImport = false" @imported="load" />
     <NodeEditForm v-if="showEdit" :node="editing" @close="showEdit = false" @saved="load" />
@@ -311,7 +336,7 @@ async function exportTemplate() {
           </label>
           <div class="form-control">
             <span class="label-text mb-1">{{ i18n.t('节点') }}</span>
-            <NodeMultiSelect :nodes="nodesStore.nodes" v-model="groupForm.node_ids" />
+            <NodeMultiSelect :nodes="allNodeOptions" v-model="groupForm.node_ids" />
           </div>
         </div>
         <div class="modal-action">

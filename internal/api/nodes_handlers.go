@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/mora1n/sb-fox/internal/merge"
@@ -155,7 +156,83 @@ func (s *Server) handleNodeUsage(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
+	optionUsage, err := s.profileOptionNodeUsage(id, ownerID, allOwners)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	usage = mergeNodeUsage(usage, optionUsage)
 	respondJSON(w, http.StatusOK, usage)
+}
+
+func (s *Server) profileOptionNodeUsage(nodeID, ownerID int64, allOwners bool) ([]*models.NodeUsage, error) {
+	profiles, err := s.Store.ListProfiles(ownerID, allOwners)
+	if err != nil {
+		return nil, err
+	}
+	var out []*models.NodeUsage
+	for _, p := range profiles {
+		opts := parseProfileOptions(p.Options)
+		selections := make([]models.NodeSelection, 0, len(opts.GroupSelections)+1)
+		for _, sel := range opts.GroupSelections {
+			selections = append(selections, sel)
+		}
+		if opts.ChainProxySelected != nil {
+			selections = append(selections, *opts.ChainProxySelected)
+		}
+		for _, sel := range selections {
+			if containsInt64(sel.NodeIDs, nodeID) {
+				out = append(out, &models.NodeUsage{ProfileID: p.ID, ProfileName: p.Name})
+			}
+			for _, gid := range sel.NodeGroupIDs {
+				group, err := s.Store.GetNodeGroupForUser(gid, p.OwnerUserID, false)
+				if err == store.ErrNotFound {
+					continue
+				}
+				if err != nil {
+					return nil, err
+				}
+				if containsInt64(group.NodeIDs, nodeID) {
+					out = append(out, &models.NodeUsage{
+						ProfileID:    p.ID,
+						ProfileName:  p.Name,
+						ViaGroupID:   group.ID,
+						ViaGroupName: group.Name,
+					})
+				}
+			}
+		}
+	}
+	return out, nil
+}
+
+func mergeNodeUsage(a, b []*models.NodeUsage) []*models.NodeUsage {
+	out := make([]*models.NodeUsage, 0, len(a)+len(b))
+	seen := map[string]bool{}
+	add := func(u *models.NodeUsage) {
+		key := fmt.Sprintf("%d/%d", u.ProfileID, u.ViaGroupID)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, u)
+	}
+	for _, u := range a {
+		add(u)
+	}
+	for _, u := range b {
+		add(u)
+	}
+	return out
+}
+
+func containsInt64(values []int64, needle int64) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
 }
 
 // applyManualCountry lets the request override the detected country.

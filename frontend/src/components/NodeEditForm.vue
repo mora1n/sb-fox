@@ -18,7 +18,7 @@ const i18n = useI18nStore()
 const busy = ref(false)
 const parseError = ref('')
 
-const PROTOCOLS = ['shadowsocks', 'vmess', 'vless', 'trojan', 'hysteria2', 'tuic']
+const PROTOCOLS = ['shadowsocks', 'vmess', 'vless', 'trojan', 'hysteria2', 'tuic', 'naive']
 
 // raw is the authoritative parsed outbound; unknown keys are preserved on save.
 const raw = reactive<Record<string, any>>({})
@@ -55,6 +55,15 @@ function utls(): Record<string, any> {
   const t = tls()
   if (!t.utls || typeof t.utls !== 'object') t.utls = {}
   return t.utls
+}
+function reality(): Record<string, any> {
+  const t = tls()
+  if (!t.reality || typeof t.reality !== 'object') t.reality = {}
+  return t.reality
+}
+function transport(): Record<string, any> {
+  if (!raw.transport || typeof raw.transport !== 'object') raw.transport = {}
+  return raw.transport
 }
 
 // alpn is an array in sing-box; edit it as comma-separated text
@@ -209,6 +218,59 @@ async function save() {
           </label>
         </div>
 
+        <!-- naive -->
+        <div v-else-if="raw.type === 'naive'" class="grid grid-cols-2 gap-3">
+          <label class="form-control">
+            <span class="label-text mb-1">{{ i18n.t('用户名') }}</span>
+            <input v-model="raw.username" class="input input-bordered input-sm" />
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">{{ i18n.t('密码') }}</span>
+            <input v-model="raw.password" class="input input-bordered input-sm" />
+          </label>
+          <label class="label cursor-pointer justify-start gap-2">
+            <input type="checkbox" class="toggle toggle-sm" v-model="raw.quic" />
+            <span class="label-text">QUIC</span>
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">quic_congestion_control</span>
+            <input v-model="raw.quic_congestion_control" class="input input-bordered input-sm" placeholder="bbr" />
+          </label>
+        </div>
+
+        <div v-if="['vmess', 'vless', 'trojan'].includes(raw.type)" class="grid grid-cols-2 gap-3">
+          <label class="form-control">
+            <span class="label-text mb-1">transport.type</span>
+            <select
+              :value="raw.transport?.type || ''"
+              class="select select-bordered select-sm"
+              @change="transport().type = ($event.target as HTMLSelectElement).value"
+            >
+              <option value="">{{ i18n.t('未指定') }}</option>
+              <option value="ws">ws</option>
+              <option value="grpc">grpc</option>
+              <option value="http">http</option>
+              <option value="httpupgrade">httpupgrade</option>
+            </select>
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">transport.path</span>
+            <input
+              :value="raw.transport?.path"
+              class="input input-bordered input-sm"
+              @input="transport().path = ($event.target as HTMLInputElement).value"
+            />
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">grpc.service_name</span>
+            <input
+              :value="raw.transport?.service_name"
+              class="input input-bordered input-sm"
+              @input="transport().service_name = ($event.target as HTMLInputElement).value"
+            />
+          </label>
+        </div>
+
         <!-- shared TLS block (all except plain shadowsocks may still use it) -->
         <div class="divider my-0 text-xs opacity-60">TLS</div>
         <label class="label cursor-pointer justify-start gap-2">
@@ -249,6 +311,31 @@ async function save() {
               class="input input-bordered input-sm"
               placeholder="chrome"
               @input="((utls().fingerprint = ($event.target as HTMLInputElement).value), (utls().enabled = true))"
+            />
+          </label>
+          <label class="label cursor-pointer justify-start gap-2">
+            <input
+              type="checkbox"
+              class="toggle toggle-sm"
+              :checked="!!raw.tls?.reality?.enabled"
+              @change="reality().enabled = ($event.target as HTMLInputElement).checked"
+            />
+            <span class="label-text">Reality</span>
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">Reality public_key</span>
+            <input
+              :value="raw.tls?.reality?.public_key"
+              class="input input-bordered input-sm"
+              @input="((reality().public_key = ($event.target as HTMLInputElement).value), (reality().enabled = true))"
+            />
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">Reality short_id</span>
+            <input
+              :value="raw.tls?.reality?.short_id"
+              class="input input-bordered input-sm"
+              @input="((reality().short_id = ($event.target as HTMLInputElement).value), (reality().enabled = true))"
             />
           </label>
         </div>

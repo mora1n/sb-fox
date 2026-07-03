@@ -3,24 +3,31 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#f5f5f7" />
     <style>
       :root {
+        --sb-theme-bg: #f5f5f7;
+        --sb-theme-fg: #27272a;
         color-scheme: light;
-        background: #f5f5f7;
-        color: #27272a;
+        background: var(--sb-theme-bg);
+        color: var(--sb-theme-fg);
+      }
+      html[data-theme='dark-neutral'] {
+        --sb-theme-bg: #1a1a1a;
+        --sb-theme-fg: #e5e5e5;
+        color-scheme: dark;
       }
       html,
       body,
       #app {
         min-height: 100%;
-        background: #f5f5f7;
-        color: #27272a;
-      }
-      html[data-theme='dark-neutral'],
-      html[data-theme='dark-neutral'] body,
-      html[data-theme='dark-neutral'] #app {
-        background: #1a1a1a;
-        color: #e5e5e5;
+        background: var(--sb-theme-bg);
+        color: var(--sb-theme-fg);
       }
     </style>
     <script>
@@ -29,8 +36,26 @@
         const defaultTheme = 'light-neutral'
         const themes = new Set([defaultTheme, 'dark-neutral'])
         const colors = {
-          'light-neutral': { bg: '#f5f5f7', fg: '#27272a', scheme: 'light' },
-          'dark-neutral': { bg: '#1a1a1a', fg: '#e5e5e5', scheme: 'dark' },
+          'light-neutral': { bg: '#f5f5f7', fg: '#27272a', scheme: 'light', themeColor: '#f5f5f7' },
+          'dark-neutral': { bg: '#1a1a1a', fg: '#e5e5e5', scheme: 'dark', themeColor: '#1a1a1a' },
+        }
+        const setElementColors = (element, nextColors) => {
+          if (!element) return
+          element.style.backgroundColor = nextColors.bg
+          element.style.color = nextColors.fg
+        }
+        const applyTheme = (nextTheme) => {
+          const nextColors = colors[nextTheme]
+          const root = document.documentElement
+          root.setAttribute('data-theme', nextTheme)
+          root.style.colorScheme = nextColors.scheme
+          root.style.setProperty('--sb-theme-bg', nextColors.bg)
+          root.style.setProperty('--sb-theme-fg', nextColors.fg)
+          setElementColors(root, nextColors)
+          setElementColors(document.body, nextColors)
+          setElementColors(document.getElementById('app'), nextColors)
+          const themeMeta = document.querySelector('meta[name="theme-color"]')
+          if (themeMeta) themeMeta.setAttribute('content', nextColors.themeColor)
         }
         let theme = defaultTheme
         try {
@@ -44,10 +69,8 @@
         } catch (err) {
           console.warn('sb-fox: unable to read theme preference', err)
         }
-        document.documentElement.setAttribute('data-theme', theme)
-        document.documentElement.style.colorScheme = colors[theme].scheme
-        document.documentElement.style.backgroundColor = colors[theme].bg
-        document.documentElement.style.color = colors[theme].fg
+        applyTheme(theme)
+        document.addEventListener('DOMContentLoaded', () => applyTheme(theme), { once: true })
       })()
     </script>
     <title>sb-fox</title>

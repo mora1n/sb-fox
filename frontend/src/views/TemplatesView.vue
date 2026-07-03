@@ -14,7 +14,8 @@ import {
   TrashIcon,
   ArrowDownTrayIcon,
   Bars3Icon,
-  PlusCircleIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
 } from '@heroicons/vue/24/outline'
 
 const store = useTemplatesStore()
@@ -152,44 +153,6 @@ async function saveStructure() {
   }
 }
 
-function uniqueChildTag() {
-  const existing = new Set(groupTags.value)
-  let i = 1
-  while (existing.has(`Selector ${i}`)) i++
-  return `Selector ${i}`
-}
-
-function defaultOutboundFor(tag: string) {
-  const candidates = availableOutbounds.value.filter((item) => item !== tag)
-  return candidates.find((item) => item.includes('Direct')) || candidates[0] || ''
-}
-
-function addRootGroup() {
-  if (!structure.value) return
-  const tag = uniqueChildTag()
-  const firstOutbound = defaultOutboundFor(tag)
-  structure.value.groups.push({
-    tag,
-    type: 'selector',
-    outbounds: firstOutbound ? [firstOutbound] : [],
-    deletable: true,
-  })
-  if (!structure.value.final) structure.value.final = tag
-}
-
-function addChildSelector(parent: TemplateStructureGroup) {
-  if (!structure.value) return
-  const tag = uniqueChildTag()
-  const firstOutbound = defaultOutboundFor(tag)
-  structure.value.groups.push({
-    tag,
-    type: 'selector',
-    outbounds: firstOutbound ? [firstOutbound] : [],
-    deletable: true,
-  })
-  if (!parent.outbounds.includes(tag)) parent.outbounds.push(tag)
-}
-
 function outboundOptions(g: TemplateStructureGroup) {
   return availableOutbounds.value.filter((tag) => tag !== g.tag)
 }
@@ -218,19 +181,15 @@ function clearOutbounds(g: TemplateStructureGroup) {
   g.default = ''
 }
 
-function localDeletable(g: TemplateStructureGroup) {
-  if (!structure.value) return false
-  if (structure.value.final === g.tag) return false
-  return !structure.value.groups.some(
-    (other) => other.tag !== g.tag && (other.outbounds.includes(g.tag) || other.default === g.tag),
-  )
-}
-
-function deleteGroup(index: number) {
+function moveGroup(index: number, delta: number) {
   if (!structure.value) return
-  const g = structure.value.groups[index]
-  if (!localDeletable(g)) return
-  structure.value.groups.splice(index, 1)
+  const target = index + delta
+  if (target < 0 || target >= structure.value.groups.length) return
+  const next = [...structure.value.groups]
+  const item = next[index]
+  next[index] = next[target]
+  next[target] = item
+  structure.value.groups = next
 }
 
 function onDragStart(index: number) {
@@ -245,7 +204,7 @@ function onDrop(index: number) {
   if (!structure.value || dragIndex.value === null || dragIndex.value === index) return
   const [item] = structure.value.groups.splice(dragIndex.value, 1)
   structure.value.groups.splice(index, 0, item)
-  dragIndex.value = null
+  dragIndex.value = index
 }
 
 async function remove(t: Template) {
@@ -306,10 +265,9 @@ async function remove(t: Template) {
       <div class="modal-box max-w-5xl">
         <div class="flex items-center justify-between gap-2 mb-3">
           <h3 class="font-bold text-lg">{{ i18n.t('分组管理') }} · {{ structureFor?.name }}</h3>
-          <button class="btn btn-sm" @click="addRootGroup"><PlusIcon class="h-4 w-4" /> {{ i18n.t('添加分组') }}</button>
         </div>
         <label class="form-control max-w-sm mb-4">
-          <span class="label-text mb-1">{{ i18n.t('final 使用的 selector') }}</span>
+          <span class="label-text mb-1">{{ i18n.t('最终出口') }}</span>
           <select v-model="structure.final" class="select select-bordered select-sm">
             <option v-for="tag in groupTags" :key="tag" :value="tag">{{ tag }}</option>
           </select>
@@ -320,23 +278,26 @@ async function remove(t: Template) {
             v-for="(g, i) in structure.groups"
             :key="g.tag + ':' + i"
             class="border border-base-300 rounded-box bg-base-100 p-3"
+            :class="{ 'bg-base-200': dragIndex === i }"
             @dragover.prevent
             @drop="onDrop(i)"
           >
-            <div class="grid grid-cols-1 lg:grid-cols-[32px_minmax(160px,1fr)_120px_minmax(180px,1fr)_160px_auto] gap-2 items-start">
-              <button
-                class="btn btn-xs btn-ghost cursor-move"
-                type="button"
-                draggable="true"
-                :title="i18n.t('拖拽排序')"
-                @dragstart="onDragStart(i)"
-                @dragend="onDragEnd"
-              >
-                <Bars3Icon class="h-4 w-4" />
-              </button>
+            <div class="grid grid-cols-1 lg:grid-cols-[32px_minmax(160px,1fr)_120px_minmax(180px,1fr)_160px_64px] gap-2 items-start">
+              <div class="flex items-center gap-1">
+                <button
+                  class="btn btn-xs btn-ghost cursor-move"
+                  type="button"
+                  draggable="true"
+                  :title="i18n.t('拖拽排序')"
+                  @dragstart="onDragStart(i)"
+                  @dragend="onDragEnd"
+                >
+                  <Bars3Icon class="h-4 w-4" />
+                </button>
+              </div>
               <label class="form-control">
                 <span class="label-text mb-1">{{ i18n.t('标签') }}</span>
-                <input v-model="g.tag" class="input input-bordered input-sm" />
+                <input v-model="g.tag" class="input input-bordered input-sm" disabled />
               </label>
               <label class="form-control">
                 <span class="label-text mb-1">{{ i18n.t('类型') }}</span>
@@ -393,18 +354,24 @@ async function remove(t: Template) {
                   <option v-for="tag in g.outbounds" :key="tag" :value="tag">{{ tag }}</option>
                 </select>
               </label>
-              <div class="flex gap-1 pt-6">
-                <button class="btn btn-xs" type="button" @click="addChildSelector(g)" :title="i18n.t('添加子 selector')">
-                  <PlusCircleIcon class="h-4 w-4" />
+              <div class="join pt-6">
+                <button
+                  class="btn btn-xs btn-square join-item"
+                  type="button"
+                  :title="i18n.t('上移')"
+                  :disabled="i === 0"
+                  @click="moveGroup(i, -1)"
+                >
+                  <ChevronUpIcon class="h-3 w-3" />
                 </button>
                 <button
-                  class="btn btn-xs btn-ghost text-error"
+                  class="btn btn-xs btn-square join-item"
                   type="button"
-                  :disabled="!localDeletable(g)"
-                  :title="localDeletable(g) ? i18n.t('删除') : i18n.t('仍被引用，不能删除')"
-                  @click="deleteGroup(i)"
+                  :title="i18n.t('下移')"
+                  :disabled="i === structure.groups.length - 1"
+                  @click="moveGroup(i, 1)"
                 >
-                  <TrashIcon class="h-4 w-4" />
+                  <ChevronDownIcon class="h-3 w-3" />
                 </button>
               </div>
             </div>

@@ -23,17 +23,23 @@ async function submit() {
   busy.value = true
   try {
     let count = 0
+    let warnings: string[] = []
     if (tab.value === 'links') {
       if (!links.value.trim()) throw new Error('请粘贴分享链接')
-      count = (await nodesStore.importLinks(links.value)).imported
+      const result = await nodesStore.importLinks(links.value)
+      count = result.imported
+      warnings = result.warnings ?? []
     } else if (tab.value === 'subscription') {
       if (!subUrl.value.trim()) throw new Error('请填写订阅 URL')
-      count = (await nodesStore.importSubscription(subName.value, subUrl.value)).imported
+      const result = await nodesStore.importSubscription(subName.value, subUrl.value)
+      count = result.imported
+      warnings = result.warnings ?? []
     } else {
       if (!configText.value.trim()) throw new Error('请粘贴 config JSON')
       count = (await nodesStore.importConfig(configText.value)).imported
     }
     ui.success(`成功导入 ${count} 个节点`)
+    warnings.slice(0, 3).forEach((warning) => ui.info(warning))
     emit('imported')
     emit('close')
   } catch (e) {
@@ -55,7 +61,7 @@ async function submit() {
       </div>
 
       <div v-show="tab === 'links'">
-        <p class="text-sm opacity-70 mb-2">{{ i18n.t('每行一个 ss/vmess/vless/trojan/hysteria2/tuic 链接，或粘贴 base64 订阅内容。') }}</p>
+        <p class="text-sm opacity-70 mb-2">{{ i18n.t('每行一个 ss/vmess/vless/trojan/hysteria2/tuic/naive 链接，或粘贴 base64、SIP008、Clash/Mihomo 订阅内容。') }}</p>
         <textarea v-model="links" class="textarea textarea-bordered w-full h-48 mono text-xs" placeholder="vmess://...&#10;ss://..."></textarea>
       </div>
 

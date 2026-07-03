@@ -1,7 +1,9 @@
 package store
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -9,13 +11,13 @@ import (
 	"github.com/mora1n/sb-fox/internal/models"
 )
 
-const userCols = `id, username, password_hash, role, node_limit, profile_limit, template_limit, created_at, updated_at`
+const userCols = `id, username, password_hash, role, node_limit, profile_limit, template_limit, subscription_token, created_at, updated_at`
 
 func scanUser(sc interface{ Scan(...any) error }) (*models.User, error) {
 	var u models.User
 	var created, updated string
 	if err := sc.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.NodeLimit,
-		&u.ProfileLimit, &u.TemplateLimit, &created, &updated); err != nil {
+		&u.ProfileLimit, &u.TemplateLimit, &u.SubscriptionToken, &created, &updated); err != nil {
 		return nil, err
 	}
 	u.CreatedAt = parseTime(created)
@@ -76,6 +78,15 @@ func (s *Store) GetUserByUsername(username string) (*models.User, error) {
 	return u, err
 }
 
+func (s *Store) GetUserBySubscriptionToken(token string) (*models.User, error) {
+	row := s.db.QueryRow(`SELECT `+userCols+` FROM users WHERE subscription_token = ?`, strings.TrimSpace(token))
+	u, err := scanUser(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return u, err
+}
+
 func (s *Store) CreateUser(u *models.User) (int64, error) {
 	role, err := NormalizeRole(u.Role)
 	if err != nil {
@@ -93,14 +104,22 @@ func (s *Store) CreateUser(u *models.User) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	token := strings.TrimSpace(u.SubscriptionToken)
+	if token == "" {
+		token, err = randomToken()
+		if err != nil {
+			return 0, err
+		}
+	}
 	ts := now()
 	res, err := s.db.Exec(`INSERT INTO users
-		(username, password_hash, role, node_limit, profile_limit, template_limit, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		strings.TrimSpace(u.Username), u.PasswordHash, role, nodeLimit, profileLimit, templateLimit, ts, ts)
+		(username, password_hash, role, node_limit, profile_limit, template_limit, subscription_token, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		strings.TrimSpace(u.Username), u.PasswordHash, role, nodeLimit, profileLimit, templateLimit, token, ts, ts)
 	if err != nil {
 		return 0, err
 	}
+	u.SubscriptionToken = token
 	return res.LastInsertId()
 }
 
@@ -129,6 +148,11 @@ func (s *Store) UpdateUser(u *models.User) error {
 
 func (s *Store) SetUserPassword(id int64, passwordHash string) error {
 	_, err := s.db.Exec(`UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`, passwordHash, now(), id)
+	return err
+}
+
+func (s *Store) SetUserSubscriptionToken(id int64, token string) error {
+	_, err := s.db.Exec(`UPDATE users SET subscription_token = ?, updated_at = ? WHERE id = ?`, strings.TrimSpace(token), now(), id)
 	return err
 }
 
@@ -163,4 +187,12 @@ func (s *Store) FirstAdmin() (*models.User, error) {
 		return nil, ErrNotFound
 	}
 	return u, err
+}
+
+func randomToken() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }

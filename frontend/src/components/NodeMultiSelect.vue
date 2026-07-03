@@ -35,11 +35,11 @@ function clearAll() {
 
 <template>
   <div class="flex flex-col gap-2">
-    <div class="flex items-center gap-2">
-      <input v-model="search" class="input input-bordered input-sm flex-1" :placeholder="i18n.t('搜索节点...')" />
-      <button type="button" class="btn btn-xs" @click="selectAllFiltered">{{ i18n.t('全选') }}</button>
-      <button type="button" class="btn btn-xs" @click="clearAll">{{ i18n.t('清空') }}</button>
-      <span class="badge badge-primary">{{ modelValue.length }}</span>
+    <div class="flex items-center gap-2 flex-wrap">
+      <input v-model="search" class="input input-bordered input-sm min-w-0 flex-1" :placeholder="i18n.t('搜索节点...')" />
+      <button type="button" class="btn btn-xs min-h-7 h-7 shrink-0" @click="selectAllFiltered">{{ i18n.t('全选') }}</button>
+      <button type="button" class="btn btn-xs min-h-7 h-7 shrink-0" @click="clearAll">{{ i18n.t('清空') }}</button>
+      <span class="badge badge-primary shrink-0">{{ modelValue.length }}</span>
     </div>
     <div class="border border-base-300 rounded-box max-h-64 overflow-y-auto divide-y divide-base-200">
       <label

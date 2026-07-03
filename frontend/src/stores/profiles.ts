@@ -5,6 +5,7 @@ import type { Profile, ProfilePayload } from '../api/types'
 
 export const useProfilesStore = defineStore('profiles', () => {
   const profiles = ref<Profile[]>([])
+  const subscriptionToken = ref('')
   const loading = ref(false)
 
   async function fetchAll(): Promise<void> {
@@ -33,11 +34,27 @@ export const useProfilesStore = defineStore('profiles', () => {
     profiles.value = profiles.value.filter((p) => p.id !== id)
   }
 
-  async function rotateToken(id: number): Promise<string> {
-    const r = await post<{ token: string }>('/profiles/' + id + '/rotate-token')
-    await fetchAll()
+  async function fetchSubscriptionToken(): Promise<string> {
+    const r = await get<{ token: string }>('/auth/subscription-token')
+    subscriptionToken.value = r.token
     return r.token
   }
 
-  return { profiles, loading, fetchAll, create, update, remove, rotateToken }
+  async function rotateSubscriptionToken(): Promise<string> {
+    const r = await post<{ token: string }>('/auth/subscription-token/rotate')
+    subscriptionToken.value = r.token
+    return r.token
+  }
+
+  return {
+    profiles,
+    subscriptionToken,
+    loading,
+    fetchAll,
+    create,
+    update,
+    remove,
+    fetchSubscriptionToken,
+    rotateSubscriptionToken,
+  }
 })

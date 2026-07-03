@@ -3,9 +3,10 @@ package sblink
 import (
 	"encoding/base64"
 	"encoding/json"
-	"os/exec"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mora1n/sb-fox/internal/merge"
@@ -170,6 +171,24 @@ func TestParseTUIC(t *testing.T) {
 	}
 }
 
+func TestParseNaive(t *testing.T) {
+	uri := "naive+https://user:pass@naive.example.com:443?quic=true&sni=naive.example.com#Naive"
+	out, err := Parse(uri)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if field(t, out, "type") != "naive" || field(t, out, "username") != "user" || field(t, out, "password") != "pass" {
+		t.Errorf("naive fields wrong: %+v", out)
+	}
+	if got, _ := out.Get("quic"); got != true {
+		t.Errorf("quic = %v", got)
+	}
+	tls := nested(t, out, "tls")
+	if field(t, tls, "server_name") != "naive.example.com" {
+		t.Errorf("tls server_name = %s", field(t, tls, "server_name"))
+	}
+}
+
 func TestParseManyBase64Blob(t *testing.T) {
 	links := "ss://" + base64.StdEncoding.EncodeToString([]byte("aes-256-gcm:pw")) + "@1.1.1.1:8388#A\n" +
 		"trojan://pw@2.2.2.2:443?security=tls#B"
@@ -180,6 +199,75 @@ func TestParseManyBase64Blob(t *testing.T) {
 	}
 	if len(out) != 2 {
 		t.Fatalf("parsed %d links, want 2", len(out))
+	}
+}
+
+func TestParseManySIP008(t *testing.T) {
+	text := `{
+  "servers": [
+    {"id":"1","remarks":"SIP","server":"sip.example.com","server_port":8388,"method":"2022-blake3-aes-128-gcm","password":"pw"}
+  ]
+}`
+	out, warnings, err := ParseManyWithWarnings(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 0 || len(out) != 1 {
+		t.Fatalf("warnings=%v out=%d", warnings, len(out))
+	}
+	if field(t, out[0], "type") != "shadowsocks" || field(t, out[0], "tag") != "SIP" {
+		t.Fatalf("sip008 outbound = %+v", out[0])
+	}
+}
+
+func TestParseManyClashMihomoYAML(t *testing.T) {
+	text := `
+proxies:
+  - name: Reality
+    type: vless
+    server: reality.example.com
+    port: 443
+    uuid: b831381d-6324-4d53-ad4f-8cda48b30811
+    flow: xtls-rprx-vision
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: publickeyxyz
+      short-id: abcd
+    servername: www.microsoft.com
+  - name: Naive
+    type: naive
+    server: naive.example.com
+    port: 443
+    username: user
+    password: pass
+    quic: true
+    sni: naive.example.com
+  - name: OldSSR
+    type: ssr
+    server: ssr.example.com
+    port: 8388
+`
+	out, warnings, err := ParseManyWithWarnings(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 2 {
+		t.Fatalf("parsed %d outbounds, want 2", len(out))
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "ssr") {
+		t.Fatalf("warnings = %+v", warnings)
+	}
+	reality := out[0]
+	if field(t, reality, "type") != "vless" || field(t, reality, "flow") != "xtls-rprx-vision" {
+		t.Fatalf("reality outbound = %+v", reality)
+	}
+	tls := nested(t, reality, "tls")
+	realityTLS := nested(t, tls, "reality")
+	if field(t, realityTLS, "public_key") != "publickeyxyz" {
+		t.Fatalf("reality tls = %+v", realityTLS)
+	}
+	if field(t, out[1], "type") != "naive" || field(t, out[1], "username") != "user" {
+		t.Fatalf("naive outbound = %+v", out[1])
 	}
 }
 

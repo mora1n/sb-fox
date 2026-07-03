@@ -25,10 +25,10 @@ parity:
 	go test ./internal/merge/ -run TestRegression -v
 
 run: build
-	./$(BINARY) --addr 127.0.0.1:17890 --data-dir ./data
+	./$(BINARY) --addr 127.0.0.1:7878 --data-dir ./data
 
 dev:
-	go run $(PKG) --addr 127.0.0.1:17890 --data-dir ./data --dev
+	go run $(PKG) --addr 127.0.0.1:7878 --data-dir ./data --dev
 
 cross:
 	CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o dist/$(BINARY)-linux-amd64   $(PKG)

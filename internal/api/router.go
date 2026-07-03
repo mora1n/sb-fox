@@ -32,7 +32,10 @@ func (s *Server) Router() http.Handler {
 
 	// public subscription (unauthenticated by design)
 	r.Get("/sub/{token}", func(w http.ResponseWriter, r *http.Request) {
-		s.handleSubscription(w, r, chi.URLParam(r, "token"))
+		http.Error(w, "not found", http.StatusNotFound)
+	})
+	r.Get("/sub/{token}/*", func(w http.ResponseWriter, r *http.Request) {
+		s.handleSubscription(w, r, chi.URLParam(r, "token"), strings.TrimPrefix(chi.URLParam(r, "*"), "/"))
 	})
 
 	// frontend
@@ -51,6 +54,8 @@ func (s *Server) mountAuthed(r chi.Router) {
 	r.Post("/auth/logout", s.handleLogout)
 	r.Get("/auth/me", s.handleMe)
 	r.Post("/auth/password", s.handleChangePassword)
+	r.Get("/auth/subscription-token", s.handleGetSubscriptionToken)
+	r.Post("/auth/subscription-token/rotate", s.handleRotateSubscriptionToken)
 
 	r.Get("/users", s.handleListUsers)
 	r.Post("/users", s.handleCreateUser)
@@ -100,7 +105,6 @@ func (s *Server) mountAuthed(r chi.Router) {
 	r.Get("/profiles/{id}", s.handleGetProfile)
 	r.Put("/profiles/{id}", s.handleUpdateProfile)
 	r.Delete("/profiles/{id}", s.handleDeleteProfile)
-	r.Post("/profiles/{id}/rotate-token", s.handleRotateToken)
 
 	r.Post("/generate/preview", s.handlePreview)
 	r.Post("/generate/validate", s.handleValidate)

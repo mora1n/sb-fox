@@ -185,23 +185,22 @@ func readTemplateStructure(content string) (templateStructure, error) {
 	if !ok {
 		return templateStructure{}, fmt.Errorf("outbounds must be an array")
 	}
-	groups, err := templateGroups(arr)
+	allGroups, err := templateGroups(arr)
 	if err != nil {
 		return templateStructure{}, err
 	}
+	refs := routeGroupRefs(cfg, allGroups)
+	groups := routeReferencedGroups(allGroups, refs)
 	st := templateStructure{
 		Final:              routeFinal(cfg),
 		Groups:             groups,
-		AvailableOutbounds: availableTemplateOutbounds(arr, groups),
+		AvailableOutbounds: availableTemplateOutbounds(arr, allGroups),
 	}
-	refs := templateGroupRefs(st.Final, groups)
 	for i := range st.Groups {
 		g := &st.Groups[i]
 		g.ReferencedBy = refs[g.Tag]
-		g.Deletable = len(g.ReferencedBy) == 0
-		if !g.Deletable {
-			g.DeleteReason = "group is still referenced"
-		}
+		g.Deletable = false
+		g.DeleteReason = "route outbound groups cannot be deleted"
 	}
 	return st, nil
 }
@@ -221,17 +220,31 @@ func writeTemplateStructure(content string, st templateStructure) (string, error
 	}
 
 	existingGroups, staticTags, firstGroupPos := classifyTemplateOutbounds(arr)
+	allGroups, err := templateGroups(arr)
+	if err != nil {
+		return "", err
+	}
+	validRefs := routeGroupRefs(cfg, allGroups)
+	validGroups := routeReferencedGroups(allGroups, validRefs)
+	for _, g := range allGroups {
+		staticTags[g.Tag] = true
+	}
 	desired, err := validateTemplateStructure(st, staticTags)
 	if err != nil {
 		return "", err
 	}
+	if err := validateTemplateGroupSet(desired, validGroups); err != nil {
+		return "", err
+	}
 
 	groupObjects := make([]any, 0, len(st.Groups))
+	managedTags := make(map[string]bool, len(desired))
 	for _, g := range desired {
 		om := existingGroups[g.Tag]
 		if om == nil {
 			om = merge.NewOrderedMap()
 		}
+		managedTags[g.Tag] = true
 		om.Set("type", g.Type)
 		om.Set("tag", g.Tag)
 		om.Set("outbounds", stringSliceToAny(g.Outbounds))
@@ -239,6 +252,13 @@ func writeTemplateStructure(content string, st templateStructure) (string, error
 			om.Delete("default")
 		} else {
 			om.Set("default", g.Default)
+		}
+		groupObjects = append(groupObjects, om)
+	}
+	for _, ob := range arr {
+		om, ok := ob.(*merge.OrderedMap)
+		if !ok || !isTemplateGroup(om) || managedTags[om.GetString("tag")] {
+			continue
 		}
 		groupObjects = append(groupObjects, om)
 	}
@@ -264,6 +284,54 @@ func templateGroups(arr []any) ([]templateStructureGroup, error) {
 		})
 	}
 	return groups, nil
+}
+
+func routeReferencedGroups(groups []templateStructureGroup, refs map[string][]string) []templateStructureGroup {
+	out := make([]templateStructureGroup, 0, len(groups))
+	for _, g := range groups {
+		if len(refs[g.Tag]) > 0 {
+			out = append(out, g)
+		}
+	}
+	return out
+}
+
+func routeGroupRefs(cfg *merge.OrderedMap, groups []templateStructureGroup) map[string][]string {
+	groupTags := make(map[string]bool, len(groups))
+	for _, g := range groups {
+		groupTags[g.Tag] = true
+	}
+	refs := map[string][]string{}
+	if final := routeFinal(cfg); final != "" && groupTags[final] {
+		refs[final] = append(refs[final], "route.final")
+	}
+	raw, ok := cfg.Get("route")
+	if !ok {
+		return refs
+	}
+	route, ok := raw.(*merge.OrderedMap)
+	if !ok {
+		return refs
+	}
+	rawRules, ok := route.Get("rules")
+	if !ok {
+		return refs
+	}
+	rules, ok := rawRules.([]any)
+	if !ok {
+		return refs
+	}
+	for i, item := range rules {
+		rule, ok := item.(*merge.OrderedMap)
+		if !ok {
+			continue
+		}
+		outbound := rule.GetString("outbound")
+		if outbound != "" && groupTags[outbound] {
+			refs[outbound] = append(refs[outbound], fmt.Sprintf("route.rules[%d].outbound", i))
+		}
+	}
+	return refs
 }
 
 func availableTemplateOutbounds(arr []any, groups []templateStructureGroup) []string {
@@ -363,6 +431,28 @@ func validateTemplateStructure(st templateStructure, staticTags map[string]bool)
 		}
 	}
 	return desired, nil
+}
+
+func validateTemplateGroupSet(desired []templateStructureGroup, valid []templateStructureGroup) error {
+	desiredTags := map[string]bool{}
+	for _, g := range desired {
+		desiredTags[g.Tag] = true
+	}
+	validTags := map[string]bool{}
+	for _, g := range valid {
+		validTags[g.Tag] = true
+	}
+	for tag := range validTags {
+		if !desiredTags[tag] {
+			return fmt.Errorf("route outbound group %q cannot be deleted", tag)
+		}
+	}
+	for tag := range desiredTags {
+		if !validTags[tag] {
+			return fmt.Errorf("outbound group %q is not referenced by route.final or route.rules", tag)
+		}
+	}
+	return nil
 }
 
 func normalizeOutboundRefs(groupTag string, refs []string, allowed map[string]bool) ([]string, error) {
