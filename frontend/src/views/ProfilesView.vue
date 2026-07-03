@@ -252,6 +252,9 @@ function sortIndicator(active: string, dir: SortDir, key: string) {
 
 async function loadStructure(templateID: number) {
   structure.value = await templates.structure(templateID)
+  config.value = ''
+  validation.value = null
+  sanitizeGroupSelectionsForStructure()
   if (!structure.value.groups.length) {
     activeGroup.value = ''
     return
@@ -260,6 +263,23 @@ async function loadStructure(templateID: number) {
     activeGroup.value = structure.value.groups[0].tag
   }
   ensureGroupSelections()
+}
+
+function sanitizeGroupSelectionsForStructure() {
+  if (!structure.value) return
+  const current = form.value.options.groupSelections ?? {}
+  const next: Record<string, NodeSelection> = {}
+  for (const g of structure.value.groups) {
+    const sel = current[g.tag] ?? emptySelection()
+    const allowedRefs = new Set(g.outbounds.map((tag) => tag.trim()).filter((tag) => tag && tag !== g.tag))
+    next[g.tag] = {
+      nodeIds: [...sel.nodeIds],
+      nodeGroupIds: [...sel.nodeGroupIds],
+      outboundRefs: sel.outboundRefs.map((tag) => tag.trim()).filter((tag) => allowedRefs.has(tag)),
+      skipCountryGroups: !!sel.skipCountryGroups,
+    }
+  }
+  form.value.options.groupSelections = next
 }
 
 function ensureGroupSelections() {
