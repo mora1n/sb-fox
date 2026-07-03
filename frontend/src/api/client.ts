@@ -87,6 +87,24 @@ export function del<T>(path: string): Promise<T> {
   return request<T>(path, { method: 'DELETE' })
 }
 
+async function downloadError(res: Response): Promise<ApiRequestError> {
+  const text = await res.text()
+  let code = 'http_error'
+  let message = '下载失败 (HTTP ' + res.status + ')'
+  if (text) {
+    try {
+      const env = JSON.parse(text) as Envelope<unknown>
+      if (env.error) {
+        code = env.error.code || code
+        message = env.error.message || message
+      }
+    } catch {
+      message = text.slice(0, 200)
+    }
+  }
+  return new ApiRequestError(message, code, res.status)
+}
+
 // downloadPost triggers a browser file download from a POST endpoint that
 // returns a raw file (not the {data,error} envelope), e.g. export/template.
 export async function downloadPost(path: string, body: unknown, filename: string): Promise<void> {
@@ -96,12 +114,12 @@ export async function downloadPost(path: string, body: unknown, filename: string
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  if (res.status === 401) {
-    if (onUnauthorized) onUnauthorized()
-    throw new ApiRequestError('未登录或会话已过期', 'unauthorized', 401)
-  }
   if (!res.ok) {
-    throw new ApiRequestError('下载失败 (HTTP ' + res.status + ')', 'http_error', res.status)
+    const err = await downloadError(res)
+    if (res.status === 401 && onUnauthorized) {
+      onUnauthorized()
+    }
+    throw err
   }
   const blob = await res.blob()
   const url = URL.createObjectURL(blob)
@@ -119,12 +137,12 @@ export async function downloadGet(path: string, filename: string): Promise<void>
     method: 'GET',
     credentials: 'include',
   })
-  if (res.status === 401) {
-    if (onUnauthorized) onUnauthorized()
-    throw new ApiRequestError('未登录或会话已过期', 'unauthorized', 401)
-  }
   if (!res.ok) {
-    throw new ApiRequestError('下载失败 (HTTP ' + res.status + ')', 'http_error', res.status)
+    const err = await downloadError(res)
+    if (res.status === 401 && onUnauthorized) {
+      onUnauthorized()
+    }
+    throw err
   }
   const blob = await res.blob()
   const url = URL.createObjectURL(blob)

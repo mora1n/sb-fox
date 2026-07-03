@@ -2,10 +2,13 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/mora1n/sb-fox/internal/merge"
+	"github.com/mora1n/sb-fox/internal/sblink"
 )
 
 // contextWithTimeout returns a background context with the given timeout.
@@ -67,4 +70,47 @@ func (s *Server) handleExportNodeTemplate(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Disposition", `attachment; filename="nodes-template.json"`)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(pretty)
+}
+
+// handleExportNodeLinks exports selected nodes as share-link URIs. Unlike the
+// JSON template export, this cannot represent group or direct outbounds, so an
+// unsupported node is reported explicitly.
+func (s *Server) handleExportNodeLinks(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		NodeIDs []int64 `json:"node_ids"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+
+	ownerID, allOwners := ownerScope(r)
+	nodes, err := s.getNodesForUser(req.NodeIDs, ownerID, allOwners)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	if len(nodes) == 0 {
+		respondError(w, http.StatusBadRequest, "no_nodes", "no nodes selected")
+		return
+	}
+
+	links := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		raw, err := merge.ParseOrdered([]byte(n.Raw))
+		if err != nil {
+			respondError(w, http.StatusUnprocessableEntity, "invalid_node", fmt.Sprintf("node %d (%s) has invalid raw JSON: %v", n.ID, n.Tag, err))
+			return
+		}
+		link, err := sblink.Encode(raw)
+		if err != nil {
+			respondError(w, http.StatusUnprocessableEntity, "unsupported_node", fmt.Sprintf("node %d (%s): %v", n.ID, n.Tag, err))
+			return
+		}
+		links = append(links, link)
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="nodes-links.txt"`)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(strings.Join(links, "\n") + "\n"))
 }

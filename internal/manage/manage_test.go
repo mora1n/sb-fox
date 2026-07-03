@@ -94,7 +94,16 @@ func TestInstallDaemonWritesServiceConfig(t *testing.T) {
 		t.Fatalf("seed template not copied: %v", err)
 	}
 	got := strings.Join(commands, "\n")
-	if !strings.Contains(got, "systemctl daemon-reload") || !strings.Contains(got, "systemctl enable --now sb-fox") {
+	for _, want := range []string{
+		"systemctl daemon-reload",
+		"systemctl enable sb-fox",
+		"systemctl restart sb-fox",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("unexpected systemctl calls, missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "systemctl enable --now sb-fox") {
 		t.Fatalf("unexpected systemctl calls:\n%s", got)
 	}
 }
@@ -105,12 +114,13 @@ func TestControlDaemonStartCommands(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		command string
-		want    string
+		want    []string
+		forbid  string
 	}{
-		{"", "systemctl enable --now sb-fox"},
-		{"enable", "systemctl enable --now sb-fox"},
-		{"start", "systemctl start sb-fox"},
-		{"restart", "systemctl restart sb-fox"},
+		{"", []string{"systemctl enable sb-fox", "systemctl restart sb-fox"}, "systemctl enable --now sb-fox"},
+		{"enable", []string{"systemctl enable sb-fox", "systemctl restart sb-fox"}, "systemctl enable --now sb-fox"},
+		{"start", []string{"systemctl start sb-fox"}, ""},
+		{"restart", []string{"systemctl restart sb-fox"}, ""},
 	} {
 		name := tc.command
 		if name == "" {
@@ -157,8 +167,13 @@ func TestControlDaemonStartCommands(t *testing.T) {
 				t.Fatalf("service file not written: %v", err)
 			}
 			got := strings.Join(commands, "\n")
-			if !strings.Contains(got, "systemctl daemon-reload") || !strings.Contains(got, tc.want) {
-				t.Fatalf("unexpected systemctl calls for %s:\n%s", tc.command, got)
+			for _, want := range append([]string{"systemctl daemon-reload"}, tc.want...) {
+				if !strings.Contains(got, want) {
+					t.Fatalf("unexpected systemctl calls for %s, missing %q:\n%s", tc.command, want, got)
+				}
+			}
+			if tc.forbid != "" && strings.Contains(got, tc.forbid) {
+				t.Fatalf("unexpected forbidden systemctl call for %s:\n%s", tc.command, got)
 			}
 			if healthChecks == 0 {
 				t.Fatal("expected health-check after daemon start command")
@@ -252,12 +267,24 @@ func TestControlDaemonPrintsInitialAdminPassword(t *testing.T) {
 	}
 
 	output.Reset()
-	if err := ControlDaemon(opts, "restart"); err != nil {
+	if err := ControlDaemon(opts, "enable"); err != nil {
 		t.Fatalf("ControlDaemon second: %v", err)
 	}
 	second := output.String()
 	if strings.Contains(second, "password:") {
 		t.Fatalf("second daemon command should not print password:\n%s", second)
+	}
+	if !strings.Contains(second, "admin already exists") || !strings.Contains(second, "sudo sb-fox -P") {
+		t.Fatalf("existing admin reset hint missing:\n%s", second)
+	}
+
+	output.Reset()
+	if err := ControlDaemon(opts, "restart"); err != nil {
+		t.Fatalf("ControlDaemon restart: %v", err)
+	}
+	restart := output.String()
+	if strings.Contains(restart, "password:") || strings.Contains(restart, "admin already exists") {
+		t.Fatalf("restart should not print admin password or reset hint:\n%s", restart)
 	}
 }
 

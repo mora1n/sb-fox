@@ -89,6 +89,7 @@ func (s *Server) mountAuthed(r chi.Router) {
 	r.Post("/nodes/import/config", s.handleImportConfig)
 	r.Post("/nodes/refresh-country", s.handleRefreshCountry)
 	r.Post("/nodes/export/template", s.handleExportNodeTemplate)
+	r.Post("/nodes/export/links", s.handleExportNodeLinks)
 
 	r.Get("/node-groups", s.handleListNodeGroups)
 	r.Post("/node-groups", s.handleCreateNodeGroup)

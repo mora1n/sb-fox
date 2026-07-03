@@ -6,24 +6,29 @@ import { useUiStore } from '../stores/ui'
 import { useI18nStore } from '../stores/i18n'
 import { errMsg } from '../utils/error'
 import { downloadPost } from '../api/client'
-import type { Node, NodeGroup, NodeSource } from '../api/types'
+import type { Node, NodeGroup } from '../api/types'
 import { nodeSourceLabel } from '../utils/nodeSource'
+import { NODE_SOURCES } from '../utils/nodeFilters'
 import NodeCard from '../components/NodeCard.vue'
 import NodeEditForm from '../components/NodeEditForm.vue'
 import NodeMultiSelect from '../components/NodeMultiSelect.vue'
 import ImportDialog from '../components/ImportDialog.vue'
+import CountryFlag from '../components/CountryFlag.vue'
 import {
   PlusIcon,
   ArrowDownTrayIcon,
   ArrowPathIcon,
+  ListBulletIcon,
   DocumentArrowDownIcon,
   PencilSquareIcon,
   RectangleStackIcon,
+  Squares2X2Icon,
   TrashIcon,
   XMarkIcon,
 } from '@heroicons/vue/24/outline'
 
 type NodeTab = 'single' | 'groups'
+type ViewMode = 'card' | 'list'
 
 const nodesStore = useNodesStore()
 const nodeGroups = useNodeGroupsStore()
@@ -38,14 +43,16 @@ const editingGroup = ref<NodeGroup | null>(null)
 const selected = ref<Set<number>>(new Set())
 const busy = ref(false)
 const activeTab = ref<NodeTab>('single')
+const nodeViewMode = ref<ViewMode>('card')
+const groupViewMode = ref<ViewMode>('card')
 const groupForm = ref({ name: '', description: '', node_ids: [] as number[] })
 
-const SOURCES: NodeSource[] = ['protocol', 'subscription', 'config', 'manual']
 const loading = computed(() => nodesStore.loading || nodeGroups.loading)
 const allNodeOptions = computed(() => (nodesStore.unfilteredNodes.length ? nodesStore.unfilteredNodes : nodesStore.nodes))
 const allFilteredSelected = computed(
   () => nodesStore.nodes.length > 0 && nodesStore.nodes.every((n) => selected.value.has(n.id)),
 )
+const activeViewMode = computed(() => (activeTab.value === 'single' ? nodeViewMode.value : groupViewMode.value))
 
 onMounted(load)
 
@@ -98,6 +105,11 @@ function nodeLabel(id: number) {
 
 function clearSearch() {
   nodesStore.filters.search = ''
+}
+
+function setViewMode(mode: ViewMode) {
+  if (activeTab.value === 'single') nodeViewMode.value = mode
+  else groupViewMode.value = mode
 }
 
 function openCreateGroup() {
@@ -193,6 +205,19 @@ async function exportTemplate() {
     busy.value = false
   }
 }
+
+async function exportLinks() {
+  if (!selected.value.size) return ui.info('请先选择节点')
+  busy.value = true
+  try {
+    await downloadPost('/nodes/export/links', { node_ids: [...selected.value] }, 'nodes-links.txt')
+    ui.success('已导出 nodes-links.txt')
+  } catch (e) {
+    ui.error(errMsg(e))
+  } finally {
+    busy.value = false
+  }
+}
 </script>
 
 <template>
@@ -216,7 +241,7 @@ async function exportTemplate() {
         </div>
         <select v-model="nodesStore.filters.source" class="select select-bordered select-sm">
           <option value="">{{ i18n.t('全部来源') }}</option>
-          <option v-for="s in SOURCES" :key="s" :value="s">{{ i18n.t(nodeSourceLabel(s)) }}</option>
+          <option v-for="s in NODE_SOURCES" :key="s" :value="s">{{ i18n.t(nodeSourceLabel(s)) }}</option>
         </select>
         <select v-model="nodesStore.filters.country" class="select select-bordered select-sm">
           <option value="">{{ i18n.t('全部国家') }}</option>
@@ -229,13 +254,23 @@ async function exportTemplate() {
       </div>
     </div>
 
-    <div role="tablist" class="tabs tabs-boxed self-start">
-      <button role="tab" class="tab" :class="{ 'tab-active': activeTab === 'single' }" @click="activeTab = 'single'">
-        {{ i18n.t('单节点') }}
-      </button>
-      <button role="tab" class="tab" :class="{ 'tab-active': activeTab === 'groups' }" @click="activeTab = 'groups'">
-        {{ i18n.t('组合节点') }}
-      </button>
+    <div class="flex items-center justify-between gap-2 flex-wrap">
+      <div role="tablist" class="tabs tabs-boxed">
+        <button role="tab" class="tab" :class="{ 'tab-active': activeTab === 'single' }" @click="activeTab = 'single'">
+          {{ i18n.t('单节点') }}
+        </button>
+        <button role="tab" class="tab" :class="{ 'tab-active': activeTab === 'groups' }" @click="activeTab = 'groups'">
+          {{ i18n.t('组合节点') }}
+        </button>
+      </div>
+      <div class="join">
+        <button type="button" class="btn btn-sm join-item" :class="{ 'btn-active': activeViewMode === 'card' }" @click="setViewMode('card')">
+          <Squares2X2Icon class="h-4 w-4" /> {{ i18n.t('卡片') }}
+        </button>
+        <button type="button" class="btn btn-sm join-item" :class="{ 'btn-active': activeViewMode === 'list' }" @click="setViewMode('list')">
+          <ListBulletIcon class="h-4 w-4" /> {{ i18n.t('列表') }}
+        </button>
+      </div>
     </div>
 
     <div v-if="loading" class="flex justify-center py-10">
@@ -256,9 +291,15 @@ async function exportTemplate() {
             <button class="btn btn-sm" @click="refreshCountry" :disabled="busy || !selected.size">
               <ArrowPathIcon class="h-4 w-4" /> {{ i18n.t('刷新国家') }}
             </button>
-            <button class="btn btn-sm" @click="exportTemplate" :disabled="busy || !selected.size">
-              <DocumentArrowDownIcon class="h-4 w-4" /> {{ i18n.t('导出模板') }}
-            </button>
+            <div class="dropdown dropdown-end">
+              <button tabindex="0" type="button" class="btn btn-sm" :disabled="busy || !selected.size">
+                <DocumentArrowDownIcon class="h-4 w-4" /> {{ i18n.t('导出') }}
+              </button>
+              <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-20 w-40 p-2 shadow border border-base-300">
+                <li><button type="button" @click="exportTemplate">{{ i18n.t('模板 JSON') }}</button></li>
+                <li><button type="button" @click="exportLinks">{{ i18n.t('协议链接') }}</button></li>
+              </ul>
+            </div>
             <button class="btn btn-sm btn-primary" @click="showImport = true">
               <ArrowDownTrayIcon class="h-4 w-4" /> {{ i18n.t('导入') }}
             </button>
@@ -270,7 +311,7 @@ async function exportTemplate() {
         <div v-if="!nodesStore.nodes.length" class="text-center py-10 opacity-60 bg-base-100 border border-base-300 rounded-box">
           {{ i18n.t('暂无节点，点击「导入」或「新建」添加。') }}
         </div>
-        <div v-else class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div v-else-if="nodeViewMode === 'card'" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <NodeCard
             v-for="n in nodesStore.nodes"
             :key="n.id"
@@ -280,6 +321,48 @@ async function exportTemplate() {
             @remove="remove(n)"
             @toggle-select="toggleSelect(n.id)"
           />
+        </div>
+        <div v-else class="overflow-x-auto bg-base-100 border border-base-300 rounded-box">
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th class="w-10"></th>
+                <th>{{ i18n.t('标签') }}</th>
+                <th>{{ i18n.t('服务器') }}</th>
+                <th>{{ i18n.t('协议类型') }}</th>
+                <th>{{ i18n.t('国家') }}</th>
+                <th>{{ i18n.t('来源') }}</th>
+                <th class="text-right">{{ i18n.t('操作') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="n in nodesStore.nodes"
+                :key="n.id"
+                class="cursor-pointer hover:bg-base-200/70"
+                :class="{ 'bg-base-200': selected.has(n.id) }"
+                @click="toggleSelect(n.id)"
+              >
+                <td>
+                  <input type="checkbox" class="checkbox checkbox-sm" :checked="selected.has(n.id)" @click.stop @change="toggleSelect(n.id)" />
+                </td>
+                <td class="font-medium max-w-64 truncate" :title="n.tag">{{ n.tag }}</td>
+                <td class="mono text-xs opacity-80">{{ n.server }}:{{ n.server_port }}</td>
+                <td><span class="badge badge-outline badge-sm">{{ n.type }}</span></td>
+                <td>
+                  <CountryFlag v-if="n.country_code" :code="n.country_code" />
+                  <span v-else class="opacity-50">-</span>
+                </td>
+                <td><span class="badge badge-sm badge-neutral">{{ i18n.t(nodeSourceLabel(n.source)) }}</span></td>
+                <td class="text-right">
+                  <div class="flex justify-end gap-1">
+                    <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('编辑节点')" @click.stop="openEdit(n)"><PencilSquareIcon class="h-4 w-4" /></button>
+                    <button type="button" class="btn btn-xs btn-ghost text-error" :title="i18n.t('删除')" @click.stop="remove(n)"><TrashIcon class="h-4 w-4" /></button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </section>
 
@@ -296,7 +379,7 @@ async function exportTemplate() {
         <div v-if="!nodeGroups.groups.length" class="text-center py-10 opacity-60 bg-base-100 border border-base-300 rounded-box">
           {{ i18n.t('暂无组合节点。') }}
         </div>
-        <div v-else class="flex flex-col gap-3">
+        <div v-else-if="groupViewMode === 'card'" class="flex flex-col gap-3">
           <div v-for="g in nodeGroups.groups" :key="g.id" class="card bg-base-100 border border-base-300 shadow-sm">
             <div class="card-body p-4 gap-3">
               <div class="flex items-start justify-between gap-2">
@@ -305,8 +388,8 @@ async function exportTemplate() {
                   <p v-if="g.description" class="text-xs opacity-70 truncate">{{ g.description }}</p>
                 </div>
                 <div class="flex gap-1">
-                  <button class="btn btn-xs btn-ghost" @click="openEditGroup(g)"><PencilSquareIcon class="h-4 w-4" /></button>
-                  <button class="btn btn-xs btn-ghost text-error" @click="removeGroup(g)"><TrashIcon class="h-4 w-4" /></button>
+                  <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('编辑组合节点')" @click="openEditGroup(g)"><PencilSquareIcon class="h-4 w-4" /></button>
+                  <button type="button" class="btn btn-xs btn-ghost text-error" :title="i18n.t('删除')" @click="removeGroup(g)"><TrashIcon class="h-4 w-4" /></button>
                 </div>
               </div>
               <div class="flex flex-wrap gap-1">
@@ -315,6 +398,36 @@ async function exportTemplate() {
               </div>
             </div>
           </div>
+        </div>
+        <div v-else class="overflow-x-auto bg-base-100 border border-base-300 rounded-box">
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th>{{ i18n.t('名称') }}</th>
+                <th>{{ i18n.t('描述') }}</th>
+                <th>{{ i18n.t('节点') }}</th>
+                <th class="text-right">{{ i18n.t('操作') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="g in nodeGroups.groups" :key="g.id" class="hover:bg-base-200/70">
+                <td class="font-medium max-w-64 truncate" :title="g.name">{{ g.name }}</td>
+                <td class="max-w-80 truncate opacity-70" :title="g.description">{{ g.description || '-' }}</td>
+                <td>
+                  <div class="flex flex-wrap gap-1">
+                    <span v-for="id in g.node_ids.slice(0, 6)" :key="id" class="badge badge-sm badge-ghost max-w-full truncate">{{ nodeLabel(id) }}</span>
+                    <span v-if="g.node_ids.length > 6" class="badge badge-sm">+{{ g.node_ids.length - 6 }}</span>
+                  </div>
+                </td>
+                <td class="text-right">
+                  <div class="flex justify-end gap-1">
+                    <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('编辑组合节点')" @click="openEditGroup(g)"><PencilSquareIcon class="h-4 w-4" /></button>
+                    <button type="button" class="btn btn-xs btn-ghost text-error" :title="i18n.t('删除')" @click="removeGroup(g)"><TrashIcon class="h-4 w-4" /></button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </section>
     </template>

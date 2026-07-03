@@ -438,6 +438,26 @@ func TestNodeUsageEndpoint(t *testing.T) {
 	}
 }
 
+func TestExportLinksRejectsUnsupportedNode(t *testing.T) {
+	_, ts := testServer(t)
+	c := newClient(t, ts.URL)
+	c.http.Jar = login(t, ts.URL)
+
+	var node struct {
+		ID int64 `json:"id"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/nodes", map[string]string{
+		"raw": `{"type":"direct","tag":"direct"}`,
+	}), &node)
+
+	status, code, msg := decodeError(t, c.do(http.MethodPost, "/api/nodes/export/links", map[string]any{
+		"node_ids": []int64{node.ID},
+	}))
+	if status != http.StatusUnprocessableEntity || code != "unsupported_node" || !strings.Contains(msg, "unsupported outbound type") {
+		t.Fatalf("export unsupported status=%d code=%q msg=%q", status, code, msg)
+	}
+}
+
 // TestFullFlow exercises login → import links → create profile → public sub →
 // kernel validate, the primary end-to-end path.
 func TestFullFlow(t *testing.T) {
@@ -493,6 +513,28 @@ func TestFullFlow(t *testing.T) {
 		t.Errorf("country detection wrong: %+v", countries)
 	}
 
+	exportResp := c.do(http.MethodPost, "/api/nodes/export/links", map[string]any{"node_ids": nodeIDs})
+	if exportResp.StatusCode != http.StatusOK {
+		status, code, msg := decodeError(t, exportResp)
+		t.Fatalf("export links status=%d code=%q msg=%q", status, code, msg)
+	}
+	if got := exportResp.Header.Get("Content-Type"); !strings.Contains(got, "text/plain") {
+		t.Fatalf("export links content-type = %q", got)
+	}
+	if got := exportResp.Header.Get("Content-Disposition"); !strings.Contains(got, "nodes-links.txt") {
+		t.Fatalf("export links disposition = %q", got)
+	}
+	exportBody := new(bytes.Buffer)
+	exportBody.ReadFrom(exportResp.Body)
+	exportResp.Body.Close()
+	exportText := exportBody.String()
+	if !strings.Contains(exportText, "ss://") || !strings.Contains(exportText, "vmess://") {
+		t.Fatalf("export links body = %q", exportText)
+	}
+	if strings.Contains(exportText, "%23HK") || strings.Contains(exportText, "%23JP") {
+		t.Fatalf("export links leaked country server marker: %q", exportText)
+	}
+
 	// find the fakeip template id
 	var templates []struct {
 		ID   int64  `json:"id"`
@@ -545,6 +587,12 @@ func TestFullFlow(t *testing.T) {
 	defer pubResp.Body.Close()
 	if pubResp.StatusCode != http.StatusOK {
 		t.Fatalf("public sub status %d", pubResp.StatusCode)
+	}
+	if got := pubResp.Header.Get("Content-Type"); !strings.Contains(got, "application/json") {
+		t.Fatalf("public sub content-type = %q, want application/json", got)
+	}
+	if got := pubResp.Header.Get("Content-Disposition"); got != "" {
+		t.Fatalf("public sub should render inline without content-disposition, got %q", got)
 	}
 	buf := new(bytes.Buffer)
 	buf.ReadFrom(pubResp.Body)

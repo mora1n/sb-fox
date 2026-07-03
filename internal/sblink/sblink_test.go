@@ -36,6 +36,15 @@ func nested(t *testing.T, m *merge.OrderedMap, key string) *merge.OrderedMap {
 	return om
 }
 
+func scalarField(t *testing.T, m *merge.OrderedMap, key string) string {
+	t.Helper()
+	v, ok := m.Get(key)
+	if !ok {
+		t.Fatalf("missing field %q", key)
+	}
+	return scalarString(v)
+}
+
 func TestParseShadowsocksLegacy(t *testing.T) {
 	// legacy: ss://base64(method:password)@host:port#tag
 	userinfo := base64.StdEncoding.EncodeToString([]byte("aes-256-gcm:secretpass"))
@@ -281,6 +290,120 @@ func TestServerHashCCStripped(t *testing.T) {
 	}
 	if got := field(t, out, "server"); got != "relay.example.com" {
 		t.Errorf("server not cleaned of #CN: %q", got)
+	}
+}
+
+func TestEncodeRoundTripLinks(t *testing.T) {
+	ssUserinfo := base64.StdEncoding.EncodeToString([]byte("aes-256-gcm:pw"))
+	vmessJSON, _ := json.Marshal(map[string]any{
+		"v": "2", "ps": "JP-WS", "add": "jp.example.com", "port": "443",
+		"id": "b831381d-6324-4d53-ad4f-8cda48b30811", "aid": "0", "scy": "auto",
+		"net": "ws", "type": "none", "host": "jp.example.com", "path": "/path", "tls": "tls",
+	})
+	uris := []string{
+		"ss://" + ssUserinfo + "@1.1.1.1:8388#A",
+		"vmess://" + base64.StdEncoding.EncodeToString(vmessJSON),
+		"vless://uuid-1234@vless.example.com:443?encryption=none&security=reality&sni=www.microsoft.com&fp=chrome&pbk=publickeyxyz&sid=abcd&flow=xtls-rprx-vision&type=tcp#Reality",
+		"trojan://mypassword@trojan.example.com:443?security=tls&sni=trojan.example.com&type=ws&path=%2Fws#Trojan",
+		"hysteria2://pass123@hy2.example.com:8443?sni=hy2.example.com&obfs=salamander&obfs-password=obfspw#HY2",
+		"tuic://uuid-9:password9@tuic.example.com:443?congestion_control=bbr&sni=tuic.example.com#TUIC",
+		"naive+https://user:pass@naive.example.com:443?quic=true&sni=naive.example.com#Naive",
+	}
+
+	for _, uri := range uris {
+		t.Run(uri[:strings.Index(uri, "://")], func(t *testing.T) {
+			out, err := Parse(uri)
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded, err := Encode(out)
+			if err != nil {
+				t.Fatal(err)
+			}
+			round, err := Parse(encoded)
+			if err != nil {
+				t.Fatalf("parse encoded %q: %v", encoded, err)
+			}
+			for _, key := range []string{"type", "tag", "server", "server_port"} {
+				if scalarField(t, round, key) != scalarField(t, out, key) {
+					t.Fatalf("%s roundtrip = %q, want %q\nencoded=%s", key, scalarField(t, round, key), scalarField(t, out, key), encoded)
+				}
+			}
+			assertProtocolRoundTrip(t, out, round)
+		})
+	}
+}
+
+func TestEncodeCleansServerCountryOverride(t *testing.T) {
+	out := merge.NewOrderedMap()
+	out.Set("type", "shadowsocks")
+	out.Set("tag", "Relay")
+	out.Set("server", "relay.example.com#CN")
+	out.Set("server_port", intNumber(8388))
+	out.Set("method", "aes-256-gcm")
+	out.Set("password", "pw")
+
+	encoded, err := Encode(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(encoded, "%23CN") || strings.Contains(encoded, "relay.example.com#CN") {
+		t.Fatalf("encoded link still contains country override: %s", encoded)
+	}
+	round, err := Parse(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := field(t, round, "server"); got != "relay.example.com" {
+		t.Fatalf("server = %q", got)
+	}
+}
+
+func assertProtocolRoundTrip(t *testing.T, want, got *merge.OrderedMap) {
+	t.Helper()
+	switch field(t, want, "type") {
+	case "shadowsocks":
+		for _, key := range []string{"method", "password"} {
+			if field(t, got, key) != field(t, want, key) {
+				t.Fatalf("%s = %q, want %q", key, field(t, got, key), field(t, want, key))
+			}
+		}
+	case "vmess":
+		for _, key := range []string{"uuid", "alter_id"} {
+			if scalarField(t, got, key) != scalarField(t, want, key) {
+				t.Fatalf("%s = %q, want %q", key, scalarField(t, got, key), scalarField(t, want, key))
+			}
+		}
+	case "vless":
+		for _, key := range []string{"uuid", "flow"} {
+			if field(t, got, key) != field(t, want, key) {
+				t.Fatalf("%s = %q, want %q", key, field(t, got, key), field(t, want, key))
+			}
+		}
+		gotReality := nested(t, nested(t, got, "tls"), "reality")
+		wantReality := nested(t, nested(t, want, "tls"), "reality")
+		if field(t, gotReality, "public_key") != field(t, wantReality, "public_key") {
+			t.Fatalf("reality public_key = %q, want %q", field(t, gotReality, "public_key"), field(t, wantReality, "public_key"))
+		}
+	case "trojan", "hysteria2":
+		if field(t, got, "password") != field(t, want, "password") {
+			t.Fatalf("password = %q, want %q", field(t, got, "password"), field(t, want, "password"))
+		}
+	case "tuic":
+		for _, key := range []string{"uuid", "password", "congestion_control"} {
+			if field(t, got, key) != field(t, want, key) {
+				t.Fatalf("%s = %q, want %q", key, field(t, got, key), field(t, want, key))
+			}
+		}
+	case "naive":
+		for _, key := range []string{"username", "password"} {
+			if field(t, got, key) != field(t, want, key) {
+				t.Fatalf("%s = %q, want %q", key, field(t, got, key), field(t, want, key))
+			}
+		}
+		if gotQuic, _ := got.Get("quic"); gotQuic != true {
+			t.Fatalf("quic = %v", gotQuic)
+		}
 	}
 }
 

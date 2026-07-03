@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { del, get, post, put } from '../api/client'
 import type { ImportResult, Node, NodeUsage } from '../api/types'
 import { useSettingsStore } from './settings'
-import { sortCountryCodes } from '../utils/countries'
+import { nodeCountries, nodeTypes } from '../utils/nodeFilters'
 
 export interface NodeFilters {
   search: string
@@ -96,12 +96,10 @@ export const useNodesStore = defineStore('nodes', () => {
   }
 
   // distinct filter option values derived from the loaded set
-  const countries = computed(() =>
-    sortCountryCodes([...new Set(nodes.value.map((n) => n.country_code).filter(Boolean))], settings.countryHeatOrder),
-  )
+  const filterOptionNodes = computed(() => (unfilteredNodes.value.length ? unfilteredNodes.value : nodes.value))
+  const countries = computed(() => nodeCountries(filterOptionNodes.value, settings.countryHeatOrder))
   const types = computed(() => {
-    const source = unfilteredNodes.value.length ? unfilteredNodes.value : nodes.value
-    return [...new Set(source.map((n) => n.type).filter(Boolean))].sort()
+    return nodeTypes(filterOptionNodes.value)
   })
 
   return {

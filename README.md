@@ -63,9 +63,9 @@ sudo sb-fox --daemon
 sudo sb-fox --daemon restart
 ```
 
-`--daemon` 默认等同 `--daemon enable`，会生成 systemd service，执行 `systemctl enable --now sb-fox`，并使用以下默认位置。可用命令为 `enable`、`start`、`stop`、`restart`、`disable`，其中 `enable` / `disable` 会带 `--now` 同时影响当前运行状态。
+`--daemon` 默认等同 `--daemon enable`，会生成 systemd service，执行 `systemctl enable sb-fox` 后重启服务，并使用以下默认位置。可用命令为 `enable`、`start`、`stop`、`restart`、`disable`，其中 `enable` 会启用并重启当前服务，`disable` 会停止并禁用服务。
 
-首次启用守护进程时，命令会在当前终端显示一次性 admin 密码。
+首次启用守护进程时，命令会在当前终端显示一次性 admin 密码。若 admin 已存在，旧密码无法再次显示，可用 `sudo sb-fox -P` 重置。
 
 - 单实例 socket：`/var/run/sb-fox.sock`
 - 数据目录：`/var/lib/sb-fox`
@@ -162,7 +162,7 @@ sing-box check -c data/templates/fakeip.json
 
 ## 安全
 
-`/sub/{token}/{订阅名称}` 链接是公开下载入口。token 是用户级共享凭据，任何拿到完整链接的人都可以下载生成配置；如果 token 泄露，应及时轮换。
+`/sub/{token}/{订阅名称}` 链接是公开订阅入口，会直接返回生成后的 JSON 配置。token 是用户级共享凭据，任何拿到完整链接的人都可以获取完整配置；如果 token 泄露，应及时轮换。
 
 远程订阅抓取默认拒绝私网、环回和云元数据地址。只有在可信网络环境中才建议开启私网地址抓取。
 

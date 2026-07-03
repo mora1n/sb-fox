@@ -18,7 +18,15 @@ const sourceCls: Record<string, string> = {
 </script>
 
 <template>
-  <div class="card bg-base-100 shadow-sm border border-base-300" :class="{ 'ring-2 ring-primary': selected }">
+  <div
+    class="card bg-base-100 shadow-sm border border-base-300 cursor-pointer transition-colors hover:bg-base-200/60"
+    :class="{ 'ring-2 ring-primary': selected }"
+    role="button"
+    tabindex="0"
+    @click="$emit('toggle-select')"
+    @keydown.enter.prevent="$emit('toggle-select')"
+    @keydown.space.prevent="$emit('toggle-select')"
+  >
     <div class="card-body p-4 gap-2">
       <div class="flex items-start justify-between gap-2">
         <div class="flex items-center gap-2 min-w-0">
@@ -26,13 +34,15 @@ const sourceCls: Record<string, string> = {
             type="checkbox"
             class="checkbox checkbox-sm"
             :checked="selected"
+            @click.stop
+            @keydown.stop
             @change="$emit('toggle-select')"
           />
           <span class="font-semibold truncate" :title="node.tag">{{ node.tag }}</span>
         </div>
         <div class="flex gap-1 flex-none">
-          <button class="btn btn-xs btn-ghost" @click="$emit('edit')"><PencilSquareIcon class="h-4 w-4" /></button>
-          <button class="btn btn-xs btn-ghost text-error" @click="$emit('remove')"><TrashIcon class="h-4 w-4" /></button>
+          <button class="btn btn-xs btn-ghost" @click.stop="$emit('edit')" @keydown.stop><PencilSquareIcon class="h-4 w-4" /></button>
+          <button class="btn btn-xs btn-ghost text-error" @click.stop="$emit('remove')" @keydown.stop><TrashIcon class="h-4 w-4" /></button>
         </div>
       </div>
       <div class="text-xs opacity-70 truncate mono">{{ node.server }}:{{ node.server_port }}</div>

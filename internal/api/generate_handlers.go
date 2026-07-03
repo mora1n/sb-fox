@@ -184,7 +184,6 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request, toke
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="config.json"`)
 	_, _ = w.Write(config)
 }
 

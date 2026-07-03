@@ -125,18 +125,21 @@ func ControlDaemon(opts Options, command string) error {
 		if err := prepareDaemonService(opts); err != nil {
 			return err
 		}
-		if err := ensureDaemonAdmin(opts); err != nil {
+		if err := ensureDaemonAdmin(opts, true); err != nil {
 			return err
 		}
-		if err := runSystemctl(opts, "enable", "--now", ServiceName); err != nil {
+		if err := runSystemctl(opts, "enable", ServiceName); err != nil {
 			return err
 		}
-		return finishDaemonStart(opts, "sb-fox service enabled and started")
+		if err := runSystemctl(opts, "restart", ServiceName); err != nil {
+			return err
+		}
+		return finishDaemonStart(opts, "sb-fox service enabled and restarted")
 	case "start":
 		if err := prepareDaemonService(opts); err != nil {
 			return err
 		}
-		if err := ensureDaemonAdmin(opts); err != nil {
+		if err := ensureDaemonAdmin(opts, false); err != nil {
 			return err
 		}
 		if err := runSystemctl(opts, "start", ServiceName); err != nil {
@@ -147,7 +150,7 @@ func ControlDaemon(opts Options, command string) error {
 		if err := prepareDaemonService(opts); err != nil {
 			return err
 		}
-		if err := ensureDaemonAdmin(opts); err != nil {
+		if err := ensureDaemonAdmin(opts, false); err != nil {
 			return err
 		}
 		if err := runSystemctl(opts, "restart", ServiceName); err != nil {
@@ -195,7 +198,7 @@ func prepareDaemonService(opts Options) error {
 	return nil
 }
 
-func ensureDaemonAdmin(opts Options) error {
+func ensureDaemonAdmin(opts Options, printExistingHint bool) error {
 	db, err := store.Open(filepath.Join(opts.rooted(opts.DataDir), "sb-fox.db"))
 	if err != nil {
 		return err
@@ -205,12 +208,19 @@ func ensureDaemonAdmin(opts Options) error {
 	if err != nil {
 		return err
 	}
-	printAdminInit(opts.Stdout, result)
+	printAdminInit(opts.Stdout, result, printExistingHint)
 	return nil
 }
 
-func printAdminInit(w io.Writer, result *bootstrap.AdminInit) {
-	if result == nil || !result.Created {
+func printAdminInit(w io.Writer, result *bootstrap.AdminInit, printExistingHint bool) {
+	if result == nil {
+		return
+	}
+	if !result.Created {
+		if printExistingHint {
+			fmt.Fprintln(w, "admin already exists; existing password cannot be shown")
+			fmt.Fprintln(w, "reset admin: sudo sb-fox -P")
+		}
 		return
 	}
 	if result.Generated {

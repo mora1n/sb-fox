@@ -119,6 +119,11 @@ function parseOptions(s: string): ProfileOptions {
       }
     }
     const chain = raw.chainProxySelection as Partial<NodeSelection> | undefined
+    const legacyChainIDs = Array.isArray(raw.chainProxyNodeIds)
+      ? raw.chainProxyNodeIds.map(Number).filter(Boolean)
+      : raw.chainProxyNodeId
+        ? [Number(raw.chainProxyNodeId)].filter(Boolean)
+        : []
     return {
       autoCountryGroups: raw.autoCountryGroups !== false,
       chainProxy: !!raw.chainProxy,
@@ -130,6 +135,13 @@ function parseOptions(s: string): ProfileOptions {
             outboundRefs: [],
             skipCountryGroups: false,
           }
+        : legacyChainIDs.length
+          ? {
+              nodeIds: legacyChainIDs,
+              nodeGroupIds: [],
+              outboundRefs: [],
+              skipCountryGroups: false,
+            }
         : undefined,
     }
   } catch {
@@ -196,20 +208,38 @@ function openCreate() {
 }
 
 function openEdit(p: Profile) {
+  const options = parseOptions(p.options)
+  const legacyNodeIDs = [...p.node_ids]
+  const legacyNodeGroupIDs = [...(p.node_group_ids ?? [])]
+  const shouldHydrateLegacySelection =
+    !selectionMapHasAny(options.groupSelections) && (legacyNodeIDs.length > 0 || legacyNodeGroupIDs.length > 0)
   editing.value = p
   form.value = {
     name: p.name,
     template_id: p.template_id,
-    node_ids: [...p.node_ids],
-    node_group_ids: [...(p.node_group_ids ?? [])],
-    options: parseOptions(p.options),
+    node_ids: legacyNodeIDs,
+    node_group_ids: legacyNodeGroupIDs,
+    options,
   }
   config.value = ''
   validation.value = null
   structure.value = null
   activeGroup.value = ''
   showForm.value = true
-  loadStructure(p.template_id).catch((e) => ui.error(errMsg(e)))
+  loadStructure(p.template_id)
+    .then(() => {
+      if (shouldHydrateLegacySelection) hydrateLegacySelection(legacyNodeIDs, legacyNodeGroupIDs)
+    })
+    .catch((e) => ui.error(errMsg(e)))
+}
+
+function hydrateLegacySelection(nodeIDs: number[], nodeGroupIDs: number[]) {
+  const finalTag = structure.value?.final || structure.value?.groups[0]?.tag || ''
+  if (!finalTag) return
+  const sel = selectionFor(finalTag)
+  if (hasSelection(sel)) return
+  sel.nodeIds = [...nodeIDs]
+  sel.nodeGroupIds = [...nodeGroupIDs]
 }
 
 function cleanSelections(options: ProfileOptions): ProfileOptions {
@@ -254,6 +284,10 @@ function buildPayload(): ProfilePayload {
 
 function hasSelection(sel: NodeSelection) {
   return sel.nodeIds.length > 0 || sel.nodeGroupIds.length > 0 || sel.outboundRefs.length > 0
+}
+
+function selectionMapHasAny(selections: Record<string, NodeSelection> | undefined) {
+  return Object.values(selections ?? {}).some(hasSelection)
 }
 
 function validateForm() {
@@ -442,8 +476,8 @@ async function remove(p: Profile) {
               </div>
             </div>
             <div class="flex gap-1">
-              <button class="btn btn-xs btn-ghost" @click="openEdit(p)"><PencilSquareIcon class="h-4 w-4" /></button>
-              <button class="btn btn-xs btn-ghost text-error" @click="remove(p)"><TrashIcon class="h-4 w-4" /></button>
+              <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('编辑订阅')" @click="openEdit(p)"><PencilSquareIcon class="h-4 w-4" /></button>
+              <button type="button" class="btn btn-xs btn-ghost text-error" :title="i18n.t('删除')" @click="remove(p)"><TrashIcon class="h-4 w-4" /></button>
             </div>
           </div>
           <div class="flex flex-wrap gap-1">
