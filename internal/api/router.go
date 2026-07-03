@@ -110,6 +110,7 @@ func (s *Server) mountAuthed(r chi.Router) {
 	r.Post("/profiles", s.handleCreateProfile)
 	r.Get("/profiles/{id}", s.handleGetProfile)
 	r.Put("/profiles/{id}", s.handleUpdateProfile)
+	r.Put("/profiles/{id}/subscription-enabled", s.handleSetProfileSubscriptionEnabled)
 	r.Delete("/profiles/{id}", s.handleDeleteProfile)
 
 	r.Post("/generate/preview", s.handlePreview)

@@ -224,4 +224,7 @@ var migrations = []string{
 
 	// 12: per-user country heat order override.
 	`ALTER TABLE users ADD COLUMN country_heat_order TEXT NOT NULL DEFAULT '';`,
+
+	// 13: per-profile public subscription switch.
+	`ALTER TABLE profiles ADD COLUMN subscription_enabled INTEGER NOT NULL DEFAULT 1;`,
 }

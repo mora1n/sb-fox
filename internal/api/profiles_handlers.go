@@ -36,11 +36,16 @@ func (s *Server) handleGetProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 type profileRequest struct {
-	Name         string                `json:"name"`
-	TemplateID   int64                 `json:"template_id"`
-	NodeIDs      []int64               `json:"node_ids"`
-	NodeGroupIDs []int64               `json:"node_group_ids"`
-	Options      models.ProfileOptions `json:"options"`
+	Name                string                `json:"name"`
+	TemplateID          int64                 `json:"template_id"`
+	NodeIDs             []int64               `json:"node_ids"`
+	NodeGroupIDs        []int64               `json:"node_group_ids"`
+	Options             models.ProfileOptions `json:"options"`
+	SubscriptionEnabled *bool                 `json:"subscription_enabled"`
+}
+
+type subscriptionEnabledRequest struct {
+	SubscriptionEnabled bool `json:"subscription_enabled"`
 }
 
 // handleCreateProfile creates a profile. Public subscription access uses the
@@ -96,12 +101,14 @@ func (s *Server) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := &models.Profile{
-		OwnerUserID:  u.ID,
-		Name:         req.Name,
-		TemplateID:   req.TemplateID,
-		Options:      marshalOptions(req.Options),
-		NodeIDs:      req.NodeIDs,
-		NodeGroupIDs: req.NodeGroupIDs,
+		OwnerUserID:   u.ID,
+		Name:          req.Name,
+		TemplateID:    req.TemplateID,
+		Options:       marshalOptions(req.Options),
+		SubEnabled:    requestSubscriptionEnabled(req, true),
+		SubEnabledSet: true,
+		NodeIDs:       req.NodeIDs,
+		NodeGroupIDs:  req.NodeGroupIDs,
 	}
 	id, err := s.Store.CreateProfile(p)
 	if err != nil {
@@ -175,6 +182,7 @@ func (s *Server) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 	existing.Name = req.Name
 	existing.TemplateID = req.TemplateID
 	existing.Options = marshalOptions(req.Options)
+	existing.SubEnabled = requestSubscriptionEnabled(req, existing.SubEnabled)
 	existing.NodeIDs = req.NodeIDs
 	existing.NodeGroupIDs = req.NodeGroupIDs
 	if err := s.Store.UpdateProfile(existing); err != nil {
@@ -182,6 +190,29 @@ func (s *Server) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondJSON(w, http.StatusOK, existing)
+}
+
+func (s *Server) handleSetProfileSubscriptionEnabled(w http.ResponseWriter, r *http.Request) {
+	ownerID, allOwners := ownerScope(r)
+	p, err := s.Store.GetProfileForUser(pathID(r), ownerID, allOwners)
+	if err == store.ErrNotFound {
+		respondError(w, http.StatusNotFound, "not_found", "profile not found")
+		return
+	}
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	var req subscriptionEnabledRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if err := s.Store.SetProfileSubscriptionEnabled(p.ID, req.SubscriptionEnabled); err != nil {
+		respondError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	p.SubEnabled = req.SubscriptionEnabled
+	respondJSON(w, http.StatusOK, p)
 }
 
 // handleDeleteProfile removes a profile.
@@ -233,6 +264,13 @@ func marshalOptions(o models.ProfileOptions) string {
 		return "{}"
 	}
 	return string(b)
+}
+
+func requestSubscriptionEnabled(req profileRequest, fallback bool) bool {
+	if req.SubscriptionEnabled == nil {
+		return fallback
+	}
+	return *req.SubscriptionEnabled
 }
 
 func normalizeProfileRequestOptions(req *profileRequest) {

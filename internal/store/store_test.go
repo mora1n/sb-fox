@@ -221,9 +221,44 @@ func TestProfileWithNodes(t *testing.T) {
 	if len(got.NodeIDs) != 3 || got.NodeIDs[0] != nodeIDs[2] || got.NodeIDs[2] != nodeIDs[1] {
 		t.Errorf("node order not preserved: %v", got.NodeIDs)
 	}
+	if !got.SubEnabled {
+		t.Fatal("profile subscription should be enabled by default")
+	}
+	if err := s.SetProfileSubscriptionEnabled(pid, false); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.GetProfile(pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SubEnabled {
+		t.Fatal("profile subscription switch was not persisted")
+	}
 	byName, err := s.GetProfileByNameForUser("prof1", ownerID)
 	if err != nil || byName.ID != pid {
 		t.Fatalf("by name: %v", err)
+	}
+	if byName.SubEnabled {
+		t.Fatal("profile by name did not return persisted subscription switch")
+	}
+	disabledID, err := s.CreateProfile(&models.Profile{
+		OwnerUserID:   ownerID,
+		Name:          "prof-disabled",
+		TemplateID:    tid,
+		Options:       "{}",
+		Token:         "tok-disabled",
+		SubEnabled:    false,
+		SubEnabledSet: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	disabled, err := s.GetProfile(disabledID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if disabled.SubEnabled {
+		t.Fatal("explicitly disabled profile subscription should stay disabled")
 	}
 	u, err := s.GetUser(ownerID)
 	if err != nil {

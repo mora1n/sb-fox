@@ -33,6 +33,12 @@ export const useProfilesStore = defineStore('profiles', () => {
     return p
   }
 
+  async function setSubscriptionEnabled(id: number, enabled: boolean): Promise<Profile> {
+    const p = await put<Profile>('/profiles/' + id + '/subscription-enabled', { subscription_enabled: enabled })
+    profiles.value = profiles.value.map((item) => (item.id === id ? { ...item, subscription_enabled: p.subscription_enabled } : item))
+    return p
+  }
+
   async function remove(id: number): Promise<void> {
     await del('/profiles/' + id)
     profiles.value = profiles.value.filter((p) => p.id !== id)
@@ -58,6 +64,7 @@ export const useProfilesStore = defineStore('profiles', () => {
     getOne,
     create,
     update,
+    setSubscriptionEnabled,
     remove,
     fetchSubscriptionToken,
     rotateSubscriptionToken,

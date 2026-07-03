@@ -8,15 +8,17 @@ import (
 	"github.com/mora1n/sb-fox/internal/models"
 )
 
-const profileCols = `id, owner_user_id, name, template_id, options, token, created_at, updated_at`
+const profileCols = `id, owner_user_id, name, template_id, options, subscription_enabled, token, created_at, updated_at`
 
 func scanProfile(sc interface{ Scan(...any) error }) (*models.Profile, error) {
 	var p models.Profile
 	var created, updated string
-	if err := sc.Scan(&p.ID, &p.OwnerUserID, &p.Name, &p.TemplateID, &p.Options, &p.Token,
+	var enabled int
+	if err := sc.Scan(&p.ID, &p.OwnerUserID, &p.Name, &p.TemplateID, &p.Options, &enabled, &p.Token,
 		&created, &updated); err != nil {
 		return nil, err
 	}
+	p.SubEnabled = enabled != 0
 	p.CreatedAt = parseTime(created)
 	p.UpdatedAt = parseTime(updated)
 	return &p, nil
@@ -161,6 +163,9 @@ func (s *Store) profileNodeGroupIDs(profileID int64) ([]int64, error) {
 // CreateProfile inserts a profile and its ordered node membership in a tx.
 func (s *Store) CreateProfile(p *models.Profile) (int64, error) {
 	ts := now()
+	if !p.SubEnabledSet {
+		p.SubEnabled = true
+	}
 	if strings.TrimSpace(p.Token) == "" {
 		token, err := randomToken()
 		if err != nil {
@@ -172,8 +177,8 @@ func (s *Store) CreateProfile(p *models.Profile) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	res, err := tx.Exec(`INSERT INTO profiles (owner_user_id, name, template_id, options, token, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`, p.OwnerUserID, p.Name, p.TemplateID, p.Options, p.Token, ts, ts)
+	res, err := tx.Exec(`INSERT INTO profiles (owner_user_id, name, template_id, options, subscription_enabled, token, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, p.OwnerUserID, p.Name, p.TemplateID, p.Options, boolInt(p.SubEnabled), p.Token, ts, ts)
 	if err != nil {
 		_ = tx.Rollback()
 		return 0, err
@@ -200,8 +205,8 @@ func (s *Store) UpdateProfile(p *models.Profile) error {
 	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`UPDATE profiles SET name=?, template_id=?, options=?, updated_at=?
-		WHERE id=?`, p.Name, p.TemplateID, p.Options, now(), p.ID); err != nil {
+	if _, err := tx.Exec(`UPDATE profiles SET name=?, template_id=?, options=?, subscription_enabled=?, updated_at=?
+		WHERE id=?`, p.Name, p.TemplateID, p.Options, boolInt(p.SubEnabled), now(), p.ID); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -230,6 +235,11 @@ func (s *Store) DeleteProfile(id int64) error {
 	return err
 }
 
+func (s *Store) SetProfileSubscriptionEnabled(id int64, enabled bool) error {
+	_, err := s.db.Exec(`UPDATE profiles SET subscription_enabled = ?, updated_at = ? WHERE id = ?`, boolInt(enabled), now(), id)
+	return err
+}
+
 func (s *Store) CountProfiles(ownerUserID int64) (int, error) {
 	var n int
 	err := s.db.QueryRow(`SELECT COUNT(*) FROM profiles WHERE owner_user_id = ?`, ownerUserID).Scan(&n)
@@ -254,4 +264,11 @@ func insertProfileNodeGroups(tx *sql.Tx, profileID int64, groupIDs []int64) erro
 		}
 	}
 	return nil
+}
+
+func boolInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
 }

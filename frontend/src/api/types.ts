@@ -118,6 +118,7 @@ export interface Profile {
   name: string
   template_id: number
   options: string
+  subscription_enabled: boolean
   node_ids?: number[] | null
   node_group_ids?: number[] | null
   created_at: string
@@ -130,6 +131,7 @@ export interface ProfilePayload {
   node_ids: number[]
   node_group_ids: number[]
   options: ProfileOptions
+  subscription_enabled: boolean
 }
 
 export interface KernelStatus {

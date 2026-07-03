@@ -81,12 +81,14 @@ const form = ref<{
   template_id: number
   node_ids: number[]
   node_group_ids: number[]
+  subscription_enabled: boolean
   options: ProfileOptions
 }>({
   name: '',
   template_id: 0,
   node_ids: [],
   node_group_ids: [],
+  subscription_enabled: true,
   options: { autoCountryGroups: false, chainProxy: false, groupSelections: {} },
 })
 
@@ -212,7 +214,6 @@ function templateName(id: number) {
 function optionBadges(p: Profile) {
   const opts = parseOptions(p.options)
   const badges: string[] = []
-  if (Object.keys(opts.groupSelections ?? {}).length) badges.push(i18n.t('出口选择'))
   if (opts.chainProxy) badges.push(i18n.t('链式代理'))
   return badges
 }
@@ -222,7 +223,8 @@ function optionText(p: Profile) {
 }
 
 function profileLinkText(p: Profile) {
-  return `${tokenHost.value}/${store.subscriptionToken}/${p.name}`
+  const base = (tokenHost.value || window.location.origin).replace(/\/+$/, '')
+  return `${base}/sub/${encodeURIComponent(store.subscriptionToken)}/${encodeURIComponent(p.name)}`
 }
 
 function compareText(a: string, b: string, dir: SortDir) {
@@ -337,6 +339,7 @@ async function openCreate() {
     template_id: templates.templates[0]?.id || 0,
     node_ids: [],
     node_group_ids: [],
+    subscription_enabled: true,
     options: { autoCountryGroups: false, chainProxy: false, groupSelections: {} },
   }
   config.value = ''
@@ -365,6 +368,7 @@ async function openEdit(p: Profile) {
     template_id: p.template_id,
     node_ids: numberArray(p.node_ids),
     node_group_ids: numberArray(p.node_group_ids),
+    subscription_enabled: p.subscription_enabled,
     options: parseOptions(p.options),
   }
   config.value = ''
@@ -387,6 +391,7 @@ async function openEdit(p: Profile) {
       template_id: full.template_id,
       node_ids: legacyNodeIDs,
       node_group_ids: legacyNodeGroupIDs,
+      subscription_enabled: full.subscription_enabled,
       options,
     }
     await loadStructure(full.template_id)
@@ -408,6 +413,7 @@ async function openCopy(p: Profile) {
     template_id: p.template_id,
     node_ids: numberArray(p.node_ids),
     node_group_ids: numberArray(p.node_group_ids),
+    subscription_enabled: true,
     options: parseOptions(p.options),
   }
   config.value = ''
@@ -430,6 +436,7 @@ async function openCopy(p: Profile) {
       template_id: full.template_id,
       node_ids: legacyNodeIDs,
       node_group_ids: legacyNodeGroupIDs,
+      subscription_enabled: true,
       options,
     }
     await loadStructure(full.template_id)
@@ -502,6 +509,7 @@ function buildPayload(): ProfilePayload {
     template_id: form.value.template_id,
     node_ids: [],
     node_group_ids: [],
+    subscription_enabled: form.value.subscription_enabled,
     options: cleanSelections(form.value.options),
   }
 }
@@ -630,6 +638,45 @@ function selectAllGroups(sel: NodeSelection) {
 
 function clearGroups(sel: NodeSelection) {
   sel.nodeGroupIds = []
+}
+
+async function setProfileSubscriptionEnabled(profile: Profile, enabled: boolean) {
+  if (profile.subscription_enabled === enabled) return
+  busy.value = true
+  try {
+    await store.setSubscriptionEnabled(profile.id, enabled)
+    ui.success(enabled ? i18n.t('公开已开启') : i18n.t('公开已关闭'))
+  } catch (e) {
+    ui.error(errMsg(e))
+    try {
+      await store.fetchAll()
+    } catch (refreshErr) {
+      ui.error(errMsg(refreshErr))
+    }
+  } finally {
+    busy.value = false
+  }
+}
+
+async function setSelectedProfilesSubscriptionEnabled(enabled: boolean) {
+  const ids = store.profiles.filter((p) => selectedProfiles.value.has(p.id)).map((p) => p.id)
+  if (!ids.length) return
+  busy.value = true
+  try {
+    for (const id of ids) {
+      await store.setSubscriptionEnabled(id, enabled)
+    }
+    ui.success(enabled ? i18n.t('已开启公开') : i18n.t('已关闭公开'))
+  } catch (e) {
+    ui.error(errMsg(e))
+    try {
+      await store.fetchAll()
+    } catch (refreshErr) {
+      ui.error(errMsg(refreshErr))
+    }
+  } finally {
+    busy.value = false
+  }
 }
 
 async function submit() {
@@ -826,12 +873,21 @@ async function remove(p: Profile) {
         <button class="btn btn-sm btn-error btn-outline" @click="removeSelectedProfiles" :disabled="busy || !selectedProfiles.size">
           <TrashIcon class="h-4 w-4" /> {{ i18n.t('删除') }}
         </button>
+        <div class="dropdown dropdown-end">
+          <button tabindex="0" type="button" class="btn btn-sm" :disabled="busy || !selectedProfiles.size">
+            {{ i18n.t('公开') }}
+          </button>
+          <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-20 w-32 p-2 shadow border border-base-300" @click.stop>
+            <li><button type="button" @click="setSelectedProfilesSubscriptionEnabled(true)">{{ i18n.t('开启公开') }}</button></li>
+            <li><button type="button" @click="setSelectedProfilesSubscriptionEnabled(false)">{{ i18n.t('关闭公开') }}</button></li>
+          </ul>
+        </div>
       </div>
     </div>
 
     <div v-if="store.loading" class="flex justify-center py-10"><span class="loading loading-spinner loading-lg"></span></div>
     <div v-else-if="!store.profiles.length" class="text-center py-10 opacity-60">{{ i18n.t('暂无订阅。') }}</div>
-    <div v-else-if="profileViewMode === 'card'" class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div v-else-if="profileViewMode === 'card'" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
       <div
         v-for="p in store.profiles"
         :key="p.id"
@@ -843,7 +899,7 @@ async function remove(p: Profile) {
         @keydown.enter.prevent="toggleProfileSelect(p.id)"
         @keydown.space.prevent="toggleProfileSelect(p.id)"
       >
-        <div class="card-body p-4 gap-3">
+        <div class="card-body p-4 gap-2">
           <div class="flex items-start justify-between gap-2">
             <div class="flex items-start gap-2 min-w-0">
               <input
@@ -871,13 +927,17 @@ async function remove(p: Profile) {
             <span v-for="badge in optionBadges(p)" :key="badge" class="badge badge-sm badge-neutral">{{ badge }}</span>
           </div>
           <div v-if="store.subscriptionToken" @click.stop @keydown.stop>
+            <span class="text-xs opacity-60">{{ i18n.t('公开订阅链接') }}</span>
             <TokenLinkField
               :token="store.subscriptionToken"
               :profile-name="p.name"
               :host-prefix="tokenHost"
+              :enabled="p.subscription_enabled"
+              :show-enabled="true"
+              :disabled="busy"
+              @update:enabled="(enabled) => setProfileSubscriptionEnabled(p, enabled)"
             />
           </div>
-          <span class="text-xs opacity-60">{{ i18n.t('公开订阅链接') }}</span>
         </div>
       </div>
     </div>
@@ -924,6 +984,10 @@ async function remove(p: Profile) {
                 :token="store.subscriptionToken"
                 :profile-name="p.name"
                 :host-prefix="tokenHost"
+                :enabled="p.subscription_enabled"
+                :show-enabled="true"
+                :disabled="busy"
+                @update:enabled="(enabled) => setProfileSubscriptionEnabled(p, enabled)"
               />
               <span v-else class="opacity-50">-</span>
             </td>
@@ -964,7 +1028,7 @@ async function remove(p: Profile) {
               <span class="label-text mb-1">{{ i18n.t('模板') }}</span>
               <select v-model.number="form.template_id" class="select select-bordered select-sm">
                 <option :value="0" disabled>{{ i18n.t('选择模板') }}</option>
-                <option v-for="t in templates.templates" :key="t.id" :value="t.id">{{ t.name }} · {{ t.kind }}</option>
+                <option v-for="t in templates.templates" :key="t.id" :value="t.id">{{ t.name }}</option>
               </select>
             </label>
             <div class="form-control">

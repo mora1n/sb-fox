@@ -831,7 +831,8 @@ func TestFullFlow(t *testing.T) {
 
 	// create a profile with these nodes
 	var profile struct {
-		ID int64 `json:"id"`
+		ID                  int64 `json:"id"`
+		SubscriptionEnabled bool  `json:"subscription_enabled"`
 	}
 	decodeData(t, c.do(http.MethodPost, "/api/profiles", map[string]any{
 		"name": "myprofile", "template_id": fakeipID,
@@ -839,6 +840,9 @@ func TestFullFlow(t *testing.T) {
 	}), &profile)
 	if profile.ID == 0 {
 		t.Fatal("profile id is empty")
+	}
+	if !profile.SubscriptionEnabled {
+		t.Fatal("profile subscription should be enabled by default")
 	}
 
 	var tokenResp struct {
@@ -855,6 +859,42 @@ func TestFullFlow(t *testing.T) {
 	oldResp.Body.Close()
 	if oldResp.StatusCode != http.StatusNotFound {
 		t.Fatalf("old public sub status %d", oldResp.StatusCode)
+	}
+
+	decodeData(t, c.do(http.MethodPost, "/api/users", map[string]any{
+		"username": "other", "password": "password123",
+	}), nil)
+	otherClient := newClient(t, ts.URL)
+	otherClient.http.Jar = loginAs(t, ts.URL, "other", "password123")
+	status, _, _ := decodeError(t, otherClient.do(http.MethodPut, "/api/profiles/"+itoa(profile.ID)+"/subscription-enabled", map[string]bool{
+		"subscription_enabled": false,
+	}))
+	if status != http.StatusNotFound {
+		t.Fatalf("non-owner subscription switch status=%d", status)
+	}
+
+	var profileSwitch struct {
+		SubscriptionEnabled bool `json:"subscription_enabled"`
+	}
+	decodeData(t, c.do(http.MethodPut, "/api/profiles/"+itoa(profile.ID)+"/subscription-enabled", map[string]bool{
+		"subscription_enabled": false,
+	}), &profileSwitch)
+	if profileSwitch.SubscriptionEnabled {
+		t.Fatal("profile subscription should be disabled")
+	}
+	disabledResp, err := http.Get(ts.URL + "/sub/" + tokenResp.Token + "/myprofile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	disabledResp.Body.Close()
+	if disabledResp.StatusCode != http.StatusNotFound {
+		t.Fatalf("disabled public sub status %d", disabledResp.StatusCode)
+	}
+	decodeData(t, c.do(http.MethodPut, "/api/profiles/"+itoa(profile.ID)+"/subscription-enabled", map[string]bool{
+		"subscription_enabled": true,
+	}), &profileSwitch)
+	if !profileSwitch.SubscriptionEnabled {
+		t.Fatal("profile subscription should be enabled")
 	}
 
 	// fetch the PUBLIC subscription (no auth) and validate with the kernel

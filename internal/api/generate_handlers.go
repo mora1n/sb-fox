@@ -164,9 +164,9 @@ func (s *Server) renderProfileForUser(profileID, ownerUserID int64, allOwners bo
 }
 
 // handleSubscription is the PUBLIC, unauthenticated endpoint returning a
-// profile's config.json by token (requirement f). Anyone with the token gets
-// the full config including server secrets — tokens are 128-bit random and can
-// be rotated.
+// profile's config.json when the profile's public subscription switch is on.
+// Anyone with an enabled link gets the full config including server secrets —
+// tokens are 128-bit random and can be rotated.
 func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request, token, profileName string) {
 	if token == "" || profileName == "" {
 		http.Error(w, "not found", http.StatusNotFound)
@@ -179,6 +179,10 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request, toke
 	}
 	p, err := s.Store.GetProfileByNameForUser(profileName, u.ID)
 	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if !p.SubEnabled {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
