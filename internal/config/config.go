@@ -109,6 +109,18 @@ func Parse(args []string) (*Config, error) {
 	kernel := envOr("SB_FOX_KERNEL", "sing-box")
 	reg := envOr("SB_FOX_REG", "off")
 	logLevel := envOr("SB_FOX_LOG", defaultLogLevel)
+	args = fillMissingStringFlagValues(args, map[string]string{
+		"--addr":     addr,
+		"-a":         addr,
+		"--data-dir": dataDir,
+		"-D":         dataDir,
+		"--kernel":   kernel,
+		"-k":         kernel,
+		"--reg":      reg,
+		"-r":         reg,
+		"--log":      logLevel,
+		"-l":         logLevel,
+	})
 	regExplicit := flagPresent(args, "--reg", "-r")
 	var installDaemon, update, uninstall, resetAdmin, purge, dev, showVersion bool
 	fs.Usage = func() {
@@ -256,6 +268,21 @@ func flagPresent(args []string, names ...string) bool {
 		}
 	}
 	return false
+}
+
+func fillMissingStringFlagValues(args []string, defaults map[string]string) []string {
+	out := make([]string, 0, len(args))
+	for i, arg := range args {
+		out = append(out, arg)
+		value, ok := defaults[arg]
+		if !ok {
+			continue
+		}
+		if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 func normalizeReg(value string) (string, error) {

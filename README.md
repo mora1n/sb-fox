@@ -65,6 +65,8 @@ sudo sb-fox --daemon restart
 
 `--daemon` 默认等同 `--daemon enable`，会生成 systemd service，执行 `systemctl enable --now sb-fox`，并使用以下默认位置。可用命令为 `enable`、`start`、`stop`、`restart`、`disable`，其中 `enable` / `disable` 会带 `--now` 同时影响当前运行状态。
 
+首次启用守护进程时，命令会在当前终端显示一次性 admin 密码。
+
 - 单实例 socket：`/var/run/sb-fox.sock`
 - 数据目录：`/var/lib/sb-fox`
 - 数据库：`/var/lib/sb-fox/sb-fox.db`
@@ -127,6 +129,8 @@ data/templates/fakeip.json
 | `--reg on\|off`, `-r on\|off` | `SB_FOX_REG` | `off` |
 | `--log error\|warn\|info\|debug`, `-l ...` | `SB_FOX_LOG` | `info` |
 | `--reset-admin`, `-P` |  | 重置 admin 密码并打印新随机密码 |
+
+带默认值的字符串参数可以省略值，例如 `sb-fox -l` 会使用当前默认日志级别。
 
 如果希望自行指定首次启动的管理员密码，可以在启动前设置 `SB_FOX_ADMIN_PASSWORD`。
 

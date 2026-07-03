@@ -254,6 +254,47 @@ func TestParseLogLevel(t *testing.T) {
 	}
 }
 
+func TestParseStringFlagsUseDefaultsWithoutValues(t *testing.T) {
+	clearEnv(t)
+	setEUID(t, 1000)
+	t.Setenv("HOME", "/home/tester")
+
+	cfg, err := Parse([]string{"-l"})
+	if err != nil {
+		t.Fatalf("Parse log default: %v", err)
+	}
+	if cfg.LogLevel != defaultLogLevel {
+		t.Fatalf("log level = %q, want %q", cfg.LogLevel, defaultLogLevel)
+	}
+
+	clearEnv(t)
+	setEUID(t, 1000)
+	t.Setenv("HOME", "/home/tester")
+	t.Setenv("SB_FOX_LOG", "debug")
+	cfg, err = Parse([]string{"-l"})
+	if err != nil {
+		t.Fatalf("Parse log env default: %v", err)
+	}
+	if cfg.LogLevel != "debug" {
+		t.Fatalf("env log level = %q, want debug", cfg.LogLevel)
+	}
+
+	clearEnv(t)
+	setEUID(t, 1000)
+	t.Setenv("HOME", "/home/tester")
+	cfg, err = Parse([]string{"-a", "-D", "-k", "-r"})
+	if err != nil {
+		t.Fatalf("Parse string defaults: %v", err)
+	}
+	wantDataDir := filepath.Join("/home/tester", defaultUserDataSubpath)
+	if cfg.Addr != defaultAddr || cfg.DataDir != wantDataDir || cfg.KernelPath != "sing-box" || cfg.RegMode != "off" {
+		t.Fatalf("defaults addr=%q data=%q kernel=%q reg=%q", cfg.Addr, cfg.DataDir, cfg.KernelPath, cfg.RegMode)
+	}
+	if !cfg.AddrExplicit || !cfg.DataDirExplicit || !cfg.RegExplicit {
+		t.Fatalf("explicit flags = addr:%v data:%v reg:%v", cfg.AddrExplicit, cfg.DataDirExplicit, cfg.RegExplicit)
+	}
+}
+
 func TestParseResetAdminDefaultsToServeDataDirWithoutRoot(t *testing.T) {
 	clearEnv(t)
 	setEUID(t, 1000)

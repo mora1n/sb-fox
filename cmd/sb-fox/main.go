@@ -24,6 +24,7 @@ import (
 	"github.com/mora1n/sb-fox/internal/api"
 	"github.com/mora1n/sb-fox/internal/assets"
 	"github.com/mora1n/sb-fox/internal/auth"
+	"github.com/mora1n/sb-fox/internal/bootstrap"
 	"github.com/mora1n/sb-fox/internal/config"
 	"github.com/mora1n/sb-fox/internal/kernel"
 	"github.com/mora1n/sb-fox/internal/manage"
@@ -307,30 +308,17 @@ func seedTemplateDirError(templateDir string, err error) error {
 // bootstrapAdmin creates the admin with a random printed password on first run.
 // An env override SB_FOX_ADMIN_PASSWORD sets a known initial password.
 func bootstrapAdmin(db *store.Store) error {
-	exists, err := db.AdminExists()
+	result, err := bootstrap.EnsureAdmin(db)
 	if err != nil {
 		return err
 	}
-	if exists {
+	if !result.Created {
 		return nil
 	}
-	password := os.Getenv("SB_FOX_ADMIN_PASSWORD")
-	generated := false
-	if password == "" {
-		password = randomHex(12)
-		generated = true
-	}
-	hash, err := auth.HashPassword(password)
-	if err != nil {
-		return err
-	}
-	if err := db.SetAdmin("admin", hash); err != nil {
-		return err
-	}
-	if generated {
+	if result.Generated {
 		log.Printf("┌──────────────────────────────────────────────────────────┐")
 		log.Printf("│ initial admin created — username: admin                  │")
-		log.Printf("│ password: %-46s │", password)
+		log.Printf("│ password: %-46s │", result.Password)
 		log.Printf("│ (shown once; change it in Settings after logging in)     │")
 		log.Printf("└──────────────────────────────────────────────────────────┘")
 	} else {

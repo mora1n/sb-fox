@@ -199,7 +199,109 @@ func TestControlDaemonStopCommands(t *testing.T) {
 			if _, err := os.Stat(filepath.Join(root, "etc/systemd/system/sb-fox.service")); !os.IsNotExist(err) {
 				t.Fatalf("stop-like command should not write service, stat err=%v", err)
 			}
+			if _, err := os.Stat(filepath.Join(root, "var/lib/sb-fox/sb-fox.db")); !os.IsNotExist(err) {
+				t.Fatalf("stop-like command should not create admin db, stat err=%v", err)
+			}
 		})
+	}
+}
+
+func TestControlDaemonPrintsInitialAdminPassword(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("systemd management is Linux-only")
+	}
+	t.Setenv("SB_FOX_ADMIN_PASSWORD", "")
+	root := t.TempDir()
+	source := filepath.Join(t.TempDir(), "templates")
+	if err := os.MkdirAll(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "fakeip.json"), []byte(`{"ok":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/app" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":{},"error":null}`))
+	}))
+	defer server.Close()
+
+	var output bytes.Buffer
+	opts := Options{
+		Root:              root,
+		BinaryPath:        "/usr/local/bin/sb-fox",
+		Addr:              server.URL,
+		DataDir:           DefaultDataDir,
+		TemplateSourceDir: source,
+		HTTPClient:        server.Client(),
+		Stdout:            &output,
+		Runner: func(name string, args ...string) ([]byte, error) {
+			return nil, nil
+		},
+	}
+	if err := ControlDaemon(opts, "enable"); err != nil {
+		t.Fatalf("ControlDaemon first: %v", err)
+	}
+	first := output.String()
+	if !strings.Contains(first, "initial admin created") ||
+		!strings.Contains(first, "username: admin") ||
+		!strings.Contains(first, "password:") {
+		t.Fatalf("initial password output missing:\n%s", first)
+	}
+
+	output.Reset()
+	if err := ControlDaemon(opts, "restart"); err != nil {
+		t.Fatalf("ControlDaemon second: %v", err)
+	}
+	second := output.String()
+	if strings.Contains(second, "password:") {
+		t.Fatalf("second daemon command should not print password:\n%s", second)
+	}
+}
+
+func TestControlDaemonDoesNotPrintEnvPassword(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("systemd management is Linux-only")
+	}
+	t.Setenv("SB_FOX_ADMIN_PASSWORD", "known-password")
+	root := t.TempDir()
+	source := filepath.Join(t.TempDir(), "templates")
+	if err := os.MkdirAll(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "fakeip.json"), []byte(`{"ok":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/app" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":{},"error":null}`))
+	}))
+	defer server.Close()
+
+	var output bytes.Buffer
+	err := ControlDaemon(Options{
+		Root:              root,
+		BinaryPath:        "/usr/local/bin/sb-fox",
+		Addr:              server.URL,
+		DataDir:           DefaultDataDir,
+		TemplateSourceDir: source,
+		HTTPClient:        server.Client(),
+		Stdout:            &output,
+		Runner: func(name string, args ...string) ([]byte, error) {
+			return nil, nil
+		},
+	}, "enable")
+	if err != nil {
+		t.Fatalf("ControlDaemon: %v", err)
+	}
+	got := output.String()
+	if !strings.Contains(got, "SB_FOX_ADMIN_PASSWORD") || strings.Contains(got, "known-password") {
+		t.Fatalf("env password output = %q", got)
 	}
 }
 

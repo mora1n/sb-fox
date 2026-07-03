@@ -21,6 +21,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mora1n/sb-fox/internal/bootstrap"
+	"github.com/mora1n/sb-fox/internal/store"
 )
 
 const (
@@ -122,6 +125,9 @@ func ControlDaemon(opts Options, command string) error {
 		if err := prepareDaemonService(opts); err != nil {
 			return err
 		}
+		if err := ensureDaemonAdmin(opts); err != nil {
+			return err
+		}
 		if err := runSystemctl(opts, "enable", "--now", ServiceName); err != nil {
 			return err
 		}
@@ -130,12 +136,18 @@ func ControlDaemon(opts Options, command string) error {
 		if err := prepareDaemonService(opts); err != nil {
 			return err
 		}
+		if err := ensureDaemonAdmin(opts); err != nil {
+			return err
+		}
 		if err := runSystemctl(opts, "start", ServiceName); err != nil {
 			return err
 		}
 		return finishDaemonStart(opts, "sb-fox service started")
 	case "restart":
 		if err := prepareDaemonService(opts); err != nil {
+			return err
+		}
+		if err := ensureDaemonAdmin(opts); err != nil {
 			return err
 		}
 		if err := runSystemctl(opts, "restart", ServiceName); err != nil {
@@ -181,6 +193,31 @@ func prepareDaemonService(opts Options) error {
 		return err
 	}
 	return nil
+}
+
+func ensureDaemonAdmin(opts Options) error {
+	db, err := store.Open(filepath.Join(opts.rooted(opts.DataDir), "sb-fox.db"))
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	result, err := bootstrap.EnsureAdmin(db)
+	if err != nil {
+		return err
+	}
+	printAdminInit(opts.Stdout, result)
+	return nil
+}
+
+func printAdminInit(w io.Writer, result *bootstrap.AdminInit) {
+	if result == nil || !result.Created {
+		return
+	}
+	if result.Generated {
+		fmt.Fprintf(w, "initial admin created\nusername: %s\npassword: %s\n", result.Username, result.Password)
+		return
+	}
+	fmt.Fprintf(w, "initial admin created from SB_FOX_ADMIN_PASSWORD\nusername: %s\n", result.Username)
 }
 
 func finishDaemonStart(opts Options, message string) error {
