@@ -217,13 +217,16 @@ func Uninstall(opts Options) error {
 	if err := requireLinuxRoot(opts.Root); err != nil {
 		return err
 	}
-	if err := runSystemctl(opts, "disable", "--now", ServiceName); err != nil {
+	if err := runSystemctlAllowMissingUnit(opts, "disable", "--now", ServiceName); err != nil {
 		return err
 	}
 	if err := removeIfExists(opts.rooted("/etc/systemd/system/sb-fox.service")); err != nil {
 		return err
 	}
 	if err := runSystemctl(opts, "daemon-reload"); err != nil {
+		return err
+	}
+	if err := runSystemctlAllowMissingUnit(opts, "reset-failed", ServiceName); err != nil {
 		return err
 	}
 	binaryPath, err := resolveBinaryPath(opts.BinaryPath)
@@ -382,6 +385,40 @@ func runSystemctl(opts Options, args ...string) error {
 		return fmt.Errorf("systemctl %s failed: %s", strings.Join(args, " "), msg)
 	}
 	return nil
+}
+
+func runSystemctlAllowMissingUnit(opts Options, args ...string) error {
+	out, err := opts.Runner("systemctl", args...)
+	if err == nil {
+		return nil
+	}
+	msg := strings.TrimSpace(string(out))
+	if msg == "" {
+		msg = err.Error()
+	}
+	if systemctlUnitMissing(msg) {
+		return nil
+	}
+	return fmt.Errorf("systemctl %s failed: %s", strings.Join(args, " "), msg)
+}
+
+func systemctlUnitMissing(msg string) bool {
+	msg = strings.ToLower(msg)
+	if !strings.Contains(msg, strings.ToLower(ServiceName)) {
+		return false
+	}
+	for _, marker := range []string{
+		"not loaded",
+		"not found",
+		"could not be found",
+		"does not exist",
+		"no such file",
+	} {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func defaultRunner(name string, args ...string) ([]byte, error) {

@@ -84,6 +84,20 @@ sudo sb-fox --reg off
 journalctl -u sb-fox -f
 ```
 
+## 卸载
+
+保留配置和数据：
+
+```sh
+sudo sb-fox --uninstall
+```
+
+同时删除配置和数据：
+
+```sh
+sudo sb-fox --uninstall --purge
+```
+
 ## 模板
 
 随包提供的模板是：
@@ -143,7 +157,7 @@ sing-box check -c data/templates/fakeip.json
 
 ## 安全
 
-`/sub/{token}/{订阅名称}` 链接是公开下载入口。token 是用户级共享凭据，同一用户的所有订阅共用一个 token，并通过订阅名称区分。任何拿到完整链接的人都可以下载生成配置；如果 token 泄露，应及时轮换。
+`/sub/{token}/{订阅名称}` 链接是公开下载入口。token 是用户级共享凭据，任何拿到完整链接的人都可以下载生成配置；如果 token 泄露，应及时轮换。
 
 远程订阅抓取默认拒绝私网、环回和云元数据地址。只有在可信网络环境中才建议开启私网地址抓取。
 

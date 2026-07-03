@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -304,6 +305,87 @@ func TestUninstallPurgeRemovesConfigAndData(t *testing.T) {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("%s should be removed, stat err=%v", path, err)
 		}
+	}
+}
+
+func TestUninstallPurgeContinuesWhenServiceMissing(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("systemd management is Linux-only")
+	}
+	root := t.TempDir()
+	current := filepath.Join(root, "usr/local/bin/sb-fox")
+	configDir := filepath.Join(root, "etc/sb-fox")
+	dataDir := filepath.Join(root, "var/lib/sb-fox")
+	socketPath := filepath.Join(root, "var/run/sb-fox.sock")
+	for _, dir := range []string{filepath.Dir(current), configDir, dataDir, filepath.Dir(socketPath)} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, path := range []string{current, filepath.Join(configDir, "sb-fox.env"), filepath.Join(dataDir, "sb-fox.db"), socketPath} {
+		if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var commands []string
+	err := Uninstall(Options{
+		Root:       root,
+		BinaryPath: current,
+		Purge:      true,
+		Stdout:     io.Discard,
+		Runner: func(name string, args ...string) ([]byte, error) {
+			cmd := name + " " + strings.Join(args, " ")
+			commands = append(commands, cmd)
+			switch strings.Join(args, " ") {
+			case "disable --now sb-fox", "reset-failed sb-fox":
+				return []byte("Unit sb-fox.service could not be found."), errors.New("exit status 1")
+			default:
+				return nil, nil
+			}
+		},
+	})
+	if err != nil {
+		t.Fatalf("Uninstall: %v", err)
+	}
+	for _, path := range []string{current, configDir, dataDir, socketPath} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("%s should be removed, stat err=%v", path, err)
+		}
+	}
+	got := strings.Join(commands, "\n")
+	if !strings.Contains(got, "systemctl daemon-reload") || !strings.Contains(got, "systemctl reset-failed sb-fox") {
+		t.Fatalf("missing cleanup systemctl calls:\n%s", got)
+	}
+}
+
+func TestUninstallDoesNotIgnoreSystemctlErrors(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("systemd management is Linux-only")
+	}
+	root := t.TempDir()
+	current := filepath.Join(root, "usr/local/bin/sb-fox")
+	if err := os.MkdirAll(filepath.Dir(current), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(current, []byte("bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	err := Uninstall(Options{
+		Root:       root,
+		BinaryPath: current,
+		Purge:      true,
+		Stdout:     io.Discard,
+		Runner: func(name string, args ...string) ([]byte, error) {
+			return []byte("Access denied"), errors.New("exit status 1")
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "Access denied") {
+		t.Fatalf("Uninstall error = %v", err)
+	}
+	if _, err := os.Stat(current); err != nil {
+		t.Fatalf("binary should remain after failed uninstall: %v", err)
 	}
 }
 
