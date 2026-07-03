@@ -40,6 +40,9 @@ func generateConfig(templateContent string, nodes []*models.Node, opts models.Pr
 	if err != nil {
 		return nil, err
 	}
+	if err := validateGeneratedGroupCycles(out); err != nil {
+		return nil, err
+	}
 
 	compact, err := out.MarshalJSON()
 	if err != nil {
@@ -59,6 +62,9 @@ func generateConfigWithGroupSelections(templateContent string, groupNodes map[st
 	opts = ensureGroupSelectionsFromNodes(opts, groupNodes)
 	opts = applyDefaultOutboundRefs(st, opts)
 	if err := validateGroupSelectionRefs(st, opts); err != nil {
+		return nil, err
+	}
+	if err := validateGroupSelectionCycles(st, opts); err != nil {
 		return nil, err
 	}
 	if err := validateRequiredGroupSelections(st, opts); err != nil {
@@ -161,6 +167,9 @@ func generateConfigWithGroupSelections(templateContent string, groupNodes map[st
 	if err := validateFinalGroupHasOutbounds(outbounds, st.Final); err != nil {
 		return nil, err
 	}
+	if err := validateGeneratedGroupCycles(out); err != nil {
+		return nil, err
+	}
 
 	compact, err := out.MarshalJSON()
 	if err != nil {
@@ -211,6 +220,9 @@ func validateOptionGroupInputs(templateContent string, opts models.ProfileOption
 		return fmt.Errorf("read template groups: %w", err)
 	}
 	opts = applyDefaultOutboundRefs(st, opts)
+	if err := validateGroupSelectionCycles(st, opts); err != nil {
+		return err
+	}
 	return validateRequiredGroupSelections(st, opts)
 }
 
@@ -233,6 +245,19 @@ func validateGroupSelectionRefs(st templateStructure, opts models.ProfileOptions
 		}
 	}
 	return nil
+}
+
+func validateGroupSelectionCycles(st templateStructure, opts models.ProfileOptions) error {
+	structureGroups := make([]templateStructureGroup, 0, len(st.Groups))
+	for _, g := range st.Groups {
+		sel := opts.GroupSelections[g.Tag]
+		structureGroups = append(structureGroups, templateStructureGroup{
+			Tag:       g.Tag,
+			Type:      g.Type,
+			Outbounds: sel.OutboundRefs,
+		})
+	}
+	return validateTemplateGroupCycles(structureGroups)
 }
 
 func applyDefaultOutboundRefs(st templateStructure, opts models.ProfileOptions) models.ProfileOptions {
@@ -354,6 +379,18 @@ func validateFinalGroupHasOutbounds(outbounds []any, final string) error {
 		return fmt.Errorf("final selector %q has no selected nodes", final)
 	}
 	return nil
+}
+
+func validateGeneratedGroupCycles(cfg *merge.OrderedMap) error {
+	outbounds, err := generatedOutbounds(cfg)
+	if err != nil {
+		return err
+	}
+	groups, err := templateGroups(outbounds)
+	if err != nil {
+		return err
+	}
+	return validateTemplateGroupCycles(groups)
 }
 
 func generatedOutbounds(cfg *merge.OrderedMap) ([]any, error) {
@@ -542,8 +579,9 @@ func normalizedChainProxyNodeIDs(opts models.ProfileOptions) []int64 {
 }
 
 // toMergeNodes converts DB node rows into merge.Node values. A node whose
-// stored country_source is "manual" carries its country_code as an explicit
-// override so manual grouping (requirement e) is honored during generation.
+// stored metadata has a country_code carries it as an explicit override so
+// manual, auto-detected and imported country attributes are honored during
+// generation.
 func toMergeNodes(nodes []*models.Node) ([]*merge.Node, error) {
 	out := make([]*merge.Node, 0, len(nodes))
 	for _, n := range nodes {
@@ -552,8 +590,8 @@ func toMergeNodes(nodes []*models.Node) ([]*merge.Node, error) {
 			return nil, fmt.Errorf("node %d (%s) has invalid raw JSON: %w", n.ID, n.Tag, err)
 		}
 		mn := &merge.Node{Raw: raw, Source: mergeSource(n.Source)}
-		if n.CountrySource == "manual" && n.CountryCode != "" {
-			mn.CountryOverride = n.CountryCode
+		if code := strings.TrimSpace(n.CountryCode); code != "" {
+			mn.CountryOverride = code
 		}
 		out = append(out, mn)
 	}

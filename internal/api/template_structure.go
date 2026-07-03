@@ -430,6 +430,9 @@ func validateTemplateStructure(st templateStructure, staticTags map[string]bool)
 			return nil, fmt.Errorf("default %q is not in group %q outbounds", desired[i].Default, desired[i].Tag)
 		}
 	}
+	if err := validateTemplateGroupCycles(desired); err != nil {
+		return nil, err
+	}
 	return desired, nil
 }
 
@@ -476,6 +479,52 @@ func normalizeOutboundRefs(groupTag string, refs []string, allowed map[string]bo
 		out = append(out, ref)
 	}
 	return out, nil
+}
+
+func validateTemplateGroupCycles(groups []templateStructureGroup) error {
+	groupTags := make(map[string]bool, len(groups))
+	for _, g := range groups {
+		groupTags[g.Tag] = true
+	}
+	graph := make(map[string][]string, len(groups))
+	for _, g := range groups {
+		for _, ref := range g.Outbounds {
+			if groupTags[ref] {
+				graph[g.Tag] = append(graph[g.Tag], ref)
+			}
+		}
+	}
+
+	visiting := map[string]int{}
+	visited := map[string]bool{}
+	var stack []string
+	var visit func(string) error
+	visit = func(tag string) error {
+		if i, ok := visiting[tag]; ok {
+			cycle := append(append([]string{}, stack[i:]...), tag)
+			return fmt.Errorf("group reference cycle: %s", strings.Join(cycle, " -> "))
+		}
+		if visited[tag] {
+			return nil
+		}
+		visiting[tag] = len(stack)
+		stack = append(stack, tag)
+		for _, next := range graph[tag] {
+			if err := visit(next); err != nil {
+				return err
+			}
+		}
+		stack = stack[:len(stack)-1]
+		delete(visiting, tag)
+		visited[tag] = true
+		return nil
+	}
+	for _, g := range groups {
+		if err := visit(g.Tag); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func mergeTemplateGroupOrder(arr []any, groupObjects []any, firstGroupPos int) []any {

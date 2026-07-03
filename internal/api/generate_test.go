@@ -201,6 +201,31 @@ func TestGenerateConfigWithGroupSelectionAutoCountryGroups(t *testing.T) {
 	}
 }
 
+func TestGenerateConfigUsesStoredAutoCountryForGrouping(t *testing.T) {
+	template := `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":[]},
+    {"type":"direct","tag":"Direct"}
+  ]
+}`
+	node := testNode(1, "plain-node", "JP")
+	node.CountrySource = "auto"
+	config, err := generateConfig(template, []*models.Node{node}, models.ProfileOptions{
+		AutoCountryGroups: true,
+	}, nil)
+	if err != nil {
+		t.Fatalf("generateConfig: %v", err)
+	}
+
+	outbounds := generatedOutboundMap(t, config)
+	if got := stringSliceValue(t, outbounds["🇯🇵 Japan"]["outbounds"]); !sameStrings(got, []string{"plain-node"}) {
+		t.Fatalf("JP selector outbounds = %v", got)
+	}
+	if _, ok := outbounds["🏳️‍🌈 Others"]; ok {
+		t.Fatalf("plain-node with stored country should not be placed in Others")
+	}
+}
+
 func TestGenerateConfigWithGroupSelectionSkipCountryGroups(t *testing.T) {
 	template := `{
   "outbounds": [
@@ -236,6 +261,30 @@ func TestGenerateConfigWithGroupSelectionSkipCountryGroups(t *testing.T) {
 	}
 	if got := stringSliceValue(t, outbounds["Fallback"]["outbounds"]); !sameStrings(got, []string{"🇯🇵 Japan"}) {
 		t.Fatalf("Fallback outbounds = %v", got)
+	}
+}
+
+func TestGenerateConfigWithGroupSelectionRejectsCycles(t *testing.T) {
+	template := `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":["Fallback","Direct"]},
+    {"type":"selector","tag":"Fallback","outbounds":["Proxy","Direct"]},
+    {"type":"direct","tag":"Direct"}
+  ],
+  "route": {
+    "rules": [{"domain":["example.com"],"outbound":"Fallback"}],
+    "final":"Proxy"
+  }
+}`
+	_, err := generateConfigWithGroupSelections(template, map[string][]*models.Node{}, nil, nil, models.ProfileOptions{
+		AutoCountryGroups: false,
+		GroupSelections: map[string]models.NodeSelection{
+			"Proxy":    {OutboundRefs: []string{"Fallback"}},
+			"Fallback": {OutboundRefs: []string{"Proxy"}},
+		},
+	}, nil)
+	if err == nil {
+		t.Fatal("expected group cycle error")
 	}
 }
 

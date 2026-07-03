@@ -244,14 +244,42 @@ async function saveStructure() {
   }
 }
 
+function groupRefCreatesCycle(source: string, target: string) {
+  if (!structure.value) return false
+  const groupSet = new Set(structure.value.groups.map((g) => g.tag).filter(Boolean))
+  if (!groupSet.has(target)) return false
+  const graph = new Map<string, string[]>()
+  for (const g of structure.value.groups) {
+    const refs = [...g.outbounds]
+    if (g.tag === source && !refs.includes(target)) refs.push(target)
+    graph.set(g.tag, refs.filter((ref) => groupSet.has(ref)))
+  }
+  return groupCanReach(target, source, graph, new Set())
+}
+
+function groupCanReach(current: string, target: string, graph: Map<string, string[]>, seen: Set<string>): boolean {
+  if (current === target) return true
+  if (seen.has(current)) return false
+  seen.add(current)
+  return (graph.get(current) ?? []).some((next) => groupCanReach(next, target, graph, seen))
+}
+
 function outboundOptions(g: TemplateStructureGroup) {
-  return availableOutbounds.value.filter((tag) => tag !== g.tag)
+  return availableOutbounds.value.filter((tag) => {
+    if (tag === g.tag) return false
+    if (g.outbounds.includes(tag)) return true
+    return !groupRefCreatesCycle(g.tag, tag)
+  })
 }
 
 function toggleOutbound(g: TemplateStructureGroup, tag: string) {
   if (g.outbounds.includes(tag)) {
     g.outbounds = g.outbounds.filter((item) => item !== tag)
   } else {
+    if (groupRefCreatesCycle(g.tag, tag)) {
+      ui.error(i18n.t('不能选择会造成循环引用的分组'))
+      return
+    }
     g.outbounds = [...g.outbounds, tag]
   }
   if (g.default && !g.outbounds.includes(g.default)) g.default = ''

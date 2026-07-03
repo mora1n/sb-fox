@@ -544,14 +544,46 @@ function outboundRefOptions(tag: string) {
     const clean = item.trim()
     if (!clean || clean === tag || seen.has(clean)) return false
     seen.add(clean)
+    if (selectedOutboundRefs(tag).includes(clean)) return true
+    if (groupRefCreatesCycle(tag, clean)) return false
     return true
   })
 }
 
-function toggleOutboundRef(sel: NodeSelection, tag: string) {
+function selectedOutboundRefs(tag: string) {
+  return form.value.options.groupSelections?.[tag]?.outboundRefs ?? []
+}
+
+function groupRefCreatesCycle(source: string, target: string) {
+  if (!structure.value) return false
+  const groupSet = new Set(structure.value.groups.map((g) => g.tag).filter(Boolean))
+  if (!groupSet.has(target)) return false
+  const graph = new Map<string, string[]>()
+  for (const g of structure.value.groups) {
+    const refs = [...selectedOutboundRefs(g.tag)]
+    if (g.tag === source && !refs.includes(target)) refs.push(target)
+    graph.set(g.tag, refs.filter((ref) => groupSet.has(ref)))
+  }
+  return groupCanReach(target, source, graph, new Set())
+}
+
+function groupCanReach(current: string, target: string, graph: Map<string, string[]>, seen: Set<string>): boolean {
+  if (current === target) return true
+  if (seen.has(current)) return false
+  seen.add(current)
+  return (graph.get(current) ?? []).some((next) => groupCanReach(next, target, graph, seen))
+}
+
+function toggleOutboundRef(groupTag: string, sel: NodeSelection, tag: string) {
   const set = new Set(sel.outboundRefs)
   if (set.has(tag)) set.delete(tag)
-  else set.add(tag)
+  else {
+    if (groupRefCreatesCycle(groupTag, tag)) {
+      ui.error(i18n.t('不能选择会造成循环引用的分组'))
+      return
+    }
+    set.add(tag)
+  }
   sel.outboundRefs = [...set]
 }
 
@@ -979,7 +1011,7 @@ async function remove(p: Profile) {
                       type="checkbox"
                       class="checkbox checkbox-sm"
                       :checked="selectionFor(activeGroup).outboundRefs.includes(tag)"
-                      @change="toggleOutboundRef(selectionFor(activeGroup), tag)"
+                      @change="toggleOutboundRef(activeGroup, selectionFor(activeGroup), tag)"
                     />
                     <span class="truncate flex-1 text-sm" :title="tag">{{ tag }}</span>
                   </label>

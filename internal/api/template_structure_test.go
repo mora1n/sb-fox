@@ -71,6 +71,47 @@ func TestWriteTemplateStructureValidation(t *testing.T) {
 	}
 }
 
+func TestWriteTemplateStructureRejectsGroupCycles(t *testing.T) {
+	content := `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":["Direct"]},
+    {"type":"selector","tag":"Fallback","outbounds":["Direct"]},
+    {"type":"selector","tag":"Child","outbounds":["Direct"]},
+    {"type":"direct","tag":"Direct"}
+  ],
+  "route": {
+    "rules": [
+      {"domain":["fallback.example"],"outbound":"Fallback"},
+      {"domain":["child.example"],"outbound":"Child"}
+    ],
+    "final":"Proxy"
+  }
+}`
+
+	for name, groups := range map[string][]templateStructureGroup{
+		"direct": {
+			{Tag: "Proxy", Type: "selector", Outbounds: []string{"Fallback"}},
+			{Tag: "Fallback", Type: "selector", Outbounds: []string{"Proxy"}},
+			{Tag: "Child", Type: "selector", Outbounds: []string{"Direct"}},
+		},
+		"indirect": {
+			{Tag: "Proxy", Type: "selector", Outbounds: []string{"Fallback"}},
+			{Tag: "Fallback", Type: "selector", Outbounds: []string{"Child"}},
+			{Tag: "Child", Type: "selector", Outbounds: []string{"Proxy"}},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := writeTemplateStructure(content, templateStructure{
+				Final:  "Proxy",
+				Groups: groups,
+			})
+			if err == nil || !strings.Contains(err.Error(), "group reference cycle") {
+				t.Fatalf("expected cycle error, got %v", err)
+			}
+		})
+	}
+}
+
 func TestWriteTemplateStructureRejectsGroupAddDeleteAndPreservesReferences(t *testing.T) {
 	deleteContent := `{
   "outbounds": [
