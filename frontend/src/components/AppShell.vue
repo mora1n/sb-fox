@@ -74,8 +74,9 @@ async function logout() {
       <label for="app-drawer" class="drawer-overlay"></label>
       <aside class="w-60 min-h-full bg-base-100 border-r border-base-300 flex flex-col">
         <div class="p-4 text-xl font-bold flex items-center gap-2 min-w-0">
-          <img src="/favicon-32x32.png" alt="sb-fox" class="h-8 w-8 flex-none" />
-          <span class="truncate">{{ settings.appDisplayName }}</span>
+          <img src="/favicon-32x32.png" :alt="settings.appInfoLoaded ? settings.appDisplayName : ''" class="h-8 w-8 flex-none" />
+          <span v-if="settings.appInfoLoaded" class="truncate">{{ settings.appDisplayName }}</span>
+          <span v-else class="inline-block h-6 w-24 rounded bg-base-300"></span>
         </div>
         <ul class="menu px-2 gap-1 flex-1">
           <li v-for="item in nav" :key="item.name">

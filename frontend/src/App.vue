@@ -14,6 +14,7 @@ onMounted(() => {
 })
 
 watchEffect(() => {
+  if (!settings.appInfoLoaded) return
   document.title = settings.appDisplayName
 })
 </script>

@@ -222,6 +222,9 @@ const en: Record<string, string> = {
   '确认新密码': 'Confirm New Password',
   '登录': 'Login',
   '注册': 'Register',
+  '用户名或密码错误': 'Invalid username or password',
+  '切换深色模式': 'Switch to dark mode',
+  '切换浅色模式': 'Switch to light mode',
   'sing-box 配置订阅管理': 'sing-box config subscription manager',
   '正在加载订阅...': 'Loading subscription...',
 }

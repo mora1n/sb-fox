@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { EyeIcon, EyeSlashIcon } from '@heroicons/vue/24/outline'
+import { EyeIcon, EyeSlashIcon, MoonIcon, SunIcon } from '@heroicons/vue/24/outline'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useSettingsStore } from '../stores/settings'
 import { useI18nStore } from '../stores/i18n'
+import { useUiStore } from '../stores/ui'
 import { ApiRequestError } from '../api/client'
 
 const auth = useAuthStore()
 const settings = useSettingsStore()
 const i18n = useI18nStore()
+const ui = useUiStore()
 const router = useRouter()
 
 const username = ref('')
@@ -37,7 +39,11 @@ async function submit() {
     }
     router.push({ name: 'dashboard' })
   } catch (e) {
-    error.value = e instanceof ApiRequestError || e instanceof Error ? e.message : '登录失败'
+    if (mode.value === 'login' && e instanceof ApiRequestError && e.status === 401 && e.code === 'unauthorized') {
+      error.value = i18n.t('用户名或密码错误')
+    } else {
+      error.value = e instanceof ApiRequestError || e instanceof Error ? e.message : '登录失败'
+    }
   } finally {
     loading.value = false
   }
@@ -46,17 +52,31 @@ async function submit() {
 
 <template>
   <div class="min-h-screen flex items-center justify-center bg-base-200 p-4">
-    <button
-      class="btn btn-ghost btn-sm min-w-16 fixed right-4 top-4"
-      :title="i18n.t('语言')"
-      @click="i18n.toggleLocale()"
-    >
-      <span aria-hidden="true">🌐</span>
-      <span>{{ i18n.isEnglish ? '中' : 'EN' }}</span>
-    </button>
+    <div class="fixed right-4 top-4 flex items-center gap-2">
+      <button
+        class="btn btn-ghost btn-sm min-w-16"
+        :title="i18n.t('语言')"
+        @click="i18n.toggleLocale()"
+      >
+        <span aria-hidden="true">🌐</span>
+        <span>{{ i18n.isEnglish ? '中' : 'EN' }}</span>
+      </button>
+      <button
+        class="btn btn-ghost btn-sm"
+        :title="ui.theme === 'light-neutral' ? i18n.t('切换深色模式') : i18n.t('切换浅色模式')"
+        :aria-label="ui.theme === 'light-neutral' ? i18n.t('切换深色模式') : i18n.t('切换浅色模式')"
+        @click="ui.toggleTheme()"
+      >
+        <MoonIcon v-if="ui.theme === 'light-neutral'" class="h-5 w-5" />
+        <SunIcon v-else class="h-5 w-5" />
+      </button>
+    </div>
     <div class="card w-full max-w-sm bg-base-100 shadow-xl">
       <div class="card-body">
-        <h1 class="text-2xl font-bold text-center">{{ settings.appDisplayName }}</h1>
+        <h1 class="text-2xl font-bold text-center min-h-8">
+          <span v-if="settings.appInfoLoaded">{{ settings.appDisplayName }}</span>
+          <span v-else class="inline-block h-7 w-32 rounded bg-base-300 align-middle"></span>
+        </h1>
         <p class="text-center text-sm opacity-60 mb-2">{{ i18n.t('sing-box 配置订阅管理') }}</p>
         <div v-if="settings.registrationEnabled" class="tabs tabs-boxed grid grid-cols-2 mb-2">
           <button class="tab" :class="{ 'tab-active': mode === 'login' }" @click="mode = 'login'">{{ i18n.t('登录') }}</button>

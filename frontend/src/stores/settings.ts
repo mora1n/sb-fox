@@ -9,7 +9,8 @@ const DEFAULT_APP_DISPLAY_NAME = 'sb-fox'
 export const useSettingsStore = defineStore('settings', () => {
   const settings = ref<Settings>({})
   const kernel = ref<KernelStatus | null>(null)
-  const appDisplayName = ref(DEFAULT_APP_DISPLAY_NAME)
+  const appDisplayName = ref('')
+  const appInfoLoaded = ref(false)
   const countryHeatOrder = ref<string[]>(completeCountryHeatOrder(DEFAULT_COUNTRY_HEAT_ORDER))
   const registrationEnabled = ref(false)
   const subscriptionHostPrefix = ref('')
@@ -28,6 +29,7 @@ export const useSettingsStore = defineStore('settings', () => {
   async function fetchAppInfo(): Promise<void> {
     const app = await get<AppInfo>('/app', true)
     appDisplayName.value = app?.display_name?.trim() || DEFAULT_APP_DISPLAY_NAME
+    appInfoLoaded.value = true
     countryHeatOrder.value = completeCountryHeatOrder(app?.country_heat_order || DEFAULT_COUNTRY_HEAT_ORDER)
     registrationEnabled.value = !!app?.registration_enabled
     subscriptionHostPrefix.value = app?.subscription_host_prefix?.trim() || ''
@@ -70,6 +72,7 @@ export const useSettingsStore = defineStore('settings', () => {
   function applySettings(next: Settings): void {
     if ('app_display_name' in next) {
       appDisplayName.value = next.app_display_name?.trim() || DEFAULT_APP_DISPLAY_NAME
+      appInfoLoaded.value = true
     }
     if ('subscription_host_prefix' in next) {
       subscriptionHostPrefix.value = next.subscription_host_prefix?.trim() || ''
@@ -84,6 +87,7 @@ export const useSettingsStore = defineStore('settings', () => {
     settings,
     kernel,
     appDisplayName,
+    appInfoLoaded,
     countryHeatOrder,
     registrationEnabled,
     subscriptionHostPrefix,
