@@ -26,7 +26,7 @@ const appName = ref('')
 const subscriptionHostPrefix = ref('')
 const countryOrder = ref<string[]>([])
 const draggedIndex = ref<number | null>(null)
-const countryDropIndex = ref<number | null>(null)
+const countryInsertIndex = ref<number | null>(null)
 const busy = ref(false)
 
 const oldPw = ref('')
@@ -151,36 +151,48 @@ function moveCountry(index: number, delta: number) {
   countryOrder.value = next
 }
 
-function dropCountry(targetIndex: number) {
-  if (draggedIndex.value === null || draggedIndex.value === targetIndex) {
-    draggedIndex.value = null
-    countryDropIndex.value = null
+function countryInsertTarget(index: number, event: DragEvent) {
+  const row = event.currentTarget as HTMLElement | null
+  if (!row) return index
+  const rect = row.getBoundingClientRect()
+  return event.clientY < rect.top + rect.height / 2 ? index : index + 1
+}
+
+function clearCountryDrag() {
+  draggedIndex.value = null
+  countryInsertIndex.value = null
+}
+
+function dropCountry(index: number, event: DragEvent) {
+  if (draggedIndex.value === null) {
+    clearCountryDrag()
+    return
+  }
+  const source = draggedIndex.value
+  const target = countryInsertIndex.value ?? countryInsertTarget(index, event)
+  if (target === source || target === source + 1) {
+    clearCountryDrag()
     return
   }
   const next = [...countryOrder.value]
-  const [item] = next.splice(draggedIndex.value, 1)
-  next.splice(targetIndex, 0, item)
+  const [item] = next.splice(source, 1)
+  next.splice(target > source ? target - 1 : target, 0, item)
   countryOrder.value = next
-  draggedIndex.value = null
-  countryDropIndex.value = null
+  clearCountryDrag()
 }
 
 function startCountryDrag(index: number) {
   draggedIndex.value = index
-  countryDropIndex.value = null
+  countryInsertIndex.value = null
 }
 
-function overCountry(index: number) {
-  if (draggedIndex.value === null || draggedIndex.value === index) {
-    countryDropIndex.value = null
+function overCountry(index: number, event: DragEvent) {
+  if (draggedIndex.value === null) {
+    countryInsertIndex.value = null
     return
   }
-  countryDropIndex.value = index
-}
-
-function endCountryDrag() {
-  draggedIndex.value = null
-  countryDropIndex.value = null
+  const target = countryInsertTarget(index, event)
+  countryInsertIndex.value = target === draggedIndex.value || target === draggedIndex.value + 1 ? null : target
 }
 
 function resetCountryOrder() {
@@ -317,14 +329,15 @@ async function changePassword() {
           <div
             v-for="(code, index) in countryOrder"
             :key="code"
-            class="flex items-center gap-2 bg-base-100 px-3 py-2 transition-colors hover:bg-base-200/60"
+            class="flex items-center gap-2 bg-base-100 px-3 py-2 transition-colors hover:bg-base-200/60 border-y-2 border-transparent"
             :class="{
               'opacity-60 ring-1 ring-base-content/30': draggedIndex === index,
-              'bg-base-200 shadow-sm': countryDropIndex === index,
+              'border-t-base-content': countryInsertIndex === index,
+              'border-b-base-content': countryInsertIndex === index + 1,
             }"
-            @dragenter.prevent="overCountry(index)"
-            @dragover.prevent="overCountry(index)"
-            @drop="dropCountry(index)"
+            @dragenter.prevent="overCountry(index, $event)"
+            @dragover.prevent="overCountry(index, $event)"
+            @drop="dropCountry(index, $event)"
           >
             <button
               class="btn btn-xs btn-ghost cursor-move"
@@ -332,7 +345,7 @@ async function changePassword() {
               draggable="true"
               :title="i18n.t('拖拽排序')"
               @dragstart="startCountryDrag(index)"
-              @dragend="endCountryDrag"
+              @dragend="clearCountryDrag"
             >
               <Bars3Icon class="h-4 w-4" />
             </button>

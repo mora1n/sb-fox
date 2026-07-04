@@ -13,7 +13,7 @@ import (
 
 // Setting keys.
 const (
-	defaultAppDisplayName      = "sb-fox"
+	defaultAppDisplayName      = "App"
 	settingAppDisplayName      = "app_display_name"
 	settingCountryHeat         = "country_heat_order"
 	settingKernelPath          = "kernel_path"
@@ -133,6 +133,21 @@ type appInfo struct {
 	SubscriptionHost    string   `json:"subscription_host_prefix"`
 }
 
+type webManifest struct {
+	Name            string         `json:"name"`
+	ShortName       string         `json:"short_name"`
+	Icons           []manifestIcon `json:"icons"`
+	ThemeColor      string         `json:"theme_color"`
+	BackgroundColor string         `json:"background_color"`
+	Display         string         `json:"display"`
+}
+
+type manifestIcon struct {
+	Src   string `json:"src"`
+	Sizes string `json:"sizes"`
+	Type  string `json:"type"`
+}
+
 func (s *Server) handleAppInfo(w http.ResponseWriter, r *http.Request) {
 	displayName, err := s.appDisplayName()
 	if err != nil {
@@ -154,6 +169,26 @@ func (s *Server) handleAppInfo(w http.ResponseWriter, r *http.Request) {
 		CountryHeatOrder:    order,
 		RegistrationEnabled: s.IsRegistrationEnabled(),
 		SubscriptionHost:    subHost,
+	})
+}
+
+func (s *Server) handleWebManifest(w http.ResponseWriter, r *http.Request) {
+	displayName, err := s.appDisplayName()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/manifest+json")
+	_ = json.NewEncoder(w).Encode(webManifest{
+		Name:      displayName,
+		ShortName: displayName,
+		Icons: []manifestIcon{
+			{Src: "/android-chrome-192x192.png", Sizes: "192x192", Type: "image/png"},
+			{Src: "/android-chrome-512x512.png", Sizes: "512x512", Type: "image/png"},
+		},
+		ThemeColor:      "#f5f5f7",
+		BackgroundColor: "#f5f5f7",
+		Display:         "standalone",
 	})
 }
 

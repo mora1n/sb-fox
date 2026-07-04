@@ -140,7 +140,7 @@ func generateConfigWithGroupSelections(templateContent string, groupNodes map[st
 
 	for _, g := range st.Groups {
 		sel := opts.GroupSelections[g.Tag]
-		configured := selectionHasInputs(sel)
+		configured := selectionHasInputs(sel) || autoCountryFillsSelection(sel, opts)
 		if opts.ChainProxy && g.Tag == st.Final && len(chainTags) > 0 {
 			configured = true
 		}
@@ -288,13 +288,12 @@ func defaultOutboundRefs(g templateStructureGroup) []string {
 }
 
 func validateRequiredGroupSelections(st templateStructure, opts models.ProfileOptions) error {
-	autoCountryFillsEmptyGroup := opts.AutoCountryGroups && opts.AutoCountrySelected != nil && selectionHasInputs(*opts.AutoCountrySelected)
 	for _, g := range st.Groups {
 		sel := opts.GroupSelections[g.Tag]
 		if selectionHasInputs(sel) {
 			continue
 		}
-		if autoCountryFillsEmptyGroup && !sel.SkipCountryGroups {
+		if autoCountryFillsSelection(sel, opts) {
 			continue
 		}
 		if opts.ChainProxy && g.Tag == st.Final && opts.ChainProxySelected != nil && selectionHasInputs(*opts.ChainProxySelected) {
@@ -319,6 +318,10 @@ func templateGroupTagSet(outbounds []any) (map[string]bool, error) {
 
 func selectionHasInputs(sel models.NodeSelection) bool {
 	return len(sel.NodeIDs) > 0 || len(sel.NodeGroupIDs) > 0 || len(sel.OutboundRefs) > 0
+}
+
+func autoCountryFillsSelection(sel models.NodeSelection, opts models.ProfileOptions) bool {
+	return opts.AutoCountryGroups && opts.AutoCountrySelected != nil && selectionHasInputs(*opts.AutoCountrySelected) && !sel.SkipCountryGroups
 }
 
 func selectableTagsForSelection(sel models.NodeSelection, nodes, autoCountryNodes []*models.Node, outbounds []any, templateGroupTags map[string]bool, opts models.ProfileOptions) []string {

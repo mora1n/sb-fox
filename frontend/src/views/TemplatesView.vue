@@ -36,7 +36,7 @@ const viewing = ref<Template | null>(null)
 const structure = ref<TemplateStructure | null>(null)
 const structureFor = ref<Template | null>(null)
 const dragIndex = ref<number | null>(null)
-const dropIndex = ref<number | null>(null)
+const groupInsertIndex = ref<number | null>(null)
 
 const showForm = ref(false)
 const editing = ref<Template | null>(null)
@@ -242,7 +242,7 @@ async function saveStructure() {
     structure.value = null
     structureFor.value = null
     dragIndex.value = null
-    dropIndex.value = null
+    groupInsertIndex.value = null
     ui.success('分组管理已保存')
   } catch (e) {
     ui.error(errMsg(e))
@@ -320,32 +320,44 @@ function moveGroup(index: number, delta: number) {
 
 function onDragStart(index: number) {
   dragIndex.value = index
-  dropIndex.value = null
+  groupInsertIndex.value = null
 }
 
-function onDragEnd() {
+function clearGroupDrag() {
   dragIndex.value = null
-  dropIndex.value = null
+  groupInsertIndex.value = null
 }
 
-function onDragOver(index: number) {
-  if (dragIndex.value === null || dragIndex.value === index) {
-    dropIndex.value = null
+function groupInsertTarget(index: number, event: DragEvent) {
+  const row = event.currentTarget as HTMLElement | null
+  if (!row) return index
+  const rect = row.getBoundingClientRect()
+  return event.clientY < rect.top + rect.height / 2 ? index : index + 1
+}
+
+function onDragOver(index: number, event: DragEvent) {
+  if (dragIndex.value === null) {
+    groupInsertIndex.value = null
     return
   }
-  dropIndex.value = index
+  const target = groupInsertTarget(index, event)
+  groupInsertIndex.value = target === dragIndex.value || target === dragIndex.value + 1 ? null : target
 }
 
-function onDrop(index: number) {
-  if (!structure.value || dragIndex.value === null || dragIndex.value === index) {
-    dragIndex.value = null
-    dropIndex.value = null
+function onDrop(index: number, event: DragEvent) {
+  if (!structure.value || dragIndex.value === null) {
+    clearGroupDrag()
     return
   }
-  const [item] = structure.value.groups.splice(dragIndex.value, 1)
-  structure.value.groups.splice(index, 0, item)
-  dragIndex.value = null
-  dropIndex.value = null
+  const source = dragIndex.value
+  const target = groupInsertIndex.value ?? groupInsertTarget(index, event)
+  if (target === source || target === source + 1) {
+    clearGroupDrag()
+    return
+  }
+  const [item] = structure.value.groups.splice(source, 1)
+  structure.value.groups.splice(target > source ? target - 1 : target, 0, item)
+  clearGroupDrag()
 }
 
 function toggleTemplateSelect(t: Template) {
@@ -562,14 +574,15 @@ async function remove(t: Template) {
           <div
             v-for="(g, i) in structure.groups"
             :key="g.tag + ':' + i"
-            class="border border-base-300 rounded-box bg-base-100 p-3 transition-colors hover:bg-base-200/50"
+            class="border border-base-300 border-y-2 rounded-box bg-base-100 p-3 transition-colors hover:bg-base-200/50"
             :class="{
               'opacity-60 ring-1 ring-base-content/30': dragIndex === i,
-              'bg-base-200 border-base-content/40 shadow-sm': dropIndex === i,
+              'border-t-base-content': groupInsertIndex === i,
+              'border-b-base-content': groupInsertIndex === i + 1,
             }"
-            @dragenter.prevent="onDragOver(i)"
-            @dragover.prevent="onDragOver(i)"
-            @drop="onDrop(i)"
+            @dragenter.prevent="onDragOver(i, $event)"
+            @dragover.prevent="onDragOver(i, $event)"
+            @drop="onDrop(i, $event)"
           >
             <div class="grid grid-cols-1 lg:grid-cols-[32px_minmax(160px,1fr)_120px_minmax(180px,1fr)_160px_64px] gap-2 items-start">
               <div class="flex items-center gap-1">
@@ -579,7 +592,7 @@ async function remove(t: Template) {
                   draggable="true"
                   :title="i18n.t('拖拽排序')"
                   @dragstart="onDragStart(i)"
-                  @dragend="onDragEnd"
+                  @dragend="clearGroupDrag"
                 >
                   <Bars3Icon class="h-4 w-4" />
                 </button>

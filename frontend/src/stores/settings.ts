@@ -4,7 +4,7 @@ import { get, post, put } from '../api/client'
 import type { AppInfo, KernelProfile, KernelProbe, KernelStatus, Settings } from '../api/types'
 import { completeCountryHeatOrder, DEFAULT_COUNTRY_HEAT_ORDER } from '../utils/countries'
 
-const DEFAULT_APP_DISPLAY_NAME = 'sb-fox'
+const DEFAULT_APP_DISPLAY_NAME = 'App'
 
 export const useSettingsStore = defineStore('settings', () => {
   const settings = ref<Settings>({})

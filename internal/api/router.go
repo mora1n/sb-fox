@@ -1,6 +1,7 @@
 package api
 
 import (
+	"html"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -37,11 +38,12 @@ func (s *Server) Router() http.Handler {
 	r.Get("/sub/{token}/*", func(w http.ResponseWriter, r *http.Request) {
 		s.handleSubscription(w, r, chi.URLParam(r, "token"), strings.TrimPrefix(chi.URLParam(r, "*"), "/"))
 	})
+	r.Get("/site.webmanifest", s.handleWebManifest)
 
 	// frontend
 	if !s.DevMode && assets.HasDist() {
 		if dist, err := assets.DistFS(); err == nil {
-			r.NotFound(spaHandler(dist))
+			r.NotFound(s.spaHandler(dist))
 		}
 	} else {
 		r.NotFound(devPlaceholder)
@@ -120,29 +122,34 @@ func (s *Server) mountAuthed(r chi.Router) {
 
 // spaHandler serves static files from the embedded dist, falling back to
 // index.html for client-side routes (SPA history mode).
-func spaHandler(dist fs.FS) http.HandlerFunc {
+func (s *Server) spaHandler(dist fs.FS) http.HandlerFunc {
 	fileServer := http.FileServer(http.FS(dist))
 	return func(w http.ResponseWriter, r *http.Request) {
 		p := strings.TrimPrefix(r.URL.Path, "/")
 		if p == "" {
 			p = "index.html"
 		}
+		if p == "index.html" {
+			s.serveIndex(w, dist)
+			return
+		}
 		if _, err := fs.Stat(dist, p); err != nil {
 			// unknown path → serve index.html so the SPA router handles it
-			r2 := r.Clone(r.Context())
-			r2.URL.Path = "/"
-			serveIndex(w, r2, dist)
+			s.serveIndex(w, dist)
 			return
 		}
 		fileServer.ServeHTTP(w, r)
 	}
 }
 
-func serveIndex(w http.ResponseWriter, r *http.Request, dist fs.FS) {
+func (s *Server) serveIndex(w http.ResponseWriter, dist fs.FS) {
 	data, err := fs.ReadFile(dist, "index.html")
 	if err != nil {
 		http.Error(w, "frontend not built", http.StatusNotFound)
 		return
+	}
+	if displayName, err := s.appDisplayName(); err == nil {
+		data = []byte(strings.Replace(string(data), "<title>Loading...</title>", "<title>"+html.EscapeString(displayName)+"</title>", 1))
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write(data)
@@ -151,6 +158,6 @@ func serveIndex(w http.ResponseWriter, r *http.Request, dist fs.FS) {
 func devPlaceholder(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(`<!doctype html><html><body style="font-family:sans-serif;padding:2rem">
-<h1>sb-fox</h1><p>API is running. Frontend not embedded (dev mode). Run <code>make frontend</code> for the full UI, or use the Vite dev server.</p>
+<h1>API is running</h1><p>Frontend is not embedded. Run <code>make frontend</code> for the full UI, or use the Vite dev server.</p>
 </body></html>`))
 }

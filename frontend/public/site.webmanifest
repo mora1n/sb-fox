@@ -1,1 +1,1 @@
-{"name":"sb-fox","short_name":"sb-fox","icons":[{"src":"/android-chrome-192x192.png","sizes":"192x192","type":"image/png"},{"src":"/android-chrome-512x512.png","sizes":"512x512","type":"image/png"}],"theme_color":"#f5f5f7","background_color":"#f5f5f7","display":"standalone"}
+{"name":"App","short_name":"App","icons":[{"src":"/android-chrome-192x192.png","sizes":"192x192","type":"image/png"},{"src":"/android-chrome-512x512.png","sizes":"512x512","type":"image/png"}],"theme_color":"#f5f5f7","background_color":"#f5f5f7","display":"standalone"}
