@@ -4,15 +4,70 @@
 #   curl -fsSL https://raw.githubusercontent.com/mora1n/sb-fox/main/scripts/install.sh | sh
 # Env:
 #   SB_FOX_VERSION=v0.1.0   pin a specific version (default: latest)
+#   SB_FOX_GITHUB_TOKEN=... access private GitHub releases (or use GITHUB_TOKEN)
 #   SB_FOX_INSTALL_DIR=...  install location (default: /usr/local/bin, or ~/.local/bin without root)
 #   SB_FOX_DATA_DIR=...     template seed data location (default: /var/lib/sb-fox for root, ~/.local/share/sb-fox otherwise)
 set -eu
 
 REPO="mora1n/sb-fox"
 BINARY="sb-fox"
+API_BASE="https://api.github.com/repos/${REPO}"
+ASSET_BASE="${API_BASE}/releases/assets"
 
 info() { printf '\033[1;34m==>\033[0m %s\n' "$1"; }
 err()  { printf '\033[1;31merror:\033[0m %s\n' "$1" >&2; exit 1; }
+
+token="${SB_FOX_GITHUB_TOKEN:-${GITHUB_TOKEN:-}}"
+
+github_api() {
+  if [ -n "$token" ]; then
+    curl -fsSL \
+      -H "Authorization: Bearer ${token}" \
+      -H "Accept: application/vnd.github+json" \
+      -H "X-GitHub-Api-Version: 2022-11-28" \
+      "$@"
+  else
+    curl -fsSL \
+      -H "Accept: application/vnd.github+json" \
+      -H "X-GitHub-Api-Version: 2022-11-28" \
+      "$@"
+  fi
+}
+
+github_asset() {
+  if [ -n "$token" ]; then
+    curl -fsSL \
+      -H "Authorization: Bearer ${token}" \
+      -H "Accept: application/octet-stream" \
+      -H "X-GitHub-Api-Version: 2022-11-28" \
+      "$@"
+  else
+    curl -fsSL \
+      -H "Accept: application/octet-stream" \
+      -H "X-GitHub-Api-Version: 2022-11-28" \
+      "$@"
+  fi
+}
+
+asset_id() {
+  target="$1"
+  awk -v target="$target" '
+    /"id"[[:space:]]*:/ {
+      id = $0
+      sub(/.*"id"[[:space:]]*:[[:space:]]*/, "", id)
+      sub(/[,[:space:]].*/, "", id)
+    }
+    /"name"[[:space:]]*:/ {
+      name = $0
+      sub(/.*"name"[[:space:]]*:[[:space:]]*"/, "", name)
+      sub(/".*/, "", name)
+      if (name == target && id != "") {
+        print id
+        exit
+      }
+    }
+  '
+}
 
 # --- detect os/arch ---
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -32,30 +87,39 @@ esac
 version="${SB_FOX_VERSION:-}"
 if [ -z "$version" ]; then
   info "resolving latest release"
-  latest_json="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest")"
-  version="$(printf '%s\n' "$latest_json" \
+  release_json="$(github_api "${API_BASE}/releases/latest")" \
+    || err "release metadata unavailable; private repositories require SB_FOX_GITHUB_TOKEN"
+  version="$(printf '%s\n' "$release_json" \
     | grep '"tag_name"' \
     | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/' \
     | head -n 1)"
   [ -n "$version" ] || err "could not determine latest version; set SB_FOX_VERSION"
+else
+  info "resolving release assets"
+  release_json="$(github_api "${API_BASE}/releases/tags/${version}")" \
+    || err "release metadata unavailable; private repositories require SB_FOX_GITHUB_TOKEN"
 fi
 
 # --- download + verify ---
 archive="${BINARY}-${os}-${arch}-${version}.tar.gz"
-base="https://github.com/${REPO}/releases/download/${version}"
+archive_id="$(printf '%s\n' "$release_json" | asset_id "$archive")"
+sum_id="$(printf '%s\n' "$release_json" | asset_id "SHA256SUMS")"
+[ -n "$archive_id" ] || err "release asset not found: ${archive}"
+[ -n "$sum_id" ] || err "release asset not found: SHA256SUMS"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 info "downloading ${archive}"
-curl -fsSL "${base}/${archive}" -o "${tmp}/${archive}"
+github_asset "${ASSET_BASE}/${archive_id}" -o "${tmp}/${archive}" \
+  || err "download archive failed; private repositories require SB_FOX_GITHUB_TOKEN"
 
-if curl -fsSL "${base}/SHA256SUMS" -o "${tmp}/SHA256SUMS" 2>/dev/null; then
-  info "verifying checksum"
-  ( cd "$tmp" && grep " ${archive}\$" SHA256SUMS | sha256sum -c - ) \
-    || err "checksum verification failed"
-else
-  info "SHA256SUMS not found — skipping verification"
-fi
+info "downloading SHA256SUMS"
+github_asset "${ASSET_BASE}/${sum_id}" -o "${tmp}/SHA256SUMS" \
+  || err "download checksum failed; private repositories require SB_FOX_GITHUB_TOKEN"
+
+info "verifying checksum"
+( cd "$tmp" && grep " ${archive}\$" SHA256SUMS | sha256sum -c - ) \
+  || err "checksum verification failed"
 
 tar -C "$tmp" -xzf "${tmp}/${archive}"
 archive_root="${tmp}/${BINARY}-${os}-${arch}-${version}"

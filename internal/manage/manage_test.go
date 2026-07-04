@@ -371,10 +371,10 @@ func TestUpdateReplacesBinaryWithoutPrintingSourceURL(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/latest":
-			_, _ = w.Write([]byte(`{"tag_name":"v9.9.9"}`))
-		case "/v9.9.9/" + archiveName:
+			_, _ = fmt.Fprintf(w, `{"tag_name":"v9.9.9","assets":[{"id":101,"name":%q},{"id":102,"name":"SHA256SUMS"}]}`, archiveName)
+		case "/101":
 			_, _ = w.Write(archiveBytes)
-		case "/v9.9.9/SHA256SUMS":
+		case "/102":
 			_, _ = fmt.Fprintf(w, "%x  %s\n", sum, archiveName)
 		case "/api/app":
 			_, _ = w.Write([]byte(`{"data":{},"error":null}`))
@@ -417,6 +417,82 @@ func TestUpdateReplacesBinaryWithoutPrintingSourceURL(t *testing.T) {
 	}
 	if strings.Contains(output.String(), server.URL) || strings.Contains(output.String(), "mora1n") {
 		t.Fatalf("update output exposed source info:\n%s", output.String())
+	}
+}
+
+func TestUpdateUsesGitHubTokenForReleaseAssetRequests(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("systemd management is Linux-only")
+	}
+	t.Setenv("SB_FOX_GITHUB_TOKEN", "secret-token")
+	t.Setenv("GITHUB_TOKEN", "ignored-token")
+	root := t.TempDir()
+	current := filepath.Join(root, "usr/local/bin/sb-fox")
+	if err := os.MkdirAll(filepath.Dir(current), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(current, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	archiveName, err := releaseArchiveName("v9.9.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	archiveBytes := makeReleaseArchive(t, archiveName, "new")
+	sum := sha256.Sum256(archiveBytes)
+	authByPath := map[string]string{}
+	acceptByPath := map[string]string{}
+	var output bytes.Buffer
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authByPath[r.URL.Path] = r.Header.Get("Authorization")
+		acceptByPath[r.URL.Path] = r.Header.Get("Accept")
+		switch r.URL.Path {
+		case "/latest":
+			_, _ = fmt.Fprintf(w, `{"tag_name":"v9.9.9","assets":[{"id":201,"name":%q},{"id":202,"name":"SHA256SUMS"}]}`, archiveName)
+		case "/201":
+			_, _ = w.Write(archiveBytes)
+		case "/202":
+			_, _ = fmt.Fprintf(w, "%x  %s\n", sum, archiveName)
+		case "/api/app":
+			_, _ = w.Write([]byte(`{"data":{},"error":null}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	err = Update(Options{
+		Root:           root,
+		BinaryPath:     current,
+		Addr:           server.URL,
+		HTTPClient:     server.Client(),
+		LatestURL:      server.URL + "/latest",
+		DownloadBase:   server.URL,
+		HealthTimeout:  100 * time.Millisecond,
+		HealthInterval: 10 * time.Millisecond,
+		Stdout:         &output,
+		Runner: func(name string, args ...string) ([]byte, error) {
+			return nil, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	for _, path := range []string{"/latest", "/201", "/202"} {
+		if got := authByPath[path]; got != "Bearer secret-token" {
+			t.Fatalf("Authorization for %s = %q", path, got)
+		}
+	}
+	if got := acceptByPath["/latest"]; got != "application/vnd.github+json" {
+		t.Fatalf("metadata Accept = %q", got)
+	}
+	for _, path := range []string{"/201", "/202"} {
+		if got := acceptByPath[path]; got != "application/octet-stream" {
+			t.Fatalf("asset Accept for %s = %q", path, got)
+		}
+	}
+	if strings.Contains(output.String(), "secret-token") {
+		t.Fatalf("update output exposed token:\n%s", output.String())
 	}
 }
 
@@ -490,6 +566,8 @@ func TestUpdateMetadataHTTPErrorDoesNotExposeSourceURL(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("systemd management is Linux-only")
 	}
+	t.Setenv("SB_FOX_GITHUB_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
 	root := t.TempDir()
 	current := filepath.Join(root, "usr/local/bin/sb-fox")
 	if err := os.MkdirAll(filepath.Dir(current), 0o755); err != nil {
@@ -513,11 +591,49 @@ func TestUpdateMetadataHTTPErrorDoesNotExposeSourceURL(t *testing.T) {
 		t.Fatal("expected metadata error")
 	}
 	msg := err.Error()
-	if !strings.Contains(msg, "release metadata unavailable (HTTP 404)") {
+	if !strings.Contains(msg, "release metadata unavailable; private repository requires SB_FOX_GITHUB_TOKEN") {
 		t.Fatalf("metadata error = %q", msg)
 	}
 	if strings.Contains(msg, server.URL) || strings.Contains(msg, "mora1n") || strings.Contains(msg, "sb-fox/releases") {
 		t.Fatalf("metadata error exposed source info: %q", msg)
+	}
+}
+
+func TestUpdateMetadataTokenErrorDoesNotExposeToken(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("systemd management is Linux-only")
+	}
+	t.Setenv("SB_FOX_GITHUB_TOKEN", "secret-token")
+	root := t.TempDir()
+	current := filepath.Join(root, "usr/local/bin/sb-fox")
+	if err := os.MkdirAll(filepath.Dir(current), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(current, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	err := Update(Options{
+		Root:       root,
+		BinaryPath: current,
+		Version:    "v9.9.8",
+		HTTPClient: server.Client(),
+		LatestURL:  server.URL + "/latest",
+		Stdout:     io.Discard,
+	})
+	if err == nil {
+		t.Fatal("expected metadata error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "check SB_FOX_GITHUB_TOKEN permission or release availability") {
+		t.Fatalf("metadata error = %q", msg)
+	}
+	if strings.Contains(msg, "secret-token") || strings.Contains(msg, server.URL) || strings.Contains(msg, "mora1n") {
+		t.Fatalf("metadata error exposed sensitive info: %q", msg)
 	}
 }
 
@@ -542,10 +658,10 @@ func TestUpdateRollsBackWhenHealthCheckFails(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/latest":
-			_, _ = w.Write([]byte(`{"tag_name":"v9.9.9"}`))
-		case "/v9.9.9/" + archiveName:
+			_, _ = fmt.Fprintf(w, `{"tag_name":"v9.9.9","assets":[{"id":301,"name":%q},{"id":302,"name":"SHA256SUMS"}]}`, archiveName)
+		case "/301":
 			_, _ = w.Write(archiveBytes)
-		case "/v9.9.9/SHA256SUMS":
+		case "/302":
 			_, _ = fmt.Fprintf(w, "%x  %s\n", sum, archiveName)
 		case "/api/app":
 			http.Error(w, "down", http.StatusServiceUnavailable)

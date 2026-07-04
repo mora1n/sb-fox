@@ -33,7 +33,7 @@ const (
 	DefaultSocketPath = "/var/run/sb-fox.sock"
 
 	defaultLatestURL    = "https://api.github.com/repos/mora1n/sb-fox/releases/latest"
-	defaultDownloadBase = "https://github.com/mora1n/sb-fox/releases/download"
+	defaultDownloadBase = "https://api.github.com/repos/mora1n/sb-fox/releases/assets"
 )
 
 // Runner executes an external command and returns its combined output.
@@ -58,6 +58,7 @@ type Options struct {
 	Runner            Runner
 	LatestURL         string
 	DownloadBase      string
+	GitHubToken       string
 	HealthTimeout     time.Duration
 	HealthInterval    time.Duration
 }
@@ -95,6 +96,9 @@ func (o Options) withDefaults() Options {
 	}
 	if o.DownloadBase == "" {
 		o.DownloadBase = defaultDownloadBase
+	}
+	if o.GitHubToken == "" {
+		o.GitHubToken = releaseTokenFromEnv()
 	}
 	if o.HealthTimeout == 0 {
 		o.HealthTimeout = 20 * time.Second
@@ -273,10 +277,18 @@ func Update(opts Options) error {
 	fmt.Fprintf(opts.Stdout, "latest version: %s\n", latest.TagName)
 	archivePath := filepath.Join(tmp, archiveName)
 	sumPath := filepath.Join(tmp, "SHA256SUMS")
-	if err := download(opts, releaseURL(opts, latest.TagName, archiveName), archivePath, "download archive"); err != nil {
+	archiveAsset, err := releaseAssetByName(latest.Assets, archiveName)
+	if err != nil {
 		return err
 	}
-	if err := download(opts, releaseURL(opts, latest.TagName, "SHA256SUMS"), sumPath, "download checksum"); err != nil {
+	sumAsset, err := releaseAssetByName(latest.Assets, "SHA256SUMS")
+	if err != nil {
+		return err
+	}
+	if err := downloadAsset(opts, archiveAsset.ID, archivePath, "download archive"); err != nil {
+		return err
+	}
+	if err := downloadAsset(opts, sumAsset.ID, sumPath, "download checksum"); err != nil {
 		return err
 	}
 	if err := verifySHA256(archivePath, sumPath, archiveName); err != nil {
@@ -532,19 +544,29 @@ func defaultRunner(name string, args ...string) ([]byte, error) {
 	return exec.Command(name, args...).CombinedOutput()
 }
 
-func fetchLatest(opts Options) (struct {
-	TagName string `json:"tag_name"`
-}, error) {
-	var latest struct {
-		TagName string `json:"tag_name"`
+type releaseInfo struct {
+	TagName string         `json:"tag_name"`
+	Assets  []releaseAsset `json:"assets"`
+}
+
+type releaseAsset struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+func fetchLatest(opts Options) (releaseInfo, error) {
+	var latest releaseInfo
+	req, err := newReleaseRequest(opts, http.MethodGet, opts.LatestURL, "application/vnd.github+json")
+	if err != nil {
+		return latest, errors.New("release metadata unavailable")
 	}
-	resp, err := opts.HTTPClient.Get(opts.LatestURL)
+	resp, err := opts.HTTPClient.Do(req)
 	if err != nil {
 		return latest, errors.New("release metadata unavailable")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return latest, fmt.Errorf("release metadata unavailable (HTTP %d)", resp.StatusCode)
+		return latest, releaseMetadataStatusError(resp.StatusCode, opts.GitHubToken != "")
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&latest); err != nil {
 		return latest, errors.New("release metadata unavailable (invalid JSON)")
@@ -553,6 +575,64 @@ func fetchLatest(opts Options) (struct {
 		return latest, errors.New("release metadata missing version")
 	}
 	return latest, nil
+}
+
+func releaseTokenFromEnv() string {
+	if token := strings.TrimSpace(os.Getenv("SB_FOX_GITHUB_TOKEN")); token != "" {
+		return token
+	}
+	return strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
+}
+
+func newReleaseRequest(opts Options, method, url, accept string) (*http.Request, error) {
+	req, err := http.NewRequest(method, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", accept)
+	req.Header.Set("User-Agent", "sb-fox")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	if opts.GitHubToken != "" {
+		req.Header.Set("Authorization", "Bearer "+opts.GitHubToken)
+	}
+	return req, nil
+}
+
+func releaseAssetByName(assets []releaseAsset, name string) (releaseAsset, error) {
+	for _, asset := range assets {
+		if asset.Name != name {
+			continue
+		}
+		if asset.ID == 0 {
+			return releaseAsset{}, fmt.Errorf("release asset %q missing id", name)
+		}
+		return asset, nil
+	}
+	return releaseAsset{}, fmt.Errorf("release asset %q not found", name)
+}
+
+func releaseMetadataStatusError(status int, hasToken bool) error {
+	if releaseAuthStatus(status) {
+		if hasToken {
+			return fmt.Errorf("release metadata unavailable; check SB_FOX_GITHUB_TOKEN permission or release availability (HTTP %d)", status)
+		}
+		return errors.New("release metadata unavailable; private repository requires SB_FOX_GITHUB_TOKEN with Contents read permission")
+	}
+	return fmt.Errorf("release metadata unavailable (HTTP %d)", status)
+}
+
+func releaseDownloadStatusError(label string, status int, hasToken bool) error {
+	if releaseAuthStatus(status) {
+		if hasToken {
+			return fmt.Errorf("%s failed; check SB_FOX_GITHUB_TOKEN permission or release availability (HTTP %d)", label, status)
+		}
+		return fmt.Errorf("%s failed; private repository requires SB_FOX_GITHUB_TOKEN with Contents read permission", label)
+	}
+	return fmt.Errorf("%s failed (HTTP %d)", label, status)
+}
+
+func releaseAuthStatus(status int) bool {
+	return status == http.StatusUnauthorized || status == http.StatusForbidden || status == http.StatusNotFound
 }
 
 func sameReleaseVersion(current, latest string) bool {
@@ -576,18 +656,19 @@ func releaseArchiveName(tag string) (string, error) {
 	}
 }
 
-func releaseURL(opts Options, tag, name string) string {
-	return strings.TrimRight(opts.DownloadBase, "/") + "/" + tag + "/" + name
-}
-
-func download(opts Options, url, path, label string) error {
-	resp, err := opts.HTTPClient.Get(url)
+func downloadAsset(opts Options, assetID int64, path, label string) error {
+	url := strings.TrimRight(opts.DownloadBase, "/") + "/" + strconv.FormatInt(assetID, 10)
+	req, err := newReleaseRequest(opts, http.MethodGet, url, "application/octet-stream")
+	if err != nil {
+		return fmt.Errorf("%s failed", label)
+	}
+	resp, err := opts.HTTPClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("%s failed", label)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("%s failed", label)
+		return releaseDownloadStatusError(label, resp.StatusCode, opts.GitHubToken != "")
 	}
 	file, err := os.Create(path)
 	if err != nil {
