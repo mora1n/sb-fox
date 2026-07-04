@@ -256,6 +256,10 @@ func Update(opts Options) error {
 	if err != nil {
 		return err
 	}
+	if sameReleaseVersion(opts.Version, latest.TagName) {
+		fmt.Fprintf(opts.Stdout, "already up to date: %s\n", latest.TagName)
+		return nil
+	}
 	archiveName, err := releaseArchiveName(latest.TagName)
 	if err != nil {
 		return err
@@ -536,19 +540,28 @@ func fetchLatest(opts Options) (struct {
 	}
 	resp, err := opts.HTTPClient.Get(opts.LatestURL)
 	if err != nil {
-		return latest, errors.New("release metadata failed")
+		return latest, errors.New("release metadata unavailable")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return latest, errors.New("release metadata failed")
+		return latest, fmt.Errorf("release metadata unavailable (HTTP %d)", resp.StatusCode)
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&latest); err != nil {
-		return latest, errors.New("release metadata failed")
+		return latest, errors.New("release metadata unavailable (invalid JSON)")
 	}
 	if latest.TagName == "" {
 		return latest, errors.New("release metadata missing version")
 	}
 	return latest, nil
+}
+
+func sameReleaseVersion(current, latest string) bool {
+	current = strings.TrimSpace(current)
+	latest = strings.TrimSpace(latest)
+	if current == "" || current == "dev" || latest == "" {
+		return false
+	}
+	return strings.TrimPrefix(current, "v") == strings.TrimPrefix(latest, "v")
 }
 
 func releaseArchiveName(tag string) (string, error) {

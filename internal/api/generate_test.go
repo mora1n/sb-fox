@@ -328,6 +328,35 @@ func TestGenerateConfigWithGroupSelectionAutoCountrySourceFillsUnselectedGroups(
 	}
 }
 
+func TestGenerateConfigWithGroupSelectionAutoCountrySourceFillsFinalGroup(t *testing.T) {
+	template := `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":[]},
+    {"type":"direct","tag":"Direct"}
+  ],
+  "route": {"final":"Proxy"}
+}`
+	usNode := testNode(1, "us-node", "US")
+	config, err := generateConfigWithGroupSelections(template, map[string][]*models.Node{}, []*models.Node{usNode}, nil, models.ProfileOptions{
+		AutoCountryGroups: true,
+		GroupSelections: map[string]models.NodeSelection{
+			"Proxy": {},
+		},
+		AutoCountrySelected: &models.NodeSelection{NodeIDs: []int64{1}},
+	}, nil)
+	if err != nil {
+		t.Fatalf("generateConfigWithGroupSelections: %v", err)
+	}
+
+	outbounds := generatedOutboundMap(t, config)
+	if got := stringSliceValue(t, outbounds["Proxy"]["outbounds"]); !sameStrings(got, []string{"🇺🇸 United States"}) {
+		t.Fatalf("Proxy outbounds = %v", got)
+	}
+	if got := stringSliceValue(t, outbounds["🇺🇸 United States"]["outbounds"]); !sameStrings(got, []string{"us-node"}) {
+		t.Fatalf("US selector outbounds = %v", got)
+	}
+}
+
 func TestGenerateConfigUsesStoredAutoCountryForGrouping(t *testing.T) {
 	template := `{
   "outbounds": [

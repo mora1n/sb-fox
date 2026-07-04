@@ -36,6 +36,7 @@ const viewing = ref<Template | null>(null)
 const structure = ref<TemplateStructure | null>(null)
 const structureFor = ref<Template | null>(null)
 const dragIndex = ref<number | null>(null)
+const dropIndex = ref<number | null>(null)
 
 const showForm = ref(false)
 const editing = ref<Template | null>(null)
@@ -237,7 +238,11 @@ async function saveStructure() {
   if (!structure.value || !structureFor.value) return
   busy.value = true
   try {
-    structure.value = await store.saveStructure(structureFor.value.id, structure.value)
+    await store.saveStructure(structureFor.value.id, structure.value)
+    structure.value = null
+    structureFor.value = null
+    dragIndex.value = null
+    dropIndex.value = null
     ui.success('分组管理已保存')
   } catch (e) {
     ui.error(errMsg(e))
@@ -315,17 +320,32 @@ function moveGroup(index: number, delta: number) {
 
 function onDragStart(index: number) {
   dragIndex.value = index
+  dropIndex.value = null
 }
 
 function onDragEnd() {
   dragIndex.value = null
+  dropIndex.value = null
+}
+
+function onDragOver(index: number) {
+  if (dragIndex.value === null || dragIndex.value === index) {
+    dropIndex.value = null
+    return
+  }
+  dropIndex.value = index
 }
 
 function onDrop(index: number) {
-  if (!structure.value || dragIndex.value === null || dragIndex.value === index) return
+  if (!structure.value || dragIndex.value === null || dragIndex.value === index) {
+    dragIndex.value = null
+    dropIndex.value = null
+    return
+  }
   const [item] = structure.value.groups.splice(dragIndex.value, 1)
   structure.value.groups.splice(index, 0, item)
-  dragIndex.value = index
+  dragIndex.value = null
+  dropIndex.value = null
 }
 
 function toggleTemplateSelect(t: Template) {
@@ -542,9 +562,13 @@ async function remove(t: Template) {
           <div
             v-for="(g, i) in structure.groups"
             :key="g.tag + ':' + i"
-            class="border border-base-300 rounded-box bg-base-100 p-3"
-            :class="{ 'bg-base-200': dragIndex === i }"
-            @dragover.prevent
+            class="border border-base-300 rounded-box bg-base-100 p-3 transition-colors hover:bg-base-200/50"
+            :class="{
+              'opacity-60 ring-1 ring-base-content/30': dragIndex === i,
+              'bg-base-200 border-base-content/40 shadow-sm': dropIndex === i,
+            }"
+            @dragenter.prevent="onDragOver(i)"
+            @dragover.prevent="onDragOver(i)"
             @drop="onDrop(i)"
           >
             <div class="grid grid-cols-1 lg:grid-cols-[32px_minmax(160px,1fr)_120px_minmax(180px,1fr)_160px_64px] gap-2 items-start">

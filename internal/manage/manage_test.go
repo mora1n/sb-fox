@@ -420,6 +420,107 @@ func TestUpdateReplacesBinaryWithoutPrintingSourceURL(t *testing.T) {
 	}
 }
 
+func TestUpdateAlreadyLatestIsNoop(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("systemd management is Linux-only")
+	}
+	root := t.TempDir()
+	current := filepath.Join(root, "usr/local/bin/sb-fox")
+	if err := os.MkdirAll(filepath.Dir(current), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(current, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var paths []string
+	var output bytes.Buffer
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		switch r.URL.Path {
+		case "/latest":
+			_, _ = w.Write([]byte(`{"tag_name":"v9.9.9"}`))
+		default:
+			http.Error(w, "unexpected update request", http.StatusInternalServerError)
+		}
+	}))
+	defer server.Close()
+
+	var commands []string
+	err := Update(Options{
+		Root:       root,
+		BinaryPath: current,
+		Version:    "v9.9.9",
+		HTTPClient: server.Client(),
+		LatestURL:  server.URL + "/latest",
+		Stdout:     &output,
+		Runner: func(name string, args ...string) ([]byte, error) {
+			commands = append(commands, name+" "+strings.Join(args, " "))
+			return nil, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if got := strings.TrimSpace(output.String()); got != "already up to date: v9.9.9" {
+		t.Fatalf("output = %q", got)
+	}
+	if len(paths) != 1 || paths[0] != "/latest" {
+		t.Fatalf("requests = %v", paths)
+	}
+	if len(commands) != 0 {
+		t.Fatalf("systemctl should not run for no-op update: %v", commands)
+	}
+	data, err := os.ReadFile(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "old" {
+		t.Fatalf("binary = %q, want old", data)
+	}
+	backups, err := filepath.Glob(current + ".bak-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backups) != 0 {
+		t.Fatalf("no-op update created backups: %v", backups)
+	}
+}
+
+func TestUpdateMetadataHTTPErrorDoesNotExposeSourceURL(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("systemd management is Linux-only")
+	}
+	root := t.TempDir()
+	current := filepath.Join(root, "usr/local/bin/sb-fox")
+	if err := os.MkdirAll(filepath.Dir(current), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(current, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.NotFoundHandler())
+	defer server.Close()
+
+	err := Update(Options{
+		Root:       root,
+		BinaryPath: current,
+		Version:    "v9.9.8",
+		HTTPClient: server.Client(),
+		LatestURL:  server.URL + "/latest",
+		Stdout:     io.Discard,
+	})
+	if err == nil {
+		t.Fatal("expected metadata error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "release metadata unavailable (HTTP 404)") {
+		t.Fatalf("metadata error = %q", msg)
+	}
+	if strings.Contains(msg, server.URL) || strings.Contains(msg, "mora1n") || strings.Contains(msg, "sb-fox/releases") {
+		t.Fatalf("metadata error exposed source info: %q", msg)
+	}
+}
+
 func TestUpdateRollsBackWhenHealthCheckFails(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("systemd management is Linux-only")

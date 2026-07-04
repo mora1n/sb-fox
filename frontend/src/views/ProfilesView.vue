@@ -522,6 +522,10 @@ function selectionMapHasAny(selections: Record<string, NodeSelection> | undefine
   return Object.values(selections ?? {}).some(hasSelection)
 }
 
+function autoCountryFillsSelection(sel: NodeSelection) {
+  return form.value.options.autoCountryGroups && hasSelection(autoCountrySelection()) && !sel.skipCountryGroups
+}
+
 function validateForm() {
   if (!form.value.name.trim()) throw new Error('请填写名称')
   if (!form.value.template_id) throw new Error('请选择模板')
@@ -534,14 +538,16 @@ function validateForm() {
     const sel = selectionFor(g.tag)
     const isFinalGroup = g.tag === finalTag
     const chainFillsFinal = form.value.options.chainProxy && isFinalGroup && hasSelection(chainSelection())
-    if (!hasSelection(sel) && !chainFillsFinal) {
+    const autoCountryFillsGroup = autoCountryFillsSelection(sel)
+    if (!hasSelection(sel) && !chainFillsFinal && !autoCountryFillsGroup) {
       if (isFinalGroup) continue
       throw new Error(`出口分组 "${g.tag}" 不能为空`)
     }
   }
   if (finalTag) {
     const finalSelection = selectionFor(finalTag)
-    if (!hasSelection(finalSelection) && !form.value.options.chainProxy) {
+    const chainFillsFinal = form.value.options.chainProxy && hasSelection(chainSelection())
+    if (!hasSelection(finalSelection) && !chainFillsFinal && !autoCountryFillsSelection(finalSelection)) {
       throw new Error(`最终出口 "${finalTag}" 至少需要选择一个节点、组合节点或引用出口`)
     }
   }
