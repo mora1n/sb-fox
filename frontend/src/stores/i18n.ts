@@ -172,6 +172,7 @@ const en: Record<string, string> = {
   '类型': 'Type',
   '描述': 'Description',
   '查看': 'View',
+  '查看配置': 'View Config',
   '出口分组': 'Group Management',
   '分组管理': 'Group Management',
   '导出': 'Export',

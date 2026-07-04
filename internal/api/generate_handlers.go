@@ -9,6 +9,7 @@ import (
 
 // previewRequest generates a config from a template + node ids without saving.
 type previewRequest struct {
+	ProfileID       int64                 `json:"profile_id"`
 	TemplateID      int64                 `json:"template_id"`
 	TemplateContent string                `json:"template_content"` // optional inline override
 	NodeIDs         []int64               `json:"node_ids"`
@@ -24,6 +25,16 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 	}
 	var req previewRequest
 	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.ProfileID != 0 {
+		ownerID, allOwners := ownerScope(r)
+		config, err := s.renderProfileForUser(req.ProfileID, ownerID, allOwners)
+		if err != nil {
+			respondError(w, http.StatusUnprocessableEntity, "generate_error", err.Error())
+			return
+		}
+		respondJSON(w, http.StatusOK, map[string]string{"config": string(config)})
 		return
 	}
 	req.NodeIDs = uniqueInt64s(req.NodeIDs)

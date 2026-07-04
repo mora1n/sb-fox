@@ -221,9 +221,10 @@ export interface User {
 }
 
 export interface PreviewPayload {
+  profile_id?: number
   template_id?: number
   template_content?: string
-  node_ids: number[]
+  node_ids?: number[]
   node_group_ids?: number[]
-  options: ProfileOptions
+  options?: ProfileOptions
 }

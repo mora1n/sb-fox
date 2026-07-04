@@ -32,6 +32,7 @@ import {
   ListBulletIcon,
   Squares2X2Icon,
   DocumentDuplicateIcon,
+  EyeIcon,
 } from '@heroicons/vue/24/outline'
 
 type ViewMode = 'card' | 'list'
@@ -56,6 +57,9 @@ const busy = ref(false)
 const formLoading = ref(false)
 const suppressTemplateWatch = ref(false)
 const config = ref('')
+const viewingProfile = ref<Profile | null>(null)
+const viewingConfig = ref('')
+const viewingProfileID = ref<number | null>(null)
 const validation = ref<KernelResult | null>(null)
 const allNodes = ref<NodeSummary[]>([])
 const structure = ref<TemplateStructure | null>(null)
@@ -745,6 +749,26 @@ async function generate() {
   }
 }
 
+async function viewProfileConfig(p: Profile) {
+  viewingProfileID.value = p.id
+  viewingProfile.value = null
+  viewingConfig.value = ''
+  try {
+    const r = await post<{ config: string }>('/generate/preview', { profile_id: p.id })
+    viewingProfile.value = p
+    viewingConfig.value = r.config
+  } catch (e) {
+    ui.error(errMsg(e, '生成失败'))
+  } finally {
+    viewingProfileID.value = null
+  }
+}
+
+function closeProfileConfigView() {
+  viewingProfile.value = null
+  viewingConfig.value = ''
+}
+
 async function validateGenerated() {
   if (formLoading.value) return ui.info('正在加载订阅...')
   if (!config.value) return ui.info('请先生成配置')
@@ -944,6 +968,16 @@ async function remove(p: Profile) {
               </div>
             </div>
             <div class="flex gap-1 flex-none">
+              <button
+                type="button"
+                class="btn btn-xs btn-ghost"
+                :title="i18n.t('查看配置')"
+                :disabled="viewingProfileID === p.id"
+                @click.stop="viewProfileConfig(p)"
+              >
+                <span v-if="viewingProfileID === p.id" class="loading loading-spinner loading-xs"></span>
+                <EyeIcon v-else class="h-4 w-4" />
+              </button>
               <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('复制订阅')" @click.stop="openCopy(p)"><DocumentDuplicateIcon class="h-4 w-4" /></button>
               <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('编辑订阅')" @click.stop="openEdit(p)"><PencilSquareIcon class="h-4 w-4" /></button>
               <button type="button" class="btn btn-xs btn-ghost text-error" :title="i18n.t('删除')" @click.stop="remove(p)"><TrashIcon class="h-4 w-4" /></button>
@@ -1035,6 +1069,16 @@ async function remove(p: Profile) {
             </td>
             <td class="text-right">
               <div class="flex gap-1 justify-end">
+                <button
+                  type="button"
+                  class="btn btn-xs btn-ghost"
+                  :title="i18n.t('查看配置')"
+                  :disabled="viewingProfileID === p.id"
+                  @click.stop="viewProfileConfig(p)"
+                >
+                  <span v-if="viewingProfileID === p.id" class="loading loading-spinner loading-xs"></span>
+                  <EyeIcon v-else class="h-4 w-4" />
+                </button>
                 <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('复制订阅')" @click.stop="openCopy(p)"><DocumentDuplicateIcon class="h-4 w-4" /></button>
                 <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('编辑订阅')" @click.stop="openEdit(p)"><PencilSquareIcon class="h-4 w-4" /></button>
                 <button type="button" class="btn btn-xs btn-ghost text-error" :title="i18n.t('删除')" @click.stop="remove(p)"><TrashIcon class="h-4 w-4" /></button>
@@ -1043,6 +1087,17 @@ async function remove(p: Profile) {
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <div v-if="viewingProfile" class="modal modal-open">
+      <div class="modal-box max-w-5xl">
+        <h3 class="font-bold text-lg mb-3 truncate" :title="viewingProfile.name">{{ viewingProfile.name }}</h3>
+        <JsonViewer :content="viewingConfig" max-height="70vh" />
+        <div class="modal-action">
+          <button class="btn" @click="closeProfileConfigView">{{ i18n.t('关闭') }}</button>
+        </div>
+      </div>
+      <div class="modal-backdrop" @click="closeProfileConfigView"></div>
     </div>
 
     <div v-if="showForm" class="modal modal-open">

@@ -803,6 +803,101 @@ func TestProfileEmptyNodeIDsAreJSONArrays(t *testing.T) {
 	}
 }
 
+func TestPreviewSavedProfileRendersConfigAndChecksOwnership(t *testing.T) {
+	_, ts := testServer(t)
+	c := newClient(t, ts.URL)
+	c.http.Jar = login(t, ts.URL)
+
+	profileID := createSavedPreviewProfile(t, c)
+	decodeData(t, c.do(http.MethodPut, "/api/profiles/"+itoa(profileID)+"/subscription-enabled", map[string]bool{
+		"subscription_enabled": false,
+	}), nil)
+
+	var preview struct {
+		Config string `json:"config"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/generate/preview", map[string]any{"profile_id": profileID}), &preview)
+	assertPreviewConfigHasSavedNode(t, preview.Config)
+
+	decodeData(t, c.do(http.MethodPost, "/api/users", map[string]any{
+		"username": "other-preview", "password": "password123",
+	}), nil)
+	other := newClient(t, ts.URL)
+	other.http.Jar = loginAs(t, ts.URL, "other-preview", "password123")
+	status, code, _ := decodeError(t, other.do(http.MethodPost, "/api/generate/preview", map[string]any{
+		"profile_id": profileID,
+	}))
+	if status != http.StatusUnprocessableEntity || code != "generate_error" {
+		t.Fatalf("other user preview status=%d code=%q", status, code)
+	}
+}
+
+func createSavedPreviewProfile(t *testing.T, c *apiClient) int64 {
+	t.Helper()
+	template := `{"outbounds":[{"type":"selector","tag":"Proxy","outbounds":[]},{"type":"direct","tag":"Direct"}],"route":{"final":"Proxy"}}`
+	var createdTemplate struct {
+		Template struct {
+			ID int64 `json:"id"`
+		} `json:"template"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/templates", map[string]string{
+		"name":    "preview-profile",
+		"content": template,
+	}), &createdTemplate)
+
+	var node struct {
+		ID int64 `json:"id"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/nodes", map[string]string{
+		"raw": `{"type":"shadowsocks","tag":"preview-node","server":"example.com","server_port":443,"method":"aes-128-gcm","password":"pw"}`,
+	}), &node)
+
+	var profile struct {
+		ID int64 `json:"id"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/profiles", map[string]any{
+		"name":        "saved-preview",
+		"template_id": createdTemplate.Template.ID,
+		"options": map[string]any{
+			"autoCountryGroups": false,
+			"groupSelections": map[string]any{
+				"Proxy": map[string]any{"nodeIds": []int64{node.ID}},
+			},
+		},
+	}), &profile)
+	return profile.ID
+}
+
+func assertPreviewConfigHasSavedNode(t *testing.T, config string) {
+	t.Helper()
+	var rendered struct {
+		Outbounds []map[string]any `json:"outbounds"`
+	}
+	if err := json.Unmarshal([]byte(config), &rendered); err != nil {
+		t.Fatalf("unmarshal preview config: %v\n%s", err, config)
+	}
+	var hasNode, proxyReferencesNode bool
+	for _, outbound := range rendered.Outbounds {
+		switch outbound["tag"] {
+		case "preview-node":
+			hasNode = true
+		case "Proxy":
+			refs, _ := outbound["outbounds"].([]any)
+			for _, ref := range refs {
+				if ref == "preview-node" {
+					proxyReferencesNode = true
+				}
+			}
+		}
+	}
+	if !hasNode {
+		t.Fatalf("preview config missing saved node: %s", config)
+	}
+	if !proxyReferencesNode {
+		t.Fatalf("preview config missing selector membership: %s", config)
+	}
+}
+
 func TestImportConfigDedupesExactNodesButKeepsDifferentTags(t *testing.T) {
 	_, ts := testServer(t)
 	c := newClient(t, ts.URL)
