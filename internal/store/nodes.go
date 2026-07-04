@@ -38,6 +38,7 @@ type NodeFilter struct {
 	Search      string // substring match on tag
 	OwnerUserID int64
 	AllOwners   bool
+	OmitRaw     bool
 }
 
 // ListNodes returns nodes matching filter, ordered by id.
@@ -67,7 +68,12 @@ func (s *Store) ListNodes(f NodeFilter) ([]*models.Node, error) {
 		where = append(where, "tag LIKE ?")
 		args = append(args, "%"+f.Search+"%")
 	}
-	q := `SELECT ` + nodeCols + ` FROM nodes`
+	cols := nodeCols
+	if f.OmitRaw {
+		cols = `id, owner_user_id, tag, type, server, server_port, country_code, country_source,
+	source, source_ref, has_detour, detour, created_at, updated_at`
+	}
+	q := `SELECT ` + cols + ` FROM nodes`
 	if len(where) > 0 {
 		q += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -80,13 +86,37 @@ func (s *Store) ListNodes(f NodeFilter) ([]*models.Node, error) {
 	defer rows.Close()
 	var out []*models.Node
 	for rows.Next() {
-		n, err := scanNode(rows)
+		var n *models.Node
+		var err error
+		if f.OmitRaw {
+			n, err = scanNodeSummary(rows)
+		} else {
+			n, err = scanNode(rows)
+		}
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, n)
 	}
 	return out, rows.Err()
+}
+
+func scanNodeSummary(sc interface{ Scan(...any) error }) (*models.Node, error) {
+	var n models.Node
+	var created, updated string
+	var sourceRef sql.NullInt64
+	var hasDetour int
+	if err := sc.Scan(&n.ID, &n.OwnerUserID, &n.Tag, &n.Type, &n.Server, &n.ServerPort, &n.CountryCode,
+		&n.CountrySource, &n.Source, &sourceRef, &hasDetour, &n.Detour, &created, &updated); err != nil {
+		return nil, err
+	}
+	if sourceRef.Valid {
+		n.SourceRef = &sourceRef.Int64
+	}
+	n.HasDetour = hasDetour != 0
+	n.CreatedAt = parseTime(created)
+	n.UpdatedAt = parseTime(updated)
+	return &n, nil
 }
 
 // GetNode returns one node by id.

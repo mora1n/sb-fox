@@ -85,7 +85,10 @@ onMounted(load)
 
 async function load() {
   try {
-    await Promise.all([nodesStore.fetchAll(), nodesStore.fetchUnfiltered(), nodeGroups.fetchAll()])
+    const hasFilters = Object.values(nodesStore.filters).some(Boolean)
+    const jobs: Promise<unknown>[] = [nodesStore.fetchAll(), nodeGroups.fetchAll()]
+    if (hasFilters) jobs.push(nodesStore.fetchUnfiltered())
+    await Promise.all(jobs)
   } catch (e) {
     ui.error(errMsg(e))
   }

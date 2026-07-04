@@ -17,6 +17,7 @@ func (s *Server) Router() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RealIP)
+	r.Use(middleware.Compress(5))
 
 	r.Route("/api", func(api chi.Router) {
 		// public bootstrap/auth endpoints
@@ -138,6 +139,9 @@ func (s *Server) spaHandler(dist fs.FS) http.HandlerFunc {
 			s.serveIndex(w, dist)
 			return
 		}
+		if strings.HasPrefix(p, "assets/") {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		}
 		fileServer.ServeHTTP(w, r)
 	}
 }
@@ -152,6 +156,7 @@ func (s *Server) serveIndex(w http.ResponseWriter, dist fs.FS) {
 		data = []byte(strings.Replace(string(data), "<title>Loading...</title>", "<title>"+html.EscapeString(displayName)+"</title>", 1))
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
 	_, _ = w.Write(data)
 }
 

@@ -13,6 +13,7 @@ import (
 func (s *Server) handleListNodes(w http.ResponseWriter, r *http.Request) {
 	ownerID, allOwners := ownerScope(r)
 	q := r.URL.Query()
+	summary := isSummaryRequest(r)
 	filter := store.NodeFilter{
 		Source:      q.Get("source"),
 		CountryCode: q.Get("country"),
@@ -20,6 +21,7 @@ func (s *Server) handleListNodes(w http.ResponseWriter, r *http.Request) {
 		Search:      q.Get("search"),
 		OwnerUserID: ownerID,
 		AllOwners:   allOwners,
+		OmitRaw:     summary,
 	}
 	if allOwners && q.Get("owner_user_id") != "" {
 		filter.OwnerUserID = pathInt64(q.Get("owner_user_id"))
@@ -27,6 +29,10 @@ func (s *Server) handleListNodes(w http.ResponseWriter, r *http.Request) {
 	nodes, err := s.Store.ListNodes(filter)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	if summary {
+		respondJSON(w, http.StatusOK, nodeSummaries(nodes))
 		return
 	}
 	respondJSON(w, http.StatusOK, nodes)

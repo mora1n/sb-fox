@@ -12,7 +12,7 @@ import { errMsg } from '../utils/error'
 import { readViewPref, writeViewPref } from '../utils/viewPrefs'
 import type {
   KernelResult,
-  Node,
+  NodeSummary,
   NodeSelection,
   PreviewPayload,
   Profile,
@@ -57,7 +57,7 @@ const formLoading = ref(false)
 const suppressTemplateWatch = ref(false)
 const config = ref('')
 const validation = ref<KernelResult | null>(null)
-const allNodes = ref<Node[]>([])
+const allNodes = ref<NodeSummary[]>([])
 const structure = ref<TemplateStructure | null>(null)
 const activeGroup = ref('')
 const activeEditor = ref<EditorMode>('group')
@@ -123,17 +123,13 @@ const autoCountryNodeIds = computed<number[]>({
 
 onMounted(async () => {
   try {
-    const [, , , loadedNodes] = await Promise.all([
+    await Promise.all([
       store.fetchAll(),
       store.fetchSubscriptionToken(),
       templates.fetchAll(),
-      nodes.fetchUnfiltered(),
-      nodeGroups.fetchAll(),
-      settings.fetchKernelStatus(),
       settings.fetchAppInfo(),
     ])
-    allNodes.value = loadedNodes
-    void prefetchDefaultStructure()
+    void loadBackgroundData()
   } catch (e) {
     ui.error(errMsg(e))
   }
@@ -285,6 +281,23 @@ async function prefetchDefaultStructure() {
   }
 }
 
+async function loadBackgroundData() {
+  try {
+    await Promise.all([loadEditorDependencies(), settings.fetchKernelStatus()])
+    void prefetchDefaultStructure()
+  } catch (e) {
+    ui.error(errMsg(e))
+  }
+}
+
+async function loadEditorDependencies() {
+  const [loadedNodes] = await Promise.all([
+    nodes.fetchSummary(),
+    nodeGroups.fetchAll(),
+  ])
+  allNodes.value = loadedNodes
+}
+
 function sanitizeGroupSelectionsForStructure() {
   if (!structure.value) return
   const current = form.value.options.groupSelections ?? {}
@@ -366,9 +379,12 @@ async function openCreate() {
   activeGroup.value = ''
   activeEditor.value = 'group'
   showForm.value = true
-  formLoading.value = !!form.value.template_id && !templates.structures[form.value.template_id]
+  formLoading.value = true
   try {
-    if (form.value.template_id) await loadStructure(form.value.template_id)
+    await Promise.all([
+      form.value.template_id ? loadStructure(form.value.template_id) : Promise.resolve(),
+      loadEditorDependencies(),
+    ])
   } catch (e) {
     ui.error(errMsg(e))
   } finally {
@@ -395,7 +411,7 @@ async function openEdit(p: Profile) {
   activeGroup.value = ''
   activeEditor.value = 'group'
   showForm.value = true
-  formLoading.value = !!p.template_id && !templates.structures[p.template_id]
+  formLoading.value = true
   try {
     const options = parseOptions(p.options)
     const legacyNodeIDs = numberArray(p.node_ids)
@@ -410,7 +426,7 @@ async function openEdit(p: Profile) {
       subscription_enabled: p.subscription_enabled,
       options,
     }
-    await loadStructure(p.template_id)
+    await Promise.all([loadStructure(p.template_id), loadEditorDependencies()])
     if (shouldHydrateLegacySelection) hydrateLegacySelection(legacyNodeIDs, legacyNodeGroupIDs)
   } catch (e) {
     ui.error(errMsg(e))
@@ -438,7 +454,7 @@ async function openCopy(p: Profile) {
   activeGroup.value = ''
   activeEditor.value = 'group'
   showForm.value = true
-  formLoading.value = !!p.template_id && !templates.structures[p.template_id]
+  formLoading.value = true
   try {
     const options = parseOptions(p.options)
     const legacyNodeIDs = numberArray(p.node_ids)
@@ -453,7 +469,7 @@ async function openCopy(p: Profile) {
       subscription_enabled: true,
       options,
     }
-    await loadStructure(p.template_id)
+    await Promise.all([loadStructure(p.template_id), loadEditorDependencies()])
     if (shouldHydrateLegacySelection) hydrateLegacySelection(legacyNodeIDs, legacyNodeGroupIDs)
   } catch (e) {
     ui.error(errMsg(e))
@@ -732,6 +748,14 @@ async function generate() {
 async function validateGenerated() {
   if (formLoading.value) return ui.info('正在加载订阅...')
   if (!config.value) return ui.info('请先生成配置')
+  if (!settings.kernel) {
+    try {
+      await settings.fetchKernelStatus()
+    } catch (e) {
+      ui.error(errMsg(e))
+      return
+    }
+  }
   if (!settings.kernel?.available) return ui.info(kernelHint.value)
   busy.value = true
   try {
@@ -746,6 +770,14 @@ async function validateGenerated() {
 async function formatGenerated() {
   if (formLoading.value) return ui.info('正在加载订阅...')
   if (!config.value) return ui.info('请先生成配置')
+  if (!settings.kernel) {
+    try {
+      await settings.fetchKernelStatus()
+    } catch (e) {
+      ui.error(errMsg(e))
+      return
+    }
+  }
   if (!settings.kernel?.available) return ui.info(kernelHint.value)
   busy.value = true
   try {
@@ -1124,7 +1156,7 @@ async function remove(p: Profile) {
                   </div>
                 </div>
               </div>
-              <NodeMultiSelect :nodes="allNodes" v-model="activeNodeIds" />
+              <NodeMultiSelect :nodes="allNodes" v-model="activeNodeIds" :disabled="formLoading" />
               <div class="mt-3">
                 <div class="flex items-center justify-between gap-2 flex-wrap mb-2">
                   <span class="label-text">{{ i18n.t('组合节点') }}</span>
@@ -1157,7 +1189,7 @@ async function remove(p: Profile) {
                   <span class="label-text text-xs">{{ form.options.autoCountryGroups ? i18n.t('开启') : i18n.t('关闭') }}</span>
                 </label>
               </div>
-              <NodeMultiSelect :nodes="allNodes" v-model="autoCountryNodeIds" :disabled="!form.options.autoCountryGroups" />
+              <NodeMultiSelect :nodes="allNodes" v-model="autoCountryNodeIds" :disabled="formLoading || !form.options.autoCountryGroups" />
               <div class="mt-3">
                 <div class="flex items-center justify-between gap-2 flex-wrap mb-2">
                   <span class="label-text">{{ i18n.t('组合节点') }}</span>
@@ -1191,7 +1223,7 @@ async function remove(p: Profile) {
                   <span class="label-text text-xs">{{ form.options.chainProxy ? i18n.t('开启') : i18n.t('关闭') }}</span>
                 </label>
               </div>
-              <NodeMultiSelect :nodes="allNodes" v-model="chainNodeIds" :disabled="!form.options.chainProxy" />
+              <NodeMultiSelect :nodes="allNodes" v-model="chainNodeIds" :disabled="formLoading || !form.options.chainProxy" />
               <div class="mt-3">
                 <div class="flex items-center justify-between gap-2 flex-wrap mb-2">
                   <span class="label-text">{{ i18n.t('组合节点') }}</span>

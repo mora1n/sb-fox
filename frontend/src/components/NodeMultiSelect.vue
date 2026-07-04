@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { Node } from '../api/types'
+import type { NodeSummary } from '../api/types'
 import CountryFlag from './CountryFlag.vue'
 import { useI18nStore } from '../stores/i18n'
 import { useSettingsStore } from '../stores/settings'
 import { nodeSourceLabel } from '../utils/nodeSource'
 import { emptyNodeFilters, filterNodes, nodeCountries, nodeSources, nodeTypes } from '../utils/nodeFilters'
 
-const props = defineProps<{ nodes: Node[]; modelValue: number[]; disabled?: boolean }>()
+const props = defineProps<{ nodes: NodeSummary[]; modelValue: number[]; disabled?: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [number[]] }>()
 const i18n = useI18nStore()
 const settings = useSettingsStore()

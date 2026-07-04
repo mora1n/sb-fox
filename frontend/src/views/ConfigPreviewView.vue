@@ -7,7 +7,7 @@ import { useUiStore } from '../stores/ui'
 import { useI18nStore } from '../stores/i18n'
 import { errMsg } from '../utils/error'
 import { post } from '../api/client'
-import type { KernelResult, Node, PreviewPayload, ProfileOptions } from '../api/types'
+import type { KernelResult, NodeSummary, PreviewPayload, ProfileOptions } from '../api/types'
 import NodeMultiSelect from '../components/NodeMultiSelect.vue'
 import JsonViewer from '../components/JsonViewer.vue'
 import ValidationBadge from '../components/ValidationBadge.vue'
@@ -21,7 +21,7 @@ const i18n = useI18nStore()
 const templateId = ref(0)
 const nodeIds = ref<number[]>([])
 const options = ref<ProfileOptions>({ autoCountryGroups: true, chainProxy: false, chainProxyNodeIds: [] })
-const allNodes = ref<Node[]>([])
+const allNodes = ref<NodeSummary[]>([])
 const kernelHint = computed(() => i18n.t('请选择有效 sing-box 内核或联系管理员配置内核'))
 const chainProxyNodeIds = computed<number[]>({
   get: () => options.value.chainProxyNodeIds ?? [],
@@ -36,7 +36,7 @@ const busy = ref(false)
 
 onMounted(async () => {
   try {
-    const [, loadedNodes] = await Promise.all([templates.fetchAll(), nodes.fetchUnfiltered(), settings.fetchKernelStatus()])
+    const [, loadedNodes] = await Promise.all([templates.fetchAll(), nodes.fetchSummary(), settings.fetchKernelStatus()])
     allNodes.value = loadedNodes
     templateId.value = templates.templates[0]?.id || 0
   } catch (e) {

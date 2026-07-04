@@ -31,6 +31,8 @@ export interface Node {
   updated_at: string
 }
 
+export type NodeSummary = Omit<Node, 'raw'>
+
 export type TemplateKind = 'builtin' | 'user'
 
 export interface Template {
@@ -43,6 +45,8 @@ export interface Template {
   created_at: string
   updated_at: string
 }
+
+export type TemplateSummary = Omit<Template, 'content'>
 
 export interface TemplateSaveResult {
   template: Template

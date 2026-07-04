@@ -29,7 +29,7 @@ onMounted(async () => {
   nodesStore.filters = { search: '', source: '', country: '', type: '' }
   try {
     await Promise.all([
-      nodesStore.fetchAll(),
+      nodesStore.fetchSummary(),
       templatesStore.fetchAll(),
       profilesStore.fetchAll(),
       settingsStore.fetchAll(),
@@ -45,7 +45,7 @@ onMounted(async () => {
 // top countries by node count
 const byCountry = computed(() => {
   const m = new Map<string, number>()
-  for (const n of nodesStore.nodes) {
+  for (const n of nodesStore.summaryNodes) {
     const c = n.country_code || '??'
     m.set(c, (m.get(c) || 0) + 1)
   }
@@ -93,7 +93,7 @@ async function switchKernel() {
             <div class="stat bg-base-100 rounded-box shadow">
               <div class="stat-figure text-primary"><ServerStackIcon class="h-8 w-8" /></div>
               <div class="stat-title">{{ i18n.t('节点') }}</div>
-              <div class="stat-value text-primary">{{ nodesStore.nodes.length }}</div>
+              <div class="stat-value text-primary">{{ nodesStore.summaryNodes.length }}</div>
             </div>
             <div class="stat bg-base-100 rounded-box shadow">
               <div class="stat-figure text-secondary"><DocumentTextIcon class="h-8 w-8" /></div>

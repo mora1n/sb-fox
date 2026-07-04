@@ -53,18 +53,49 @@ func (s *Store) ListProfiles(ownerUserID int64, allOwners bool) ([]*models.Profi
 	if err := rows.Close(); err != nil {
 		return nil, err
 	}
+	ids := make([]int64, 0, len(out))
 	for _, p := range out {
-		var err error
-		p.NodeIDs, err = s.profileNodeIDs(p.ID)
-		if err != nil {
-			return nil, err
-		}
-		p.NodeGroupIDs, err = s.profileNodeGroupIDs(p.ID)
-		if err != nil {
-			return nil, err
-		}
+		ids = append(ids, p.ID)
+	}
+	nodeIDs, err := s.profileMembershipIDs(ids, "profile_nodes", "node_id")
+	if err != nil {
+		return nil, err
+	}
+	groupIDs, err := s.profileMembershipIDs(ids, "profile_node_groups", "group_id")
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range out {
+		p.NodeIDs = nodeIDs[p.ID]
+		p.NodeGroupIDs = groupIDs[p.ID]
 	}
 	return out, nil
+}
+
+func (s *Store) profileMembershipIDs(profileIDs []int64, table, idCol string) (map[int64][]int64, error) {
+	out := map[int64][]int64{}
+	if len(profileIDs) == 0 {
+		return out, nil
+	}
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(profileIDs)), ",")
+	q := `SELECT profile_id, ` + idCol + ` FROM ` + table + ` WHERE profile_id IN (` + placeholders + `) ORDER BY profile_id, position`
+	args := make([]any, 0, len(profileIDs))
+	for _, id := range profileIDs {
+		args = append(args, id)
+	}
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var profileID, id int64
+		if err := rows.Scan(&profileID, &id); err != nil {
+			return nil, err
+		}
+		out[profileID] = append(out[profileID], id)
+	}
+	return out, rows.Err()
 }
 
 // GetProfile returns one profile with its node ids.

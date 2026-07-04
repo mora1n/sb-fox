@@ -15,9 +15,22 @@ import (
 // handleListTemplates returns all templates.
 func (s *Server) handleListTemplates(w http.ResponseWriter, r *http.Request) {
 	ownerID, allOwners := ownerScope(r)
-	list, err := s.Store.ListTemplates(ownerID, allOwners)
+	var (
+		list []*models.Template
+		err  error
+	)
+	summary := isSummaryRequest(r)
+	if summary {
+		list, err = s.Store.ListTemplateSummaries(ownerID, allOwners)
+	} else {
+		list, err = s.Store.ListTemplates(ownerID, allOwners)
+	}
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	if summary {
+		respondJSON(w, http.StatusOK, templateSummaries(list))
 		return
 	}
 	respondJSON(w, http.StatusOK, list)

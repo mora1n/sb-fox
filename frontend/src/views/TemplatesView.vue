@@ -5,7 +5,7 @@ import { useUiStore } from '../stores/ui'
 import { useI18nStore } from '../stores/i18n'
 import { errMsg } from '../utils/error'
 import { readViewPref, writeViewPref } from '../utils/viewPrefs'
-import type { Template, TemplateStructure, TemplateStructureGroup } from '../api/types'
+import type { Template, TemplateStructure, TemplateStructureGroup, TemplateSummary } from '../api/types'
 import JsonViewer from '../components/JsonViewer.vue'
 import {
   PlusIcon,
@@ -34,14 +34,14 @@ const i18n = useI18nStore()
 
 const viewing = ref<Template | null>(null)
 const structure = ref<TemplateStructure | null>(null)
-const structureFor = ref<Template | null>(null)
+const structureFor = ref<TemplateSummary | null>(null)
 const dragIndex = ref<number | null>(null)
 const groupPressedIndex = ref<number | null>(null)
 const groupInsertIndex = ref<number | null>(null)
 
 const showForm = ref(false)
-const editing = ref<Template | null>(null)
-const copyingFrom = ref<Template | null>(null)
+const editing = ref<TemplateSummary | null>(null)
+const copyingFrom = ref<TemplateSummary | null>(null)
 const formName = ref('')
 const formDesc = ref('')
 const formContent = ref('')
@@ -114,7 +114,7 @@ function sortIndicator(active: string, dir: SortDir, key: string) {
   return dir === 'asc' ? '↑' : '↓'
 }
 
-async function view(t: Template) {
+async function view(t: TemplateSummary) {
   try {
     viewing.value = await store.getOne(t.id)
   } catch (e) {
@@ -122,7 +122,7 @@ async function view(t: Template) {
   }
 }
 
-async function editStructure(t: Template) {
+async function editStructure(t: TemplateSummary) {
   try {
     structure.value = await store.structure(t.id)
     structureFor.value = t
@@ -131,7 +131,7 @@ async function editStructure(t: Template) {
   }
 }
 
-async function exportTemplate(t: Template) {
+async function exportTemplate(t: TemplateSummary) {
   try {
     await store.exportTemplate(t.id, t.name)
     ui.success('模板已导出')
@@ -149,7 +149,7 @@ function openImport() {
   showForm.value = true
 }
 
-async function openEdit(t: Template) {
+async function openEdit(t: TemplateSummary) {
   editing.value = t
   copyingFrom.value = null
   try {
@@ -163,7 +163,7 @@ async function openEdit(t: Template) {
   }
 }
 
-async function openCopy(t: Template) {
+async function openCopy(t: TemplateSummary) {
   editing.value = null
   copyingFrom.value = t
   try {
@@ -402,7 +402,7 @@ function onDrop(event: DragEvent) {
   clearGroupDrag()
 }
 
-function toggleTemplateSelect(t: Template) {
+function toggleTemplateSelect(t: TemplateSummary) {
   if (t.kind !== 'user') return
   if (selectedTemplates.value.has(t.id)) selectedTemplates.value.delete(t.id)
   else selectedTemplates.value.add(t.id)
@@ -435,7 +435,7 @@ async function removeSelectedTemplates() {
   }
 }
 
-async function remove(t: Template) {
+async function remove(t: TemplateSummary) {
   if (!confirm(`删除模板 "${t.name}"？`)) return
   try {
     await store.remove(t.id)

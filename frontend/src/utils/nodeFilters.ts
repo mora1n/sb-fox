@@ -1,4 +1,4 @@
-import type { Node, NodeSource } from '../api/types'
+import type { NodeSource, NodeSummary } from '../api/types'
 import { sortCountryCodes } from './countries'
 
 export interface NodeFilterState {
@@ -14,7 +14,7 @@ export function emptyNodeFilters(): NodeFilterState {
   return { search: '', source: '', country: '', type: '' }
 }
 
-export function filterNodes(nodes: Node[], filters: NodeFilterState): Node[] {
+export function filterNodes(nodes: NodeSummary[], filters: NodeFilterState): NodeSummary[] {
   const q = filters.search.toLowerCase().trim()
   return nodes.filter((node) => {
     if (filters.source && node.source !== filters.source) return false
@@ -25,15 +25,15 @@ export function filterNodes(nodes: Node[], filters: NodeFilterState): Node[] {
   })
 }
 
-export function nodeCountries(nodes: Node[], heatOrder: string[]): string[] {
+export function nodeCountries(nodes: NodeSummary[], heatOrder: string[]): string[] {
   return sortCountryCodes([...new Set(nodes.map((node) => node.country_code).filter(Boolean))], heatOrder)
 }
 
-export function nodeTypes(nodes: Node[]): string[] {
+export function nodeTypes(nodes: NodeSummary[]): string[] {
   return [...new Set(nodes.map((node) => node.type).filter(Boolean))].sort()
 }
 
-export function nodeSources(nodes: Node[]): NodeSource[] {
+export function nodeSources(nodes: NodeSummary[]): NodeSource[] {
   const present = new Set(nodes.map((node) => node.source))
   return NODE_SOURCES.filter((source) => present.has(source))
 }

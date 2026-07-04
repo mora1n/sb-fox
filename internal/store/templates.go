@@ -19,6 +19,7 @@ func scanTemplate(sc interface{ Scan(...any) error }) (*models.Template, error) 
 }
 
 const templateCols = `id, owner_user_id, name, kind, content, description, created_at, updated_at`
+const templateSummaryCols = `id, owner_user_id, name, kind, description, created_at, updated_at`
 
 // ListTemplates returns all templates ordered by kind then name.
 func (s *Store) ListTemplates(ownerUserID int64, allOwners bool) ([]*models.Template, error) {
@@ -43,6 +44,42 @@ func (s *Store) ListTemplates(ownerUserID int64, allOwners bool) ([]*models.Temp
 		out = append(out, t)
 	}
 	return out, rows.Err()
+}
+
+// ListTemplateSummaries returns templates without the content blob.
+func (s *Store) ListTemplateSummaries(ownerUserID int64, allOwners bool) ([]*models.Template, error) {
+	q := `SELECT ` + templateSummaryCols + ` FROM templates`
+	var args []any
+	if !allOwners {
+		q += ` WHERE owner_user_id = ?`
+		args = append(args, ownerUserID)
+	}
+	q += ` ORDER BY kind, name`
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*models.Template
+	for rows.Next() {
+		t, err := scanTemplateSummary(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+func scanTemplateSummary(sc interface{ Scan(...any) error }) (*models.Template, error) {
+	var t models.Template
+	var created, updated string
+	if err := sc.Scan(&t.ID, &t.OwnerUserID, &t.Name, &t.Kind, &t.Description, &created, &updated); err != nil {
+		return nil, err
+	}
+	t.CreatedAt = parseTime(created)
+	t.UpdatedAt = parseTime(updated)
+	return &t, nil
 }
 
 // GetTemplate returns one template by id.

@@ -15,29 +15,46 @@ export const useSettingsStore = defineStore('settings', () => {
   const registrationEnabled = ref(false)
   const subscriptionHostPrefix = ref('')
   const loading = ref(false)
+  const settingsLoaded = ref(false)
+  const kernelLoaded = ref(false)
+  let settingsInFlight: Promise<void> | null = null
+  let appInfoInFlight: Promise<void> | null = null
+  let kernelStatusInFlight: Promise<KernelStatus> | null = null
 
-  async function fetchAll(): Promise<void> {
+  async function fetchAll(force = false): Promise<void> {
+    if (!force && settingsLoaded.value) return
+    if (!force && settingsInFlight) return settingsInFlight
     loading.value = true
-    try {
-      settings.value = (await get<Settings>('/settings')) ?? {}
+    settingsInFlight = get<Settings>('/settings').then((items) => {
+      settings.value = items ?? {}
       applySettings(settings.value)
-    } finally {
+      settingsLoaded.value = true
+    }).finally(() => {
       loading.value = false
-    }
+      settingsInFlight = null
+    })
+    return settingsInFlight
   }
 
-  async function fetchAppInfo(): Promise<void> {
-    const app = await get<AppInfo>('/app', true)
-    appDisplayName.value = app?.display_name?.trim() || DEFAULT_APP_DISPLAY_NAME
-    appInfoLoaded.value = true
-    countryHeatOrder.value = completeCountryHeatOrder(app?.country_heat_order || DEFAULT_COUNTRY_HEAT_ORDER)
-    registrationEnabled.value = !!app?.registration_enabled
-    subscriptionHostPrefix.value = app?.subscription_host_prefix?.trim() || ''
+  async function fetchAppInfo(force = false): Promise<void> {
+    if (!force && appInfoLoaded.value) return
+    if (!force && appInfoInFlight) return appInfoInFlight
+    appInfoInFlight = get<AppInfo>('/app', true).then((app) => {
+      appDisplayName.value = app?.display_name?.trim() || DEFAULT_APP_DISPLAY_NAME
+      appInfoLoaded.value = true
+      countryHeatOrder.value = completeCountryHeatOrder(app?.country_heat_order || DEFAULT_COUNTRY_HEAT_ORDER)
+      registrationEnabled.value = !!app?.registration_enabled
+      subscriptionHostPrefix.value = app?.subscription_host_prefix?.trim() || ''
+    }).finally(() => {
+      appInfoInFlight = null
+    })
+    return appInfoInFlight
   }
 
   async function update(patch: Settings): Promise<void> {
     await put('/settings', patch)
-    await fetchAll()
+    settingsLoaded.value = false
+    await fetchAll(true)
   }
 
   async function fetchKernel(): Promise<KernelStatus> {
@@ -52,6 +69,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
   async function saveKernels(kernels: KernelProfile[]): Promise<KernelStatus> {
     await put('/settings/kernels', { kernels })
+    kernelLoaded.value = false
     return fetchKernels()
   }
 
@@ -59,13 +77,22 @@ export const useSettingsStore = defineStore('settings', () => {
     return post<KernelProbe>('/settings/kernels/test', profile)
   }
 
-  async function fetchKernelStatus(): Promise<KernelStatus> {
-    kernel.value = await get<KernelStatus>('/kernel/status')
-    return kernel.value
+  async function fetchKernelStatus(force = false): Promise<KernelStatus> {
+    if (!force && kernelLoaded.value && kernel.value) return kernel.value
+    if (!force && kernelStatusInFlight) return kernelStatusInFlight
+    kernelStatusInFlight = get<KernelStatus>('/kernel/status').then((status) => {
+      kernel.value = status
+      kernelLoaded.value = true
+      return status
+    }).finally(() => {
+      kernelStatusInFlight = null
+    })
+    return kernelStatusInFlight
   }
 
   async function setActiveKernel(id: string): Promise<KernelStatus> {
     kernel.value = await put<KernelStatus>('/kernel/active', { id })
+    kernelLoaded.value = true
     return kernel.value
   }
 

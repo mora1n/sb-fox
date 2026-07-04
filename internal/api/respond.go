@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 )
 
 // envelope is the uniform API response shape: {data, error}.
@@ -38,4 +39,9 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 		return false
 	}
 	return true
+}
+
+func isSummaryRequest(r *http.Request) bool {
+	value := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("summary")))
+	return value == "1" || value == "true"
 }

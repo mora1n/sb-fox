@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"strings"
 
 	"github.com/mora1n/sb-fox/internal/models"
 )
@@ -48,14 +49,44 @@ func (s *Store) ListNodeGroups(ownerUserID int64, allOwners bool) ([]*models.Nod
 	if err := rows.Close(); err != nil {
 		return nil, err
 	}
+	ids := make([]int64, 0, len(out))
 	for _, g := range out {
-		var err error
-		g.NodeIDs, err = s.nodeGroupNodeIDs(g.ID)
-		if err != nil {
-			return nil, err
-		}
+		ids = append(ids, g.ID)
+	}
+	nodeIDs, err := s.nodeGroupNodeIDsByGroup(ids)
+	if err != nil {
+		return nil, err
+	}
+	for _, g := range out {
+		g.NodeIDs = nodeIDs[g.ID]
 	}
 	return out, nil
+}
+
+func (s *Store) nodeGroupNodeIDsByGroup(groupIDs []int64) (map[int64][]int64, error) {
+	out := map[int64][]int64{}
+	if len(groupIDs) == 0 {
+		return out, nil
+	}
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(groupIDs)), ",")
+	q := `SELECT group_id, node_id FROM node_group_nodes WHERE group_id IN (` + placeholders + `) ORDER BY group_id, position`
+	args := make([]any, 0, len(groupIDs))
+	for _, id := range groupIDs {
+		args = append(args, id)
+	}
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var groupID, nodeID int64
+		if err := rows.Scan(&groupID, &nodeID); err != nil {
+			return nil, err
+		}
+		out[groupID] = append(out[groupID], nodeID)
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) GetNodeGroupForUser(id, ownerUserID int64, allOwners bool) (*models.NodeGroup, error) {

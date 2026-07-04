@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { del, get, post, put } from '../api/client'
-import type { ImportResult, Node, NodeUsage } from '../api/types'
+import type { ImportResult, Node, NodeSummary, NodeUsage } from '../api/types'
 import { useSettingsStore } from './settings'
 import { nodeCountries, nodeTypes } from '../utils/nodeFilters'
 
@@ -22,8 +22,13 @@ export const useNodesStore = defineStore('nodes', () => {
   const settings = useSettingsStore()
   const nodes = ref<Node[]>([])
   const unfilteredNodes = ref<Node[]>([])
+  const summaryNodes = ref<NodeSummary[]>([])
   const loading = ref(false)
   const filters = ref<NodeFilters>({ search: '', source: '', country: '', type: '' })
+  const unfilteredLoaded = ref(false)
+  const summaryLoaded = ref(false)
+  let unfilteredInFlight: Promise<Node[]> | null = null
+  let summaryInFlight: Promise<NodeSummary[]> | null = null
 
   function buildQuery(): string {
     const p = new URLSearchParams()
@@ -38,26 +43,66 @@ export const useNodesStore = defineStore('nodes', () => {
   async function fetchAll(): Promise<void> {
     loading.value = true
     try {
-      nodes.value = (await get<Node[]>('/nodes' + buildQuery())) ?? []
+      const query = buildQuery()
+      if (!query && unfilteredLoaded.value) {
+        nodes.value = unfilteredNodes.value
+        return
+      }
+      nodes.value = (await get<Node[]>('/nodes' + query)) ?? []
+      if (!query) {
+        unfilteredNodes.value = nodes.value
+        unfilteredLoaded.value = true
+      }
     } finally {
       loading.value = false
     }
   }
 
-  async function fetchUnfiltered(): Promise<Node[]> {
-    unfilteredNodes.value = (await get<Node[]>('/nodes')) ?? []
-    return unfilteredNodes.value
+  async function fetchUnfiltered(force = false): Promise<Node[]> {
+    if (!force && unfilteredLoaded.value) return unfilteredNodes.value
+    if (!force && unfilteredInFlight) return unfilteredInFlight
+    unfilteredInFlight = get<Node[]>('/nodes').then((items) => {
+      unfilteredNodes.value = items ?? []
+      unfilteredLoaded.value = true
+      if (!buildQuery()) nodes.value = unfilteredNodes.value
+      return unfilteredNodes.value
+    }).finally(() => {
+      unfilteredInFlight = null
+    })
+    return unfilteredInFlight
+  }
+
+  async function fetchSummary(force = false): Promise<NodeSummary[]> {
+    if (!force && summaryLoaded.value) return summaryNodes.value
+    if (!force && summaryInFlight) return summaryInFlight
+    summaryInFlight = get<NodeSummary[]>('/nodes?summary=1').then((items) => {
+      summaryNodes.value = items ?? []
+      summaryLoaded.value = true
+      return summaryNodes.value
+    }).finally(() => {
+      summaryInFlight = null
+    })
+    return summaryInFlight
+  }
+
+  async function refreshAfterMutation(): Promise<void> {
+    const refreshSummary = summaryLoaded.value
+    const refreshUnfiltered = unfilteredLoaded.value
+    unfilteredLoaded.value = false
+    await fetchAll()
+    if (refreshUnfiltered && buildQuery()) await fetchUnfiltered(true)
+    if (refreshSummary) await fetchSummary(true)
   }
 
   async function create(input: NodeInput): Promise<Node> {
     const n = await post<Node>('/nodes', input)
-    await fetchAll()
+    await refreshAfterMutation()
     return n
   }
 
   async function update(id: number, input: NodeInput): Promise<Node> {
     const n = await put<Node>('/nodes/' + id, input)
-    await fetchAll()
+    await refreshAfterMutation()
     return n
   }
 
@@ -65,6 +110,7 @@ export const useNodesStore = defineStore('nodes', () => {
     await del('/nodes/' + id)
     nodes.value = nodes.value.filter((n) => n.id !== id)
     unfilteredNodes.value = unfilteredNodes.value.filter((n) => n.id !== id)
+    summaryNodes.value = summaryNodes.value.filter((n) => n.id !== id)
   }
 
   async function usage(id: number): Promise<NodeUsage[]> {
@@ -73,25 +119,25 @@ export const useNodesStore = defineStore('nodes', () => {
 
   async function importLinks(links: string): Promise<ImportResult> {
     const r = await post<ImportResult>('/nodes/import/links', { links })
-    await fetchAll()
+    await refreshAfterMutation()
     return r
   }
 
   async function importSubscription(name: string, url: string): Promise<ImportResult> {
     const r = await post<ImportResult>('/nodes/import/subscription', { name, url })
-    await fetchAll()
+    await refreshAfterMutation()
     return r
   }
 
   async function importConfig(config: string): Promise<ImportResult> {
     const r = await post<ImportResult>('/nodes/import/config', { config })
-    await fetchAll()
+    await refreshAfterMutation()
     return r
   }
 
   async function refreshCountry(nodeIds: number[]): Promise<number> {
     const r = await post<{ updated: number }>('/nodes/refresh-country', { node_ids: nodeIds })
-    await fetchAll()
+    await refreshAfterMutation()
     return r.updated
   }
 
@@ -105,12 +151,14 @@ export const useNodesStore = defineStore('nodes', () => {
   return {
     nodes,
     unfilteredNodes,
+    summaryNodes,
     loading,
     filters,
     countries,
     types,
     fetchAll,
     fetchUnfiltered,
+    fetchSummary,
     create,
     update,
     remove,
