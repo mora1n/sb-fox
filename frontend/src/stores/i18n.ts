@@ -205,7 +205,7 @@ const en: Record<string, string> = {
   '内核已切换': 'Kernel switched',
   '内核已保存': 'Kernels saved',
   '测试': 'Test',
-  '国家热度排序': 'Country Heat Order',
+  '国家/地区热度排序': 'Country/Region Heat Order',
   '重置': 'Reset',
   '上移': 'Move Up',
   '下移': 'Move Down',

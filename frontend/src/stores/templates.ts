@@ -5,6 +5,7 @@ import type { InspectResult, Template, TemplateSaveResult, TemplateStructure } f
 
 export const useTemplatesStore = defineStore('templates', () => {
   const templates = ref<Template[]>([])
+  const structures = ref<Record<number, TemplateStructure>>({})
   const loading = ref(false)
 
   async function fetchAll(): Promise<void> {
@@ -37,12 +38,14 @@ export const useTemplatesStore = defineStore('templates', () => {
 
   async function update(id: number, content: string, description: string): Promise<{ imported: number; deduped?: number }> {
     const r = await put<{ ok: boolean; imported: number; deduped?: number }>('/templates/' + id, { content, description })
+    delete structures.value[id]
     await fetchAll()
     return { imported: r.imported ?? 0, deduped: r.deduped ?? 0 }
   }
 
   async function remove(id: number): Promise<void> {
     await del('/templates/' + id)
+    delete structures.value[id]
     templates.value = templates.value.filter((t) => t.id !== id)
   }
 
@@ -51,13 +54,17 @@ export const useTemplatesStore = defineStore('templates', () => {
   }
 
   async function structure(id: number): Promise<TemplateStructure> {
-    return get<TemplateStructure>('/templates/' + id + '/structure')
+    if (structures.value[id]) return cloneStructure(structures.value[id])
+    const r = await get<TemplateStructure>('/templates/' + id + '/structure')
+    structures.value[id] = cloneStructure(r)
+    return cloneStructure(r)
   }
 
   async function saveStructure(id: number, payload: TemplateStructure): Promise<TemplateStructure> {
     const r = await put<TemplateStructure>('/templates/' + id + '/structure', payload)
+    structures.value[id] = cloneStructure(r)
     await fetchAll()
-    return r
+    return cloneStructure(r)
   }
 
   async function exportTemplate(id: number, name: string): Promise<void> {
@@ -67,6 +74,7 @@ export const useTemplatesStore = defineStore('templates', () => {
 
   return {
     templates,
+    structures,
     loading,
     fetchAll,
     getOne,
@@ -80,3 +88,15 @@ export const useTemplatesStore = defineStore('templates', () => {
     exportTemplate,
   }
 })
+
+function cloneStructure(st: TemplateStructure): TemplateStructure {
+  return {
+    final: st.final,
+    available_outbounds: [...st.available_outbounds],
+    groups: st.groups.map((g) => ({
+      ...g,
+      outbounds: [...g.outbounds],
+      referenced_by: g.referenced_by ? [...g.referenced_by] : undefined,
+    })),
+  }
+}

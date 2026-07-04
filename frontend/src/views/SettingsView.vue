@@ -34,15 +34,20 @@ const newPw = ref('')
 const confirmPw = ref('')
 
 onMounted(async () => {
+  syncSettingsFields()
   try {
     await settings.fetchAll()
     syncSettingsFields()
-    if (auth.isAdmin) {
-      await settings.fetchKernels()
-      syncKernelCards()
-    }
   } catch (e) {
     ui.error(errMsg(e))
+  }
+  if (auth.isAdmin) {
+    try {
+      await settings.fetchKernels()
+      syncKernelCards()
+    } catch (e) {
+      ui.error(errMsg(e))
+    }
   }
 })
 
@@ -181,9 +186,20 @@ function dropCountry(index: number, event: DragEvent) {
   clearCountryDrag()
 }
 
-function startCountryDrag(index: number) {
+function isControlDragTarget(event: DragEvent) {
+  const target = event.target as HTMLElement | null
+  return !!target?.closest('button,input,select,textarea,a,[contenteditable="true"]')
+}
+
+function startCountryDrag(index: number, event: DragEvent) {
+  if (isControlDragTarget(event)) {
+    event.preventDefault()
+    return
+  }
   draggedIndex.value = index
   countryInsertIndex.value = null
+  event.dataTransfer?.setData('text/plain', String(index))
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
 }
 
 function overCountry(index: number, event: DragEvent) {
@@ -204,7 +220,7 @@ async function saveCountryOrder() {
   try {
     await settings.update({ country_heat_order: JSON.stringify(countryOrder.value) })
     syncSettingsFields()
-    ui.success('国家排序已保存')
+    ui.success('国家/地区排序已保存')
   } catch (e) {
     ui.error(errMsg(e))
   } finally {
@@ -319,7 +335,7 @@ async function changePassword() {
     <div class="card bg-base-100 shadow-sm">
       <div class="card-body gap-3">
         <div class="flex items-center justify-between gap-3">
-          <h2 class="card-title text-base">{{ i18n.t('国家热度排序') }}</h2>
+          <h2 class="card-title text-base">{{ i18n.t('国家/地区热度排序') }}</h2>
           <div class="flex gap-2">
             <button class="btn btn-sm" @click="resetCountryOrder" :disabled="busy">{{ i18n.t('重置') }}</button>
             <button class="btn btn-sm btn-primary" @click="saveCountryOrder" :disabled="busy">{{ i18n.t('保存') }}</button>
@@ -329,26 +345,25 @@ async function changePassword() {
           <div
             v-for="(code, index) in countryOrder"
             :key="code"
-            class="flex items-center gap-2 bg-base-100 px-3 py-2 transition-colors hover:bg-base-200/60 border-y-2 border-transparent"
+            class="flex items-center gap-2 bg-base-100 px-3 py-2 border-y-2 border-transparent cursor-grab select-none transition-[background-color,border-color,box-shadow,opacity,transform] hover:bg-base-200/60 active:cursor-grabbing"
             :class="{
-              'opacity-60 ring-1 ring-base-content/30': draggedIndex === index,
-              'border-t-base-content': countryInsertIndex === index,
-              'border-b-base-content': countryInsertIndex === index + 1,
+              'opacity-50 scale-[0.99] shadow-md ring-1 ring-base-content/30': draggedIndex === index,
+              'border-t-primary': countryInsertIndex === index,
+              'border-b-primary': countryInsertIndex === index + 1,
             }"
+            draggable="true"
+            @dragstart="startCountryDrag(index, $event)"
             @dragenter.prevent="overCountry(index, $event)"
             @dragover.prevent="overCountry(index, $event)"
-            @drop="dropCountry(index, $event)"
+            @drop.prevent="dropCountry(index, $event)"
+            @dragend="clearCountryDrag"
           >
-            <button
-              class="btn btn-xs btn-ghost cursor-move"
-              type="button"
-              draggable="true"
+            <span
+              class="grid h-7 w-7 place-items-center text-base-content/60"
               :title="i18n.t('拖拽排序')"
-              @dragstart="startCountryDrag(index)"
-              @dragend="clearCountryDrag"
             >
               <Bars3Icon class="h-4 w-4" />
-            </button>
+            </span>
             <span class="badge badge-sm w-8">{{ index + 1 }}</span>
             <CountryFlag :code="code" />
             <span class="flex-1 min-w-0 truncate">{{ code }} — {{ countryName(code) }}</span>

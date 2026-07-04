@@ -133,6 +133,7 @@ onMounted(async () => {
       settings.fetchAppInfo(),
     ])
     allNodes.value = loadedNodes
+    void prefetchDefaultStructure()
   } catch (e) {
     ui.error(errMsg(e))
   }
@@ -142,7 +143,14 @@ watch(
   () => form.value.template_id,
   async (id) => {
     if (suppressTemplateWatch.value || !showForm.value || !id) return
-    await loadStructure(id)
+    formLoading.value = !templates.structures[id]
+    try {
+      await loadStructure(id)
+    } catch (e) {
+      ui.error(errMsg(e))
+    } finally {
+      formLoading.value = false
+    }
   },
 )
 
@@ -267,6 +275,16 @@ async function loadStructure(templateID: number) {
   ensureGroupSelections()
 }
 
+async function prefetchDefaultStructure() {
+  const id = templates.templates[0]?.id
+  if (!id || templates.structures[id]) return
+  try {
+    await templates.structure(id)
+  } catch (e) {
+    ui.error(errMsg(e))
+  }
+}
+
 function sanitizeGroupSelectionsForStructure() {
   if (!structure.value) return
   const current = form.value.options.groupSelections ?? {}
@@ -348,7 +366,7 @@ async function openCreate() {
   activeGroup.value = ''
   activeEditor.value = 'group'
   showForm.value = true
-  formLoading.value = !!form.value.template_id
+  formLoading.value = !!form.value.template_id && !templates.structures[form.value.template_id]
   try {
     if (form.value.template_id) await loadStructure(form.value.template_id)
   } catch (e) {
@@ -377,24 +395,22 @@ async function openEdit(p: Profile) {
   activeGroup.value = ''
   activeEditor.value = 'group'
   showForm.value = true
-  formLoading.value = true
+  formLoading.value = !!p.template_id && !templates.structures[p.template_id]
   try {
-    const full = await store.getOne(p.id)
-    const options = parseOptions(full.options)
-    const legacyNodeIDs = numberArray(full.node_ids)
-    const legacyNodeGroupIDs = numberArray(full.node_group_ids)
+    const options = parseOptions(p.options)
+    const legacyNodeIDs = numberArray(p.node_ids)
+    const legacyNodeGroupIDs = numberArray(p.node_group_ids)
     const shouldHydrateLegacySelection =
       !selectionMapHasAny(options.groupSelections) && (legacyNodeIDs.length > 0 || legacyNodeGroupIDs.length > 0)
-    editing.value = full
     form.value = {
-      name: full.name,
-      template_id: full.template_id,
+      name: p.name,
+      template_id: p.template_id,
       node_ids: legacyNodeIDs,
       node_group_ids: legacyNodeGroupIDs,
-      subscription_enabled: full.subscription_enabled,
+      subscription_enabled: p.subscription_enabled,
       options,
     }
-    await loadStructure(full.template_id)
+    await loadStructure(p.template_id)
     if (shouldHydrateLegacySelection) hydrateLegacySelection(legacyNodeIDs, legacyNodeGroupIDs)
   } catch (e) {
     ui.error(errMsg(e))
@@ -422,24 +438,22 @@ async function openCopy(p: Profile) {
   activeGroup.value = ''
   activeEditor.value = 'group'
   showForm.value = true
-  formLoading.value = true
+  formLoading.value = !!p.template_id && !templates.structures[p.template_id]
   try {
-    const full = await store.getOne(p.id)
-    const options = parseOptions(full.options)
-    const legacyNodeIDs = numberArray(full.node_ids)
-    const legacyNodeGroupIDs = numberArray(full.node_group_ids)
+    const options = parseOptions(p.options)
+    const legacyNodeIDs = numberArray(p.node_ids)
+    const legacyNodeGroupIDs = numberArray(p.node_group_ids)
     const shouldHydrateLegacySelection =
       !selectionMapHasAny(options.groupSelections) && (legacyNodeIDs.length > 0 || legacyNodeGroupIDs.length > 0)
-    copyingFrom.value = full
     form.value = {
-      name: full.name,
-      template_id: full.template_id,
+      name: p.name,
+      template_id: p.template_id,
       node_ids: legacyNodeIDs,
       node_group_ids: legacyNodeGroupIDs,
       subscription_enabled: true,
       options,
     }
-    await loadStructure(full.template_id)
+    await loadStructure(p.template_id)
     if (shouldHydrateLegacySelection) hydrateLegacySelection(legacyNodeIDs, legacyNodeGroupIDs)
   } catch (e) {
     ui.error(errMsg(e))
@@ -1014,7 +1028,7 @@ async function remove(p: Profile) {
           <span class="loading loading-spinner loading-sm"></span>
           <span class="text-sm">{{ i18n.t('正在加载订阅...') }}</span>
         </div>
-        <div class="grid grid-cols-1 xl:grid-cols-[280px_minmax(320px,0.9fr)_minmax(480px,1.4fr)] gap-4" :class="{ 'pointer-events-none opacity-60': formLoading }">
+        <div class="grid grid-cols-1 xl:grid-cols-[280px_minmax(320px,0.9fr)_minmax(480px,1.4fr)] gap-4">
           <div class="flex flex-col gap-3">
             <label class="form-control">
               <span class="label-text mb-1">{{ i18n.t('名称') }}</span>

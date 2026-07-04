@@ -318,9 +318,20 @@ function moveGroup(index: number, delta: number) {
   structure.value.groups = next
 }
 
-function onDragStart(index: number) {
+function isControlDragTarget(event: DragEvent) {
+  const target = event.target as HTMLElement | null
+  return !!target?.closest('button,input,select,textarea,a,[contenteditable="true"]')
+}
+
+function onDragStart(index: number, event: DragEvent) {
+  if (isControlDragTarget(event)) {
+    event.preventDefault()
+    return
+  }
   dragIndex.value = index
   groupInsertIndex.value = null
+  event.dataTransfer?.setData('text/plain', String(index))
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
 }
 
 function clearGroupDrag() {
@@ -574,28 +585,27 @@ async function remove(t: Template) {
           <div
             v-for="(g, i) in structure.groups"
             :key="g.tag + ':' + i"
-            class="border border-base-300 border-y-2 rounded-box bg-base-100 p-3 transition-colors hover:bg-base-200/50"
+            class="border border-base-300 border-y-2 rounded-box bg-base-100 p-3 cursor-grab transition-[background-color,border-color,box-shadow,opacity,transform] hover:bg-base-200/50 active:cursor-grabbing"
             :class="{
-              'opacity-60 ring-1 ring-base-content/30': dragIndex === i,
-              'border-t-base-content': groupInsertIndex === i,
-              'border-b-base-content': groupInsertIndex === i + 1,
+              'opacity-50 scale-[0.99] shadow-md ring-1 ring-base-content/30': dragIndex === i,
+              'border-t-primary': groupInsertIndex === i,
+              'border-b-primary': groupInsertIndex === i + 1,
             }"
+            draggable="true"
+            @dragstart="onDragStart(i, $event)"
             @dragenter.prevent="onDragOver(i, $event)"
             @dragover.prevent="onDragOver(i, $event)"
-            @drop="onDrop(i, $event)"
+            @drop.prevent="onDrop(i, $event)"
+            @dragend="clearGroupDrag"
           >
             <div class="grid grid-cols-1 lg:grid-cols-[32px_minmax(160px,1fr)_120px_minmax(180px,1fr)_160px_64px] gap-2 items-start">
               <div class="flex items-center gap-1">
-                <button
-                  class="btn btn-xs btn-ghost cursor-move"
-                  type="button"
-                  draggable="true"
+                <span
+                  class="grid h-7 w-7 place-items-center text-base-content/60"
                   :title="i18n.t('拖拽排序')"
-                  @dragstart="onDragStart(i)"
-                  @dragend="clearGroupDrag"
                 >
                   <Bars3Icon class="h-4 w-4" />
-                </button>
+                </span>
               </div>
               <label class="form-control">
                 <span class="label-text mb-1">{{ i18n.t('标签') }}</span>
