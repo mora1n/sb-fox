@@ -36,6 +36,7 @@ const viewing = ref<Template | null>(null)
 const structure = ref<TemplateStructure | null>(null)
 const structureFor = ref<Template | null>(null)
 const dragIndex = ref<number | null>(null)
+const groupPressedIndex = ref<number | null>(null)
 const groupInsertIndex = ref<number | null>(null)
 
 const showForm = ref(false)
@@ -242,6 +243,7 @@ async function saveStructure() {
     structure.value = null
     structureFor.value = null
     dragIndex.value = null
+    groupPressedIndex.value = null
     groupInsertIndex.value = null
     ui.success('分组管理已保存')
   } catch (e) {
@@ -318,17 +320,24 @@ function moveGroup(index: number, delta: number) {
   structure.value.groups = next
 }
 
-function isControlDragTarget(event: DragEvent) {
+function isControlDragTarget(event: DragEvent | PointerEvent) {
   const target = event.target as HTMLElement | null
   return !!target?.closest('button,input,select,textarea,a,[contenteditable="true"]')
+}
+
+function pressGroup(index: number, event: PointerEvent) {
+  if (isControlDragTarget(event)) return
+  groupPressedIndex.value = index
 }
 
 function onDragStart(index: number, event: DragEvent) {
   if (isControlDragTarget(event)) {
     event.preventDefault()
+    groupPressedIndex.value = null
     return
   }
   dragIndex.value = index
+  groupPressedIndex.value = index
   groupInsertIndex.value = null
   event.dataTransfer?.setData('text/plain', String(index))
   if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
@@ -336,32 +345,54 @@ function onDragStart(index: number, event: DragEvent) {
 
 function clearGroupDrag() {
   dragIndex.value = null
+  groupPressedIndex.value = null
   groupInsertIndex.value = null
 }
 
-function groupInsertTarget(index: number, event: DragEvent) {
-  const row = event.currentTarget as HTMLElement | null
-  if (!row) return index
-  const rect = row.getBoundingClientRect()
-  return event.clientY < rect.top + rect.height / 2 ? index : index + 1
+function clearGroupPress() {
+  groupPressedIndex.value = null
 }
 
-function onDragOver(index: number, event: DragEvent) {
+function groupInsertTarget(event: DragEvent) {
+  const list = event.currentTarget as HTMLElement | null
+  if (!list || !structure.value) return structure.value?.groups.length ?? 0
+  const rows = Array.from(list.querySelectorAll<HTMLElement>('[data-group-index]'))
+  for (const row of rows) {
+    const index = Number(row.dataset.groupIndex)
+    const rect = row.getBoundingClientRect()
+    if (event.clientY < rect.top + rect.height / 2) return index
+  }
+  return structure.value.groups.length
+}
+
+function onDragOver(event: DragEvent) {
   if (dragIndex.value === null) {
     groupInsertIndex.value = null
     return
   }
-  const target = groupInsertTarget(index, event)
+  const target = groupInsertTarget(event)
   groupInsertIndex.value = target === dragIndex.value || target === dragIndex.value + 1 ? null : target
 }
 
-function onDrop(index: number, event: DragEvent) {
+function leaveGroupList(event: DragEvent) {
+  const list = event.currentTarget as HTMLElement | null
+  if (!list) return
+  const rect = list.getBoundingClientRect()
+  const outside =
+    event.clientX < rect.left ||
+    event.clientX > rect.right ||
+    event.clientY < rect.top ||
+    event.clientY > rect.bottom
+  if (outside) groupInsertIndex.value = null
+}
+
+function onDrop(event: DragEvent) {
   if (!structure.value || dragIndex.value === null) {
     clearGroupDrag()
     return
   }
   const source = dragIndex.value
-  const target = groupInsertIndex.value ?? groupInsertTarget(index, event)
+  const target = groupInsertIndex.value ?? groupInsertTarget(event)
   if (target === source || target === source + 1) {
     clearGroupDrag()
     return
@@ -581,21 +612,30 @@ async function remove(t: Template) {
           </select>
         </label>
         <div v-if="!structure.groups.length" class="opacity-60 text-sm">{{ i18n.t('未检测到 selector/urltest 分组。') }}</div>
-        <div v-else class="flex flex-col gap-3 max-h-[62vh] overflow-y-auto pr-1">
+        <div
+          v-else
+          class="sort-list flex flex-col gap-3 max-h-[62vh] overflow-y-auto pr-1"
+          @dragover.prevent="onDragOver"
+          @drop.prevent="onDrop"
+          @dragleave="leaveGroupList"
+        >
           <div
             v-for="(g, i) in structure.groups"
             :key="g.tag + ':' + i"
-            class="border border-base-300 border-y-2 rounded-box bg-base-100 p-3 cursor-grab transition-[background-color,border-color,box-shadow,opacity,transform] hover:bg-base-200/50 active:cursor-grabbing"
+            class="sort-item border border-base-300 border-y-2 rounded-box bg-base-100 p-3 hover:bg-base-200/50"
             :class="{
-              'opacity-50 scale-[0.99] shadow-md ring-1 ring-base-content/30': dragIndex === i,
-              'border-t-primary': groupInsertIndex === i,
-              'border-b-primary': groupInsertIndex === i + 1,
+              'is-pressed': groupPressedIndex === i && dragIndex === null,
+              'is-dragging ring-1 ring-base-content/30': dragIndex === i,
+              'is-insert-before': groupInsertIndex === i,
+              'is-insert-after': groupInsertIndex === i + 1,
             }"
+            :data-group-index="i"
             draggable="true"
+            @pointerdown="pressGroup(i, $event)"
+            @pointerup="clearGroupPress"
+            @pointercancel="clearGroupPress"
+            @pointerleave="clearGroupPress"
             @dragstart="onDragStart(i, $event)"
-            @dragenter.prevent="onDragOver(i, $event)"
-            @dragover.prevent="onDragOver(i, $event)"
-            @drop.prevent="onDrop(i, $event)"
             @dragend="clearGroupDrag"
           >
             <div class="grid grid-cols-1 lg:grid-cols-[32px_minmax(160px,1fr)_120px_minmax(180px,1fr)_160px_64px] gap-2 items-start">

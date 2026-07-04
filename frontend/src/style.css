@@ -44,3 +44,95 @@ html {
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
+
+:where(.btn, .input, .select, .textarea, .tab, .toggle, .checkbox) {
+  transition:
+    background-color 120ms ease-out,
+    border-color 120ms ease-out,
+    box-shadow 120ms ease-out,
+    color 120ms ease-out,
+    opacity 120ms ease-out,
+    transform 120ms ease-out;
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.sort-list {
+  --sort-line: hsl(var(--p));
+}
+
+.sort-item {
+  position: relative;
+  cursor: grab;
+  transition:
+    background-color 120ms ease-out,
+    border-color 120ms ease-out,
+    box-shadow 120ms ease-out,
+    opacity 120ms ease-out,
+    transform 120ms ease-out;
+  will-change: transform, box-shadow, opacity;
+}
+
+.sort-item:hover {
+  box-shadow: 0 1px 0 hsl(var(--bc) / 0.06);
+}
+
+.sort-item:active,
+.sort-item.is-pressed {
+  cursor: grabbing;
+  transform: translateY(1px) scale(0.992);
+  box-shadow:
+    inset 0 1px 2px hsl(var(--bc) / 0.16),
+    0 1px 1px hsl(var(--bc) / 0.08);
+}
+
+.sort-item.is-dragging {
+  cursor: grabbing;
+  opacity: 0.54;
+  transform: translateY(1px) scale(0.985);
+  box-shadow:
+    inset 0 1px 2px hsl(var(--bc) / 0.16),
+    0 8px 20px hsl(var(--bc) / 0.12);
+}
+
+.sort-item.is-insert-before::before,
+.sort-item.is-insert-after::after {
+  content: '';
+  position: absolute;
+  left: 0.75rem;
+  right: 0.75rem;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--sort-line);
+  box-shadow: 0 0 0 1px hsl(var(--b1) / 0.9);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.sort-item.is-insert-before::before {
+  top: -2px;
+}
+
+.sort-item.is-insert-after::after {
+  bottom: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sort-item {
+    transition: none;
+    will-change: auto;
+  }
+
+  :where(.btn, .input, .select, .textarea, .tab, .toggle, .checkbox) {
+    transition: none;
+  }
+
+  .btn:active:not(:disabled),
+  .sort-item:active,
+  .sort-item.is-pressed,
+  .sort-item.is-dragging {
+    transform: none;
+  }
+}

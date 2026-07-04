@@ -26,6 +26,7 @@ const appName = ref('')
 const subscriptionHostPrefix = ref('')
 const countryOrder = ref<string[]>([])
 const draggedIndex = ref<number | null>(null)
+const countryPressedIndex = ref<number | null>(null)
 const countryInsertIndex = ref<number | null>(null)
 const busy = ref(false)
 
@@ -156,25 +157,47 @@ function moveCountry(index: number, delta: number) {
   countryOrder.value = next
 }
 
-function countryInsertTarget(index: number, event: DragEvent) {
-  const row = event.currentTarget as HTMLElement | null
-  if (!row) return index
-  const rect = row.getBoundingClientRect()
-  return event.clientY < rect.top + rect.height / 2 ? index : index + 1
+function countryInsertTarget(event: DragEvent) {
+  const list = event.currentTarget as HTMLElement | null
+  if (!list) return countryOrder.value.length
+  const rows = Array.from(list.querySelectorAll<HTMLElement>('[data-country-index]'))
+  for (const row of rows) {
+    const index = Number(row.dataset.countryIndex)
+    const rect = row.getBoundingClientRect()
+    if (event.clientY < rect.top + rect.height / 2) return index
+  }
+  return countryOrder.value.length
 }
 
 function clearCountryDrag() {
   draggedIndex.value = null
+  countryPressedIndex.value = null
   countryInsertIndex.value = null
 }
 
-function dropCountry(index: number, event: DragEvent) {
+function clearCountryPress() {
+  countryPressedIndex.value = null
+}
+
+function leaveCountryList(event: DragEvent) {
+  const list = event.currentTarget as HTMLElement | null
+  if (!list) return
+  const rect = list.getBoundingClientRect()
+  const outside =
+    event.clientX < rect.left ||
+    event.clientX > rect.right ||
+    event.clientY < rect.top ||
+    event.clientY > rect.bottom
+  if (outside) countryInsertIndex.value = null
+}
+
+function dropCountry(event: DragEvent) {
   if (draggedIndex.value === null) {
     clearCountryDrag()
     return
   }
   const source = draggedIndex.value
-  const target = countryInsertIndex.value ?? countryInsertTarget(index, event)
+  const target = countryInsertIndex.value ?? countryInsertTarget(event)
   if (target === source || target === source + 1) {
     clearCountryDrag()
     return
@@ -186,28 +209,35 @@ function dropCountry(index: number, event: DragEvent) {
   clearCountryDrag()
 }
 
-function isControlDragTarget(event: DragEvent) {
+function isControlDragTarget(event: DragEvent | PointerEvent) {
   const target = event.target as HTMLElement | null
   return !!target?.closest('button,input,select,textarea,a,[contenteditable="true"]')
+}
+
+function pressCountry(index: number, event: PointerEvent) {
+  if (isControlDragTarget(event)) return
+  countryPressedIndex.value = index
 }
 
 function startCountryDrag(index: number, event: DragEvent) {
   if (isControlDragTarget(event)) {
     event.preventDefault()
+    countryPressedIndex.value = null
     return
   }
   draggedIndex.value = index
+  countryPressedIndex.value = index
   countryInsertIndex.value = null
   event.dataTransfer?.setData('text/plain', String(index))
   if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
 }
 
-function overCountry(index: number, event: DragEvent) {
+function overCountryList(event: DragEvent) {
   if (draggedIndex.value === null) {
     countryInsertIndex.value = null
     return
   }
-  const target = countryInsertTarget(index, event)
+  const target = countryInsertTarget(event)
   countryInsertIndex.value = target === draggedIndex.value || target === draggedIndex.value + 1 ? null : target
 }
 
@@ -341,21 +371,29 @@ async function changePassword() {
             <button class="btn btn-sm btn-primary" @click="saveCountryOrder" :disabled="busy">{{ i18n.t('保存') }}</button>
           </div>
         </div>
-        <div class="max-h-96 overflow-y-auto divide-y divide-base-200 border border-base-300 rounded-box">
+        <div
+          class="sort-list max-h-96 overflow-y-auto divide-y divide-base-200 border border-base-300 rounded-box"
+          @dragover.prevent="overCountryList"
+          @drop.prevent="dropCountry"
+          @dragleave="leaveCountryList"
+        >
           <div
             v-for="(code, index) in countryOrder"
             :key="code"
-            class="flex items-center gap-2 bg-base-100 px-3 py-2 border-y-2 border-transparent cursor-grab select-none transition-[background-color,border-color,box-shadow,opacity,transform] hover:bg-base-200/60 active:cursor-grabbing"
+            class="sort-item flex items-center gap-2 bg-base-100 px-3 py-2 border-y-2 border-transparent select-none hover:bg-base-200/60"
             :class="{
-              'opacity-50 scale-[0.99] shadow-md ring-1 ring-base-content/30': draggedIndex === index,
-              'border-t-primary': countryInsertIndex === index,
-              'border-b-primary': countryInsertIndex === index + 1,
+              'is-pressed': countryPressedIndex === index && draggedIndex === null,
+              'is-dragging ring-1 ring-base-content/30': draggedIndex === index,
+              'is-insert-before': countryInsertIndex === index,
+              'is-insert-after': countryInsertIndex === index + 1,
             }"
+            :data-country-index="index"
             draggable="true"
+            @pointerdown="pressCountry(index, $event)"
+            @pointerup="clearCountryPress"
+            @pointercancel="clearCountryPress"
+            @pointerleave="clearCountryPress"
             @dragstart="startCountryDrag(index, $event)"
-            @dragenter.prevent="overCountry(index, $event)"
-            @dragover.prevent="overCountry(index, $event)"
-            @drop.prevent="dropCountry(index, $event)"
             @dragend="clearCountryDrag"
           >
             <span
