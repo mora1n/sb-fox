@@ -111,6 +111,7 @@ func generateConfigWithGroupSelections(templateContent string, groupNodes map[st
 		return nil, err
 	}
 	chainIDs := nodeIDs(chainNodes)
+	chainSet := chainNodeIDSet(chainIDs)
 	if opts.ChainProxy {
 		opts.ChainProxyNodeIDs = chainIDs
 	}
@@ -131,7 +132,7 @@ func generateConfigWithGroupSelections(templateContent string, groupNodes map[st
 	out, err := merge.Generate(cfg, mergeNodes, merge.Options{
 		AutoCountryGroups:      opts.AutoCountryGroups,
 		CountryHeatOrder:       countryHeatOrder,
-		CountryGroupSourceTags: countrySourceTags(opts, autoCountryNodes, chainIDs),
+		CountryGroupSourceTags: countrySourceTags(opts, autoCountryNodes, chainSet),
 	})
 	if err != nil {
 		return nil, err
@@ -169,7 +170,7 @@ func generateConfigWithGroupSelections(templateContent string, groupNodes map[st
 		if group == nil {
 			return nil, fmt.Errorf("template outbound group %q is missing", g.Tag)
 		}
-		tags := selectableTagsForSelection(sel, groupNodes[g.Tag], autoCountryNodes, outbounds, templateGroupTags, opts)
+		tags := selectableTagsForSelection(sel, groupNodes[g.Tag], autoCountryNodes, outbounds, templateGroupTags, opts, chainSet)
 		if opts.ChainProxy {
 			tags = appendUniqueStrings(tags, chainTags)
 		}
@@ -198,34 +199,14 @@ func generateConfigWithGroupSelections(templateContent string, groupNodes map[st
 	return merge.Indent(compact)
 }
 
-func countrySourceTags(opts models.ProfileOptions, nodes []*models.Node, chainIDs []int64) []string {
+func countrySourceTags(opts models.ProfileOptions, nodes []*models.Node, chainSet map[int64]bool) []string {
 	if !opts.AutoCountryGroups {
 		return nil
 	}
 	if !opts.ChainProxy {
 		return nodeTags(nodes)
 	}
-	chainSet := make(map[int64]bool, len(chainIDs))
-	for _, id := range chainIDs {
-		chainSet[id] = true
-	}
-	out := make([]string, 0, len(nodes))
-	seen := map[string]bool{}
-	for _, n := range nodes {
-		if n == nil || n.Tag == "" {
-			continue
-		}
-		tag := n.Tag
-		if chainSet[n.ID] {
-			tag = chainNodeTag(tag)
-		}
-		if seen[tag] {
-			continue
-		}
-		seen[tag] = true
-		out = append(out, tag)
-	}
-	return out
+	return generatedNodeTags(nodes, chainSet)
 }
 
 func ensureGroupSelectionsFromNodes(opts models.ProfileOptions, groupNodes map[string][]*models.Node) models.ProfileOptions {
@@ -379,23 +360,23 @@ func autoCountryFillsSelection(sel models.NodeSelection, opts models.ProfileOpti
 	return opts.AutoCountryGroups && opts.AutoCountrySelected != nil && selectionHasInputs(*opts.AutoCountrySelected) && !sel.SkipCountryGroups
 }
 
-func selectableTagsForSelection(sel models.NodeSelection, nodes, autoCountryNodes []*models.Node, outbounds []any, templateGroupTags map[string]bool, opts models.ProfileOptions) []string {
+func selectableTagsForSelection(sel models.NodeSelection, nodes, autoCountryNodes []*models.Node, outbounds []any, templateGroupTags map[string]bool, opts models.ProfileOptions, chainSet map[int64]bool) []string {
 	tags := appendUniqueStrings(nil, sel.OutboundRefs)
 	if opts.AutoCountryGroups && !sel.SkipCountryGroups {
 		countryNodes := nodes
 		if len(countryNodes) == 0 {
 			countryNodes = autoCountryNodes
 		}
-		return appendUniqueStrings(tags, countryCandidateTags(outbounds, countryNodes, templateGroupTags))
+		return appendUniqueStrings(tags, countryCandidateTags(outbounds, countryNodes, templateGroupTags, chainSet))
 	}
-	return appendUniqueStrings(tags, nodeTags(nodes))
+	return appendUniqueStrings(tags, generatedNodeTags(nodes, chainSet))
 }
 
-func countryCandidateTags(outbounds []any, nodes []*models.Node, templateGroupTags map[string]bool) []string {
+func countryCandidateTags(outbounds []any, nodes []*models.Node, templateGroupTags map[string]bool, chainSet map[int64]bool) []string {
 	nodeTags := make(map[string]bool, len(nodes))
 	for _, n := range nodes {
-		if n != nil && n.Tag != "" {
-			nodeTags[n.Tag] = true
+		if tag := generatedNodeTag(n, chainSet); tag != "" {
+			nodeTags[tag] = true
 		}
 	}
 	if len(nodeTags) == 0 {
@@ -429,8 +410,9 @@ func countryCandidateTags(outbounds []any, nodes []*models.Node, templateGroupTa
 		}
 	}
 	for _, n := range nodes {
-		if n != nil && n.Tag != "" && !covered[n.Tag] {
-			out = appendUniqueStrings(out, []string{n.Tag})
+		tag := generatedNodeTag(n, chainSet)
+		if tag != "" && !covered[tag] {
+			out = appendUniqueStrings(out, []string{tag})
 		}
 	}
 	return out
@@ -525,14 +507,19 @@ func nodeIDs(nodes []*models.Node) []int64 {
 }
 
 func nodeTags(nodes []*models.Node) []string {
+	return generatedNodeTags(nodes, nil)
+}
+
+func generatedNodeTags(nodes []*models.Node, chainSet map[int64]bool) []string {
 	out := make([]string, 0, len(nodes))
 	seen := map[string]bool{}
 	for _, n := range nodes {
-		if n == nil || n.Tag == "" || seen[n.Tag] {
+		tag := generatedNodeTag(n, chainSet)
+		if tag == "" || seen[tag] {
 			continue
 		}
-		seen[n.Tag] = true
-		out = append(out, n.Tag)
+		seen[tag] = true
+		out = append(out, tag)
 	}
 	return out
 }
@@ -559,6 +546,27 @@ func chainNodeTag(tag string) string {
 		return tag
 	}
 	return chainNodeTagPrefix + tag
+}
+
+func generatedNodeTag(n *models.Node, chainSet map[int64]bool) string {
+	if n == nil || n.Tag == "" {
+		return ""
+	}
+	if chainSet != nil && chainSet[n.ID] {
+		return chainNodeTag(n.Tag)
+	}
+	return n.Tag
+}
+
+func chainNodeIDSet(ids []int64) map[int64]bool {
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make(map[int64]bool, len(ids))
+	for _, id := range ids {
+		out[id] = true
+	}
+	return out
 }
 
 func upstreamNodeTags(groupNodes map[string][]*models.Node, chainIDs []int64, extraGroups ...[]*models.Node) []string {

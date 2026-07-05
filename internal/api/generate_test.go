@@ -44,6 +44,8 @@ func TestGenerateConfigChainProxyAddsDetourToSelectedNodes(t *testing.T) {
 			outbounds[tag] = ob
 		}
 	}
+	assertNoGeneratedReference(t, outbounds, "down-a")
+	assertNoGeneratedReference(t, outbounds, "down-b")
 	for _, tag := range []string{"📥down-a", "📥down-b"} {
 		if got := outbounds[tag]["detour"]; got != merge.ChainProxyTag {
 			t.Fatalf("%s detour = %v, want %q", tag, got, merge.ChainProxyTag)
@@ -86,6 +88,7 @@ func TestGenerateConfigWithGroupSelectionsAndChainProxy(t *testing.T) {
 	}
 
 	outbounds := generatedOutboundMap(t, config)
+	assertNoGeneratedReference(t, outbounds, "chain-node")
 	if got := outbounds["📥chain-node"]["detour"]; got != merge.ChainProxyTag {
 		t.Fatalf("chain-node detour = %v, want %q", got, merge.ChainProxyTag)
 	}
@@ -128,11 +131,85 @@ func TestGenerateConfigChainProxyUsesAutoCountryUpstreams(t *testing.T) {
 	}
 
 	outbounds := generatedOutboundMap(t, config)
+	assertNoGeneratedReference(t, outbounds, "chain-node")
 	if got := outbounds["📥chain-node"]["detour"]; got != merge.ChainProxyTag {
 		t.Fatalf("chain-node detour = %v, want %q", got, merge.ChainProxyTag)
 	}
+	if got := stringSliceValue(t, outbounds["🇭🇰 Hong Kong"]["outbounds"]); !sameStrings(got, []string{"📥chain-node"}) {
+		t.Fatalf("HK selector outbounds = %v", got)
+	}
 	if got := stringSliceValue(t, outbounds[merge.ChainProxyTag]["outbounds"]); !sameStrings(got, []string{"proxy-node", "auto-a", "auto-b"}) {
 		t.Fatalf("chain selector outbounds = %v", got)
+	}
+}
+
+func TestGenerateConfigChainProxyReplacesAutoCountrySelectedNodeRefs(t *testing.T) {
+	template := `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":["Direct"]},
+    {"type":"direct","tag":"Direct"}
+  ],
+  "route": {"final":"Proxy"}
+}`
+	chainNode := testNode(1, "👼 BWH.MINIBOX", "HK")
+	upstream := testNode(2, "naive-upstream", "US")
+	config, err := generateConfigWithGroupSelections(template, map[string][]*models.Node{
+		"Proxy": {chainNode},
+	}, []*models.Node{chainNode, upstream}, []*models.Node{chainNode}, models.ProfileOptions{
+		AutoCountryGroups: true,
+		ChainProxy:        true,
+		GroupSelections: map[string]models.NodeSelection{
+			"Proxy": {NodeIDs: []int64{1}},
+		},
+		AutoCountrySelected: &models.NodeSelection{NodeIDs: []int64{1, 2}},
+		ChainProxySelected:  &models.NodeSelection{NodeIDs: []int64{1}},
+	}, nil)
+	if err != nil {
+		t.Fatalf("generateConfigWithGroupSelections: %v", err)
+	}
+
+	outbounds := generatedOutboundMap(t, config)
+	assertNoGeneratedReference(t, outbounds, "👼 BWH.MINIBOX")
+	if got := outbounds["📥👼 BWH.MINIBOX"]["detour"]; got != merge.ChainProxyTag {
+		t.Fatalf("chain node detour = %v, want %q", got, merge.ChainProxyTag)
+	}
+	if got := stringSliceValue(t, outbounds["🇭🇰 Hong Kong"]["outbounds"]); !sameStrings(got, []string{"📥👼 BWH.MINIBOX"}) {
+		t.Fatalf("HK selector outbounds = %v", got)
+	}
+	if got := stringSliceValue(t, outbounds["Proxy"]["outbounds"]); !sameStrings(got, []string{"🇭🇰 Hong Kong", "📥👼 BWH.MINIBOX"}) {
+		t.Fatalf("Proxy outbounds = %v", got)
+	}
+}
+
+func TestGenerateConfigChainProxyReplacesSkipCountryNodeRefs(t *testing.T) {
+	template := `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":["Direct"]},
+    {"type":"direct","tag":"Direct"}
+  ],
+  "route": {"final":"Proxy"}
+}`
+	chainNode := testNode(1, "👼 BWH.MINIBOX", "HK")
+	upstream := testNode(2, "naive-upstream", "US")
+	config, err := generateConfigWithGroupSelections(template, map[string][]*models.Node{
+		"Proxy": {chainNode},
+	}, []*models.Node{chainNode, upstream}, []*models.Node{chainNode}, models.ProfileOptions{
+		AutoCountryGroups: true,
+		ChainProxy:        true,
+		GroupSelections: map[string]models.NodeSelection{
+			"Proxy": {NodeIDs: []int64{1}, SkipCountryGroups: true},
+		},
+		AutoCountrySelected: &models.NodeSelection{NodeIDs: []int64{1, 2}},
+		ChainProxySelected:  &models.NodeSelection{NodeIDs: []int64{1}},
+	}, nil)
+	if err != nil {
+		t.Fatalf("generateConfigWithGroupSelections: %v", err)
+	}
+
+	outbounds := generatedOutboundMap(t, config)
+	assertNoGeneratedReference(t, outbounds, "👼 BWH.MINIBOX")
+	if got := stringSliceValue(t, outbounds["Proxy"]["outbounds"]); !sameStrings(got, []string{"📥👼 BWH.MINIBOX"}) {
+		t.Fatalf("Proxy outbounds = %v", got)
 	}
 }
 
@@ -732,6 +809,24 @@ func stringSliceValue(t *testing.T, value any) []string {
 		out = append(out, s)
 	}
 	return out
+}
+
+func assertNoGeneratedReference(t *testing.T, outbounds map[string]map[string]any, tag string) {
+	t.Helper()
+	if _, ok := outbounds[tag]; ok {
+		t.Fatalf("generated outbounds still contain original chain node tag %q", tag)
+	}
+	for groupTag, outbound := range outbounds {
+		raw, ok := outbound["outbounds"].([]any)
+		if !ok {
+			continue
+		}
+		for _, item := range raw {
+			if item == tag {
+				t.Fatalf("outbound %q still references original chain node tag %q", groupTag, tag)
+			}
+		}
+	}
 }
 
 func sameStrings(a, b []string) bool {
