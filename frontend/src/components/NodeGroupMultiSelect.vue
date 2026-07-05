@@ -1,29 +1,19 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { NodeSummary } from '../api/types'
-import CountryFlag from './CountryFlag.vue'
+import type { NodeGroup } from '../api/types'
 import { useI18nStore } from '../stores/i18n'
-import { useSettingsStore } from '../stores/settings'
-import { nodeSourceLabel } from '../utils/nodeSource'
-import { emptyNodeFilters, filterNodes, nodeCountries, nodeSources, nodeTypes } from '../utils/nodeFilters'
 import { Bars3Icon, XMarkIcon } from '@heroicons/vue/24/outline'
 
-const props = defineProps<{ nodes: NodeSummary[]; modelValue: number[]; disabled?: boolean }>()
+const props = defineProps<{ groups: NodeGroup[]; modelValue: number[]; disabled?: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [number[]] }>()
 const i18n = useI18nStore()
-const settings = useSettingsStore()
 
-const filters = ref(emptyNodeFilters())
 const dragIndex = ref<number | null>(null)
 const pressedIndex = ref<number | null>(null)
 const insertIndex = ref<number | null>(null)
-const sourceOptions = computed(() => nodeSources(props.nodes))
-const countryOptions = computed(() => nodeCountries(props.nodes, settings.countryHeatOrder))
-const typeOptions = computed(() => nodeTypes(props.nodes))
-const filtered = computed(() => filterNodes(props.nodes, filters.value))
 const selectedItems = computed(() => {
-  const byID = new Map(props.nodes.map((node) => [node.id, node]))
-  return props.modelValue.map((id) => ({ id, node: byID.get(id) }))
+  const byID = new Map(props.groups.map((group) => [group.id, group]))
+  return props.modelValue.map((id) => ({ id, group: byID.get(id) }))
 })
 
 function toggle(id: number) {
@@ -31,18 +21,22 @@ function toggle(id: number) {
   if (props.modelValue.includes(id)) emit('update:modelValue', props.modelValue.filter((item) => item !== id))
   else emit('update:modelValue', uniqueIDs([...props.modelValue, id]))
 }
-function selectAllFiltered() {
+
+function selectAll() {
   if (props.disabled) return
-  emit('update:modelValue', uniqueIDs([...props.modelValue, ...filtered.value.map((n) => n.id)]))
+  emit('update:modelValue', uniqueIDs([...props.modelValue, ...props.groups.map((group) => group.id)]))
 }
+
 function clearAll() {
   if (props.disabled) return
   emit('update:modelValue', [])
 }
+
 function removeSelected(id: number) {
   if (props.disabled) return
   emit('update:modelValue', props.modelValue.filter((item) => item !== id))
 }
+
 function uniqueIDs(ids: number[]) {
   const seen = new Set<number>()
   return ids.filter((id) => {
@@ -51,25 +45,29 @@ function uniqueIDs(ids: number[]) {
     return true
   })
 }
+
 function selectedInsertTarget(event: DragEvent) {
   const list = event.currentTarget as HTMLElement | null
   if (!list) return selectedItems.value.length
-  const rows = Array.from(list.querySelectorAll<HTMLElement>('[data-node-index]'))
+  const rows = Array.from(list.querySelectorAll<HTMLElement>('[data-node-group-index]'))
   for (const row of rows) {
-    const index = Number(row.dataset.nodeIndex)
+    const index = Number(row.dataset.nodeGroupIndex)
     const rect = row.getBoundingClientRect()
     if (event.clientY < rect.top + rect.height / 2) return index
   }
   return selectedItems.value.length
 }
+
 function clearSelectedDrag() {
   dragIndex.value = null
   pressedIndex.value = null
   insertIndex.value = null
 }
+
 function clearSelectedPress() {
   pressedIndex.value = null
 }
+
 function leaveSelectedList(event: DragEvent) {
   const list = event.currentTarget as HTMLElement | null
   if (!list) return
@@ -81,14 +79,17 @@ function leaveSelectedList(event: DragEvent) {
     event.clientY > rect.bottom
   if (outside) insertIndex.value = null
 }
+
 function isControlDragTarget(event: DragEvent | PointerEvent) {
   const target = event.target as HTMLElement | null
   return !!target?.closest('button,input,select,textarea,a,[contenteditable="true"]')
 }
+
 function pressSelected(index: number, event: PointerEvent) {
   if (props.disabled || isControlDragTarget(event)) return
   pressedIndex.value = index
 }
+
 function startSelectedDrag(index: number, event: DragEvent) {
   if (props.disabled || isControlDragTarget(event)) {
     event.preventDefault()
@@ -101,6 +102,7 @@ function startSelectedDrag(index: number, event: DragEvent) {
   event.dataTransfer?.setData('text/plain', String(index))
   if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
 }
+
 function overSelectedList(event: DragEvent) {
   if (dragIndex.value === null) {
     insertIndex.value = null
@@ -109,6 +111,7 @@ function overSelectedList(event: DragEvent) {
   const target = selectedInsertTarget(event)
   insertIndex.value = target === dragIndex.value || target === dragIndex.value + 1 ? null : target
 }
+
 function dropSelected(event: DragEvent) {
   if (dragIndex.value === null) {
     clearSelectedDrag()
@@ -130,32 +133,19 @@ function dropSelected(event: DragEvent) {
 
 <template>
   <div class="flex flex-col gap-2" :class="{ 'opacity-60': disabled }">
-    <div class="flex items-center gap-2 flex-wrap">
-      <input v-model="filters.search" class="input input-bordered input-sm min-w-0 flex-1" :placeholder="i18n.t('搜索节点...')" :disabled="disabled" />
-      <button type="button" class="btn btn-xs min-h-7 h-7 shrink-0" @click="selectAllFiltered" :disabled="disabled">{{ i18n.t('全选') }}</button>
-      <button type="button" class="btn btn-xs min-h-7 h-7 shrink-0" @click="clearAll" :disabled="disabled">{{ i18n.t('清空') }}</button>
-      <span class="badge badge-primary shrink-0">{{ modelValue.length }}</span>
+    <div class="flex items-center justify-between gap-2 flex-wrap">
+      <span class="label-text">{{ i18n.t('组合节点') }}</span>
+      <span class="flex items-center gap-1 flex-wrap">
+        <button class="btn btn-xs min-h-7 h-7" type="button" @click="selectAll" :disabled="disabled">{{ i18n.t('全选') }}</button>
+        <button class="btn btn-xs min-h-7 h-7" type="button" @click="clearAll" :disabled="disabled">{{ i18n.t('全不选') }}</button>
+        <span class="badge badge-primary shrink-0">{{ modelValue.length }}</span>
+      </span>
     </div>
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
-      <select v-model="filters.source" class="select select-bordered select-sm min-w-0" :disabled="disabled">
-        <option value="">{{ i18n.t('全部来源') }}</option>
-        <option v-for="source in sourceOptions" :key="source" :value="source">
-          {{ i18n.t(nodeSourceLabel(source)) }}
-        </option>
-      </select>
-      <select v-model="filters.country" class="select select-bordered select-sm min-w-0" :disabled="disabled">
-        <option value="">{{ i18n.t('全部国家') }}</option>
-        <option v-for="country in countryOptions" :key="country" :value="country">{{ country }}</option>
-      </select>
-      <select v-model="filters.type" class="select select-bordered select-sm min-w-0" :disabled="disabled">
-        <option value="">{{ i18n.t('全部协议') }}</option>
-        <option v-for="type in typeOptions" :key="type" :value="type">{{ type }}</option>
-      </select>
-    </div>
+
     <div v-if="selectedItems.length" class="flex flex-col gap-1">
-      <div class="label-text">{{ i18n.t('已选节点') }}</div>
+      <div class="label-text">{{ i18n.t('已选组合节点') }}</div>
       <div
-        class="sort-list border border-base-300 rounded-box max-h-44 overflow-y-auto divide-y divide-base-200"
+        class="sort-list border border-base-300 rounded-box max-h-36 overflow-y-auto divide-y divide-base-200"
         @dragover.prevent="overSelectedList"
         @drop.prevent="dropSelected"
         @dragleave="leaveSelectedList"
@@ -170,7 +160,7 @@ function dropSelected(event: DragEvent) {
             'is-insert-before': insertIndex === index,
             'is-insert-after': insertIndex === index + 1,
           }"
-          :data-node-index="index"
+          :data-node-group-index="index"
           :draggable="!disabled"
           @pointerdown="pressSelected(index, $event)"
           @pointerup="clearSelectedPress"
@@ -183,9 +173,8 @@ function dropSelected(event: DragEvent) {
             <Bars3Icon class="h-4 w-4" />
           </span>
           <span class="badge badge-sm w-8">{{ index + 1 }}</span>
-          <CountryFlag v-if="item.node?.country_code" :code="item.node.country_code" :show-code="false" />
-          <span class="truncate flex-1 text-sm" :title="item.node?.tag || '#' + item.id">{{ item.node?.tag || '#' + item.id }}</span>
-          <span v-if="item.node" class="badge badge-ghost badge-sm">{{ item.node.type }}</span>
+          <span class="truncate flex-1 text-sm" :title="item.group?.name || '#' + item.id">{{ item.group?.name || '#' + item.id }}</span>
+          <span class="badge badge-ghost badge-sm">{{ item.group?.node_ids.length ?? 0 }}</span>
           <button
             type="button"
             class="btn btn-xs btn-ghost btn-square"
@@ -198,26 +187,26 @@ function dropSelected(event: DragEvent) {
         </div>
       </div>
     </div>
-    <div class="label-text">{{ i18n.t('节点列表') }}</div>
-    <div class="border border-base-300 rounded-box max-h-64 overflow-y-auto divide-y divide-base-200">
+
+    <div class="label-text">{{ i18n.t('组合节点列表') }}</div>
+    <div class="border border-base-300 rounded-box max-h-36 overflow-y-auto divide-y divide-base-200">
       <label
-        v-for="n in filtered"
-        :key="n.id"
-        class="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-base-200"
+        v-for="g in groups"
+        :key="g.id"
+        class="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-base-200"
+        :class="{ 'opacity-60': disabled }"
       >
         <input
           type="checkbox"
           class="checkbox checkbox-sm"
-          :checked="modelValue.includes(n.id)"
+          :checked="modelValue.includes(g.id)"
           :disabled="disabled"
-          @change="toggle(n.id)"
+          @change="toggle(g.id)"
         />
-        <CountryFlag v-if="n.country_code" :code="n.country_code" :show-code="false" />
-        <span class="truncate flex-1 text-sm">{{ n.tag }}</span>
-        <span class="badge badge-ghost badge-sm">{{ n.type }}</span>
-        <span class="badge badge-ghost badge-sm hidden sm:inline-flex">{{ i18n.t(nodeSourceLabel(n.source)) }}</span>
+        <span class="truncate flex-1 text-sm">{{ g.name }}</span>
+        <span class="badge badge-ghost badge-sm">{{ g.node_ids.length }}</span>
       </label>
-      <div v-if="!filtered.length" class="px-3 py-4 text-sm opacity-60 text-center">{{ i18n.t('无匹配节点') }}</div>
+      <div v-if="!groups.length" class="px-3 py-4 text-sm opacity-60 text-center">{{ i18n.t('暂无组合节点。') }}</div>
     </div>
   </div>
 </template>

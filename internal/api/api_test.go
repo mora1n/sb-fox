@@ -832,6 +832,79 @@ func TestPreviewSavedProfileRendersConfigAndChecksOwnership(t *testing.T) {
 	}
 }
 
+func TestPreviewPreservesSelectionAndNodeGroupOrder(t *testing.T) {
+	_, ts := testServer(t)
+	c := newClient(t, ts.URL)
+	c.http.Jar = login(t, ts.URL)
+
+	templateID := createPreviewOrderTemplate(t, c)
+	nodeIDs := createPreviewOrderNodes(t, c, []string{"n1", "n2", "n3", "n4", "n5"})
+	groupA := createPreviewOrderGroup(t, c, "ga", []int64{nodeIDs[4], nodeIDs[0]})
+	groupB := createPreviewOrderGroup(t, c, "gb", []int64{nodeIDs[3], nodeIDs[1]})
+
+	var preview struct {
+		Config string `json:"config"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/generate/preview", map[string]any{
+		"template_id": templateID,
+		"options": map[string]any{
+			"autoCountryGroups": false,
+			"groupSelections": map[string]any{
+				"Proxy": map[string]any{
+					"nodeIds":      []int64{nodeIDs[2], nodeIDs[0]},
+					"nodeGroupIds": []int64{groupB, groupA},
+				},
+			},
+		},
+	}), &preview)
+
+	outbounds := generatedOutboundMap(t, []byte(preview.Config))
+	got := stringSliceValue(t, outbounds["Proxy"]["outbounds"])
+	want := []string{"n3", "n1", "n4", "n2", "n5"}
+	if !sameStrings(got, want) {
+		t.Fatalf("Proxy outbounds = %v, want %v", got, want)
+	}
+}
+
+func createPreviewOrderTemplate(t *testing.T, c *apiClient) int64 {
+	t.Helper()
+	var created struct {
+		Template struct {
+			ID int64 `json:"id"`
+		} `json:"template"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/templates", map[string]string{
+		"name":    "preview-order",
+		"content": `{"outbounds":[{"type":"selector","tag":"Proxy","outbounds":[]},{"type":"direct","tag":"Direct"}],"route":{"final":"Proxy"}}`,
+	}), &created)
+	return created.Template.ID
+}
+
+func createPreviewOrderNodes(t *testing.T, c *apiClient, tags []string) []int64 {
+	t.Helper()
+	ids := make([]int64, 0, len(tags))
+	for _, tag := range tags {
+		var node struct {
+			ID int64 `json:"id"`
+		}
+		raw := `{"type":"shadowsocks","tag":"` + tag + `","server":"example.com","server_port":443}`
+		decodeData(t, c.do(http.MethodPost, "/api/nodes", map[string]string{"raw": raw}), &node)
+		ids = append(ids, node.ID)
+	}
+	return ids
+}
+
+func createPreviewOrderGroup(t *testing.T, c *apiClient, name string, nodeIDs []int64) int64 {
+	t.Helper()
+	var group struct {
+		ID int64 `json:"id"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/node-groups", map[string]any{
+		"name": name, "node_ids": nodeIDs,
+	}), &group)
+	return group.ID
+}
+
 func createSavedPreviewProfile(t *testing.T, c *apiClient) int64 {
 	t.Helper()
 	template := `{"outbounds":[{"type":"selector","tag":"Proxy","outbounds":[]},{"type":"direct","tag":"Direct"}],"route":{"final":"Proxy"}}`

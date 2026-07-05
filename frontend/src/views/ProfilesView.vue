@@ -22,6 +22,7 @@ import type {
 } from '../api/types'
 import TokenLinkField from '../components/TokenLinkField.vue'
 import NodeMultiSelect from '../components/NodeMultiSelect.vue'
+import NodeGroupMultiSelect from '../components/NodeGroupMultiSelect.vue'
 import JsonViewer from '../components/JsonViewer.vue'
 import ValidationBadge from '../components/ValidationBadge.vue'
 import {
@@ -664,21 +665,6 @@ function toggleOutboundRef(groupTag: string, sel: NodeSelection, tag: string) {
   sel.outboundRefs = [...set]
 }
 
-function toggleGroupForSelection(sel: NodeSelection, id: number) {
-  const set = new Set(sel.nodeGroupIds)
-  if (set.has(id)) set.delete(id)
-  else set.add(id)
-  sel.nodeGroupIds = [...set]
-}
-
-function selectAllGroups(sel: NodeSelection) {
-  sel.nodeGroupIds = nodeGroups.groups.map((g) => g.id)
-}
-
-function clearGroups(sel: NodeSelection) {
-  sel.nodeGroupIds = []
-}
-
 async function setProfileSubscriptionEnabled(profile: Profile, enabled: boolean) {
   if (profile.subscription_enabled === enabled) return
   busy.value = true
@@ -1205,26 +1191,11 @@ async function remove(p: Profile) {
               </div>
               <NodeMultiSelect :nodes="allNodes" v-model="activeNodeIds" :disabled="formLoading" />
               <div class="mt-3">
-                <div class="flex items-center justify-between gap-2 flex-wrap mb-2">
-                  <span class="label-text">{{ i18n.t('组合节点') }}</span>
-                  <span class="flex gap-1 flex-wrap">
-                    <button class="btn btn-xs min-h-7 h-7" type="button" @click="selectAllGroups(selectionFor(activeGroup))">{{ i18n.t('全选') }}</button>
-                    <button class="btn btn-xs min-h-7 h-7" type="button" @click="clearGroups(selectionFor(activeGroup))">{{ i18n.t('全不选') }}</button>
-                  </span>
-                </div>
-                <div class="border border-base-300 rounded-box max-h-36 overflow-y-auto divide-y divide-base-200">
-                  <label v-for="g in nodeGroups.groups" :key="g.id" class="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-base-200">
-                    <input
-                      type="checkbox"
-                      class="checkbox checkbox-sm"
-                      :checked="selectionFor(activeGroup).nodeGroupIds.includes(g.id)"
-                      @change="toggleGroupForSelection(selectionFor(activeGroup), g.id)"
-                    />
-                    <span class="truncate flex-1 text-sm">{{ g.name }}</span>
-                    <span class="badge badge-ghost badge-sm">{{ g.node_ids.length }}</span>
-                  </label>
-                  <div v-if="!nodeGroups.groups.length" class="px-3 py-4 text-sm opacity-60 text-center">{{ i18n.t('暂无组合节点。') }}</div>
-                </div>
+                <NodeGroupMultiSelect
+                  :groups="nodeGroups.groups"
+                  v-model="selectionFor(activeGroup).nodeGroupIds"
+                  :disabled="formLoading"
+                />
               </div>
             </div>
 
@@ -1238,27 +1209,11 @@ async function remove(p: Profile) {
               </div>
               <NodeMultiSelect :nodes="allNodes" v-model="autoCountryNodeIds" :disabled="formLoading || !form.options.autoCountryGroups" />
               <div class="mt-3">
-                <div class="flex items-center justify-between gap-2 flex-wrap mb-2">
-                  <span class="label-text">{{ i18n.t('组合节点') }}</span>
-                  <span class="flex gap-1 flex-wrap">
-                    <button class="btn btn-xs min-h-7 h-7" type="button" @click="selectAllGroups(autoCountrySelection())" :disabled="!form.options.autoCountryGroups">{{ i18n.t('全选') }}</button>
-                    <button class="btn btn-xs min-h-7 h-7" type="button" @click="clearGroups(autoCountrySelection())" :disabled="!form.options.autoCountryGroups">{{ i18n.t('全不选') }}</button>
-                  </span>
-                </div>
-                <div class="border border-base-300 rounded-box max-h-32 overflow-y-auto divide-y divide-base-200">
-                  <label v-for="g in nodeGroups.groups" :key="g.id" class="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-base-200" :class="{ 'opacity-60': !form.options.autoCountryGroups }">
-                    <input
-                      type="checkbox"
-                      class="checkbox checkbox-sm"
-                      :checked="autoCountrySelection().nodeGroupIds.includes(g.id)"
-                      :disabled="!form.options.autoCountryGroups"
-                      @change="toggleGroupForSelection(autoCountrySelection(), g.id)"
-                    />
-                    <span class="truncate flex-1 text-sm">{{ g.name }}</span>
-                    <span class="badge badge-ghost badge-sm">{{ g.node_ids.length }}</span>
-                  </label>
-                  <div v-if="!nodeGroups.groups.length" class="px-3 py-4 text-sm opacity-60 text-center">{{ i18n.t('暂无组合节点。') }}</div>
-                </div>
+                <NodeGroupMultiSelect
+                  :groups="nodeGroups.groups"
+                  v-model="autoCountrySelection().nodeGroupIds"
+                  :disabled="formLoading || !form.options.autoCountryGroups"
+                />
               </div>
             </div>
 
@@ -1272,27 +1227,11 @@ async function remove(p: Profile) {
               </div>
               <NodeMultiSelect :nodes="allNodes" v-model="chainNodeIds" :disabled="formLoading || !form.options.chainProxy" />
               <div class="mt-3">
-                <div class="flex items-center justify-between gap-2 flex-wrap mb-2">
-                  <span class="label-text">{{ i18n.t('组合节点') }}</span>
-                  <span class="flex gap-1 flex-wrap">
-                    <button class="btn btn-xs min-h-7 h-7" type="button" @click="selectAllGroups(chainSelection())" :disabled="!form.options.chainProxy">{{ i18n.t('全选') }}</button>
-                    <button class="btn btn-xs min-h-7 h-7" type="button" @click="clearGroups(chainSelection())" :disabled="!form.options.chainProxy">{{ i18n.t('全不选') }}</button>
-                  </span>
-                </div>
-                <div class="border border-base-300 rounded-box max-h-32 overflow-y-auto divide-y divide-base-200">
-                  <label v-for="g in nodeGroups.groups" :key="g.id" class="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-base-200" :class="{ 'opacity-60': !form.options.chainProxy }">
-                    <input
-                      type="checkbox"
-                      class="checkbox checkbox-sm"
-                      :checked="chainSelection().nodeGroupIds.includes(g.id)"
-                      :disabled="!form.options.chainProxy"
-                      @change="toggleGroupForSelection(chainSelection(), g.id)"
-                    />
-                    <span class="truncate flex-1 text-sm">{{ g.name }}</span>
-                    <span class="badge badge-ghost badge-sm">{{ g.node_ids.length }}</span>
-                  </label>
-                  <div v-if="!nodeGroups.groups.length" class="px-3 py-4 text-sm opacity-60 text-center">{{ i18n.t('暂无组合节点。') }}</div>
-                </div>
+                <NodeGroupMultiSelect
+                  :groups="nodeGroups.groups"
+                  v-model="chainSelection().nodeGroupIds"
+                  :disabled="formLoading || !form.options.chainProxy"
+                />
               </div>
             </div>
           </div>
