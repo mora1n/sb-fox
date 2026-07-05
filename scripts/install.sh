@@ -61,8 +61,26 @@ github_asset() {
   fi
 }
 
-asset_id() {
+use_jq_parser() {
+  [ "${SB_FOX_INSTALL_JSON_PARSER:-}" != "awk" ] && command -v jq >/dev/null 2>&1
+}
+
+release_tag() {
+  if use_jq_parser; then
+    jq -r '.tag_name // empty'
+    return
+  fi
+  grep '"tag_name"' \
+    | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/' \
+    | head -n 1
+}
+
+release_asset_id() {
   target="$1"
+  if use_jq_parser; then
+    jq -r --arg target "$target" '.assets[]? | select(.name == $target) | .id // empty' | head -n 1
+    return
+  fi
   awk -v target="$target" '
     /"id"[[:space:]]*:/ {
       id = $0
@@ -101,10 +119,7 @@ if [ -z "$version" ]; then
   info "resolving latest release"
   release_json="$(github_api "${API_BASE}/releases/latest")" \
     || err_private "release metadata unavailable; private repositories require SB_FOX_GITHUB_TOKEN"
-  version="$(printf '%s\n' "$release_json" \
-    | grep '"tag_name"' \
-    | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/' \
-    | head -n 1)"
+  version="$(printf '%s\n' "$release_json" | release_tag)"
   [ -n "$version" ] || err "could not determine latest version; set SB_FOX_VERSION"
 else
   info "resolving release assets"
@@ -114,8 +129,8 @@ fi
 
 # --- download + verify ---
 archive="${BINARY}-${os}-${arch}-${version}.tar.gz"
-archive_id="$(printf '%s\n' "$release_json" | asset_id "$archive")"
-sum_id="$(printf '%s\n' "$release_json" | asset_id "SHA256SUMS")"
+archive_id="$(printf '%s\n' "$release_json" | release_asset_id "$archive")"
+sum_id="$(printf '%s\n' "$release_json" | release_asset_id "SHA256SUMS")"
 [ -n "$archive_id" ] || err "release asset not found: ${archive}"
 [ -n "$sum_id" ] || err "release asset not found: SHA256SUMS"
 tmp="$(mktemp -d)"
