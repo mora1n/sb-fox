@@ -18,13 +18,17 @@ export interface NodeInput {
   country_source?: string
 }
 
+function defaultFilters(): NodeFilters {
+  return { search: '', source: '', country: '', type: '' }
+}
+
 export const useNodesStore = defineStore('nodes', () => {
   const settings = useSettingsStore()
   const nodes = ref<Node[]>([])
   const unfilteredNodes = ref<Node[]>([])
   const summaryNodes = ref<NodeSummary[]>([])
   const loading = ref(false)
-  const filters = ref<NodeFilters>({ search: '', source: '', country: '', type: '' })
+  const filters = ref<NodeFilters>(defaultFilters())
   const unfilteredLoaded = ref(false)
   const summaryLoaded = ref(false)
   let unfilteredInFlight: Promise<Node[]> | null = null
@@ -148,6 +152,18 @@ export const useNodesStore = defineStore('nodes', () => {
     return nodeTypes(filterOptionNodes.value)
   })
 
+  function reset(): void {
+    nodes.value = []
+    unfilteredNodes.value = []
+    summaryNodes.value = []
+    loading.value = false
+    filters.value = defaultFilters()
+    unfilteredLoaded.value = false
+    summaryLoaded.value = false
+    unfilteredInFlight = null
+    summaryInFlight = null
+  }
+
   return {
     nodes,
     unfilteredNodes,
@@ -167,5 +183,6 @@ export const useNodesStore = defineStore('nodes', () => {
     importSubscription,
     importConfig,
     refreshCountry,
+    reset,
   }
 })

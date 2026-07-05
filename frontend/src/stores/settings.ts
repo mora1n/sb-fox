@@ -11,6 +11,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const kernel = ref<KernelStatus | null>(null)
   const appDisplayName = ref('')
   const appInfoLoaded = ref(false)
+  const publicCountryHeatOrder = ref<string[]>(completeCountryHeatOrder(DEFAULT_COUNTRY_HEAT_ORDER))
   const countryHeatOrder = ref<string[]>(completeCountryHeatOrder(DEFAULT_COUNTRY_HEAT_ORDER))
   const registrationEnabled = ref(false)
   const subscriptionHostPrefix = ref('')
@@ -42,7 +43,8 @@ export const useSettingsStore = defineStore('settings', () => {
     appInfoInFlight = get<AppInfo>('/app', true).then((app) => {
       appDisplayName.value = app?.display_name?.trim() || DEFAULT_APP_DISPLAY_NAME
       appInfoLoaded.value = true
-      countryHeatOrder.value = completeCountryHeatOrder(app?.country_heat_order || DEFAULT_COUNTRY_HEAT_ORDER)
+      publicCountryHeatOrder.value = completeCountryHeatOrder(app?.country_heat_order || DEFAULT_COUNTRY_HEAT_ORDER)
+      countryHeatOrder.value = [...publicCountryHeatOrder.value]
       registrationEnabled.value = !!app?.registration_enabled
       subscriptionHostPrefix.value = app?.subscription_host_prefix?.trim() || ''
     }).finally(() => {
@@ -110,6 +112,17 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
+  function resetSessionState(): void {
+    settings.value = {}
+    kernel.value = null
+    countryHeatOrder.value = [...publicCountryHeatOrder.value]
+    loading.value = false
+    settingsLoaded.value = false
+    kernelLoaded.value = false
+    settingsInFlight = null
+    kernelStatusInFlight = null
+  }
+
   return {
     settings,
     kernel,
@@ -128,5 +141,6 @@ export const useSettingsStore = defineStore('settings', () => {
     testKernel,
     fetchKernelStatus,
     setActiveKernel,
+    resetSessionState,
   }
 })

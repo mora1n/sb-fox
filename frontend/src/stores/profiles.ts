@@ -74,6 +74,16 @@ export const useProfilesStore = defineStore('profiles', () => {
     return r.token
   }
 
+  function reset(): void {
+    profiles.value = []
+    subscriptionToken.value = ''
+    loading.value = false
+    loaded.value = false
+    tokenLoaded.value = false
+    inFlight = null
+    tokenInFlight = null
+  }
+
   return {
     profiles,
     subscriptionToken,
@@ -86,5 +96,6 @@ export const useProfilesStore = defineStore('profiles', () => {
     remove,
     fetchSubscriptionToken,
     rotateSubscriptionToken,
+    reset,
   }
 })

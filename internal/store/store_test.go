@@ -224,7 +224,7 @@ func TestProfileWithNodes(t *testing.T) {
 	if !got.SubEnabled {
 		t.Fatal("profile subscription should be enabled by default")
 	}
-	if err := s.SetProfileSubscriptionEnabled(pid, false); err != nil {
+	if err := s.SetProfileSubscriptionEnabled(pid, ownerID, false); err != nil {
 		t.Fatal(err)
 	}
 	got, err = s.GetProfile(pid)

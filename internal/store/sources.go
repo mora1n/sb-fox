@@ -98,3 +98,7 @@ func (s *Store) DeleteSource(id int64) error {
 	_, err := s.db.Exec(`DELETE FROM subscription_sources WHERE id = ?`, id)
 	return err
 }
+
+func (s *Store) DeleteSourceForUser(id, ownerUserID int64) error {
+	return requireRowsAffected(s.db.Exec(`DELETE FROM subscription_sources WHERE id = ? AND owner_user_id = ?`, id, ownerUserID))
+}

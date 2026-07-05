@@ -66,7 +66,7 @@ func (s *Server) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 	req.NodeIDs = uniqueInt64s(req.NodeIDs)
 	req.NodeGroupIDs = uniqueInt64s(req.NodeGroupIDs)
 	normalizeProfileRequestOptions(&req)
-	t, err := s.Store.GetTemplateForUser(req.TemplateID, u.ID, u.IsAdmin())
+	t, err := s.Store.GetTemplateForUser(req.TemplateID, u.ID, false)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "bad_request", "template not found")
 		return
@@ -91,7 +91,7 @@ func (s *Server) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 	if req.Options.ChainProxy && !s.validateNodeAccess(w, u, req.Options.ChainProxyNodeIDs) {
 		return
 	}
-	if !s.validateOptionSelectionAccess(w, u.ID, u.IsAdmin(), req.Options) {
+	if !s.validateOptionSelectionAccess(w, u.ID, false, req.Options) {
 		return
 	}
 	if !validateChainProxySelection(w, req.NodeIDs, req.NodeGroupIDs, req.Options) {
@@ -121,8 +121,7 @@ func (s *Server) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 
 // handleUpdateProfile updates a profile and its node membership.
 func (s *Server) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
-	u, ok := requireCurrentUser(w, r)
-	if !ok {
+	if _, ok := requireCurrentUser(w, r); !ok {
 		return
 	}
 	ownerID, allOwners := ownerScope(r)
@@ -147,7 +146,7 @@ func (s *Server) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 	req.NodeGroupIDs = uniqueInt64s(req.NodeGroupIDs)
 	normalizeProfileRequestOptions(&req)
 	refOwner := existing.OwnerUserID
-	refAllOwners := u.IsAdmin()
+	refAllOwners := false
 	t, err := s.Store.GetTemplateForUser(req.TemplateID, refOwner, refAllOwners)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "bad_request", "template not found")
@@ -186,6 +185,10 @@ func (s *Server) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 	existing.NodeIDs = req.NodeIDs
 	existing.NodeGroupIDs = req.NodeGroupIDs
 	if err := s.Store.UpdateProfile(existing); err != nil {
+		if err == store.ErrNotFound {
+			respondError(w, http.StatusNotFound, "not_found", "profile not found")
+			return
+		}
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
@@ -207,7 +210,11 @@ func (s *Server) handleSetProfileSubscriptionEnabled(w http.ResponseWriter, r *h
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if err := s.Store.SetProfileSubscriptionEnabled(p.ID, req.SubscriptionEnabled); err != nil {
+	if err := s.Store.SetProfileSubscriptionEnabled(p.ID, p.OwnerUserID, req.SubscriptionEnabled); err != nil {
+		if err == store.ErrNotFound {
+			respondError(w, http.StatusNotFound, "not_found", "profile not found")
+			return
+		}
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
@@ -218,14 +225,19 @@ func (s *Server) handleSetProfileSubscriptionEnabled(w http.ResponseWriter, r *h
 // handleDeleteProfile removes a profile.
 func (s *Server) handleDeleteProfile(w http.ResponseWriter, r *http.Request) {
 	ownerID, allOwners := ownerScope(r)
-	if _, err := s.Store.GetProfileForUser(pathID(r), ownerID, allOwners); err == store.ErrNotFound {
+	p, err := s.Store.GetProfileForUser(pathID(r), ownerID, allOwners)
+	if err == store.ErrNotFound {
 		respondError(w, http.StatusNotFound, "not_found", "profile not found")
 		return
 	} else if err != nil {
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	if err := s.Store.DeleteProfile(pathID(r)); err != nil {
+	if err := s.Store.DeleteProfileForUser(p.ID, p.OwnerUserID); err != nil {
+		if err == store.ErrNotFound {
+			respondError(w, http.StatusNotFound, "not_found", "profile not found")
+			return
+		}
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
@@ -403,7 +415,7 @@ func normalizeOutboundRefList(values []string) []string {
 }
 
 func (s *Server) validateNodeAccess(w http.ResponseWriter, u *models.User, nodeIDs []int64) bool {
-	return s.validateNodeAccessForOwner(w, u.ID, u.IsAdmin(), nodeIDs)
+	return s.validateNodeAccessForOwner(w, u.ID, false, nodeIDs)
 }
 
 func (s *Server) validateNodeAccessForOwner(w http.ResponseWriter, ownerUserID int64, allOwners bool, nodeIDs []int64) bool {
@@ -420,7 +432,7 @@ func (s *Server) validateNodeAccessForOwner(w http.ResponseWriter, ownerUserID i
 }
 
 func (s *Server) validateNodeGroupAccess(w http.ResponseWriter, u *models.User, groupIDs []int64) bool {
-	return s.validateNodeGroupAccessForOwner(w, u.ID, u.IsAdmin(), groupIDs)
+	return s.validateNodeGroupAccessForOwner(w, u.ID, false, groupIDs)
 }
 
 func (s *Server) validateNodeGroupAccessForOwner(w http.ResponseWriter, ownerUserID int64, allOwners bool, groupIDs []int64) bool {

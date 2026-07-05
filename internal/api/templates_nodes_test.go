@@ -72,6 +72,124 @@ func TestTemplateLookupByNameForOverwriteFlow(t *testing.T) {
 	}
 }
 
+func TestUserResourceIsolationAcrossAccounts(t *testing.T) {
+	srv, ts := testServer(t)
+	admin := newClient(t, ts.URL)
+	admin.http.Jar = login(t, ts.URL)
+
+	createUser := func(username string) int64 {
+		t.Helper()
+		var user struct {
+			ID int64 `json:"id"`
+		}
+		decodeData(t, admin.do(http.MethodPost, "/api/users", map[string]any{
+			"username": username, "password": "password123",
+		}), &user)
+		if user.ID == 0 {
+			t.Fatalf("created user %q = %+v", username, user)
+		}
+		return user.ID
+	}
+	aliceID := createUser("isolate-alice")
+	bobID := createUser("isolate-bob")
+
+	alice := newClient(t, ts.URL)
+	alice.http.Jar = loginAs(t, ts.URL, "isolate-alice", "password123")
+	bob := newClient(t, ts.URL)
+	bob.http.Jar = loginAs(t, ts.URL, "isolate-bob", "password123")
+
+	templateContent := `{"outbounds":[{"type":"selector","tag":"Proxy","outbounds":[]}],"route":{"final":"Proxy"}}`
+	var bobTemplate struct {
+		Template struct {
+			ID int64 `json:"id"`
+		} `json:"template"`
+	}
+	decodeData(t, bob.do(http.MethodPost, "/api/templates", map[string]string{
+		"name": "shared", "content": templateContent,
+	}), &bobTemplate)
+	if bobTemplate.Template.ID == 0 {
+		t.Fatalf("bob template = %+v", bobTemplate)
+	}
+	status, _, _ := decodeError(t, alice.do(http.MethodGet, "/api/templates/"+itoa(bobTemplate.Template.ID), nil))
+	if status != http.StatusNotFound {
+		t.Fatalf("alice get bob template status = %d", status)
+	}
+	status, _, _ = decodeError(t, alice.do(http.MethodDelete, "/api/templates/"+itoa(bobTemplate.Template.ID), nil))
+	if status != http.StatusNotFound {
+		t.Fatalf("alice delete bob template status = %d", status)
+	}
+	decodeData(t, bob.do(http.MethodGet, "/api/templates/"+itoa(bobTemplate.Template.ID), nil), nil)
+
+	var bobNode struct {
+		ID int64 `json:"id"`
+	}
+	decodeData(t, bob.do(http.MethodPost, "/api/nodes", map[string]string{
+		"raw": `{"type":"shadowsocks","tag":"bob-node","server":"bob.example.com","server_port":443}`,
+	}), &bobNode)
+	status, _, _ = decodeError(t, alice.do(http.MethodDelete, "/api/nodes/"+itoa(bobNode.ID), nil))
+	if status != http.StatusNotFound {
+		t.Fatalf("alice delete bob node status = %d", status)
+	}
+	decodeData(t, bob.do(http.MethodGet, "/api/nodes/"+itoa(bobNode.ID), nil), nil)
+
+	var bobGroup struct {
+		ID int64 `json:"id"`
+	}
+	decodeData(t, bob.do(http.MethodPost, "/api/node-groups", map[string]any{
+		"name": "bob-group", "node_ids": []int64{bobNode.ID},
+	}), &bobGroup)
+	status, _, _ = decodeError(t, alice.do(http.MethodDelete, "/api/node-groups/"+itoa(bobGroup.ID), nil))
+	if status != http.StatusNotFound {
+		t.Fatalf("alice delete bob group status = %d", status)
+	}
+	decodeData(t, bob.do(http.MethodGet, "/api/node-groups/"+itoa(bobGroup.ID), nil), nil)
+
+	var bobProfile struct {
+		ID int64 `json:"id"`
+	}
+	decodeData(t, bob.do(http.MethodPost, "/api/profiles", map[string]any{
+		"name": "bob-profile", "template_id": bobTemplate.Template.ID, "node_ids": []int64{bobNode.ID},
+	}), &bobProfile)
+	status, _, _ = decodeError(t, alice.do(http.MethodPut, "/api/profiles/"+itoa(bobProfile.ID)+"/subscription-enabled", map[string]bool{
+		"subscription_enabled": false,
+	}))
+	if status != http.StatusNotFound {
+		t.Fatalf("alice toggle bob profile status = %d", status)
+	}
+	status, _, _ = decodeError(t, alice.do(http.MethodDelete, "/api/profiles/"+itoa(bobProfile.ID), nil))
+	if status != http.StatusNotFound {
+		t.Fatalf("alice delete bob profile status = %d", status)
+	}
+	decodeData(t, bob.do(http.MethodGet, "/api/profiles/"+itoa(bobProfile.ID), nil), nil)
+
+	sourceID, err := srv.Store.CreateSource(bobID, "bob-source", "https://example.com/sub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, _, _ = decodeError(t, alice.do(http.MethodDelete, "/api/sources/"+itoa(sourceID), nil))
+	if status != http.StatusNotFound {
+		t.Fatalf("alice delete bob source status = %d", status)
+	}
+	var bobSources []struct {
+		ID int64 `json:"id"`
+	}
+	decodeData(t, bob.do(http.MethodGet, "/api/sources", nil), &bobSources)
+	if len(bobSources) != 1 || bobSources[0].ID != sourceID {
+		t.Fatalf("bob sources = %+v", bobSources)
+	}
+
+	var adminTemplates []struct {
+		ID          int64 `json:"id"`
+		OwnerUserID int64 `json:"owner_user_id"`
+	}
+	decodeData(t, admin.do(http.MethodGet, "/api/templates?summary=1", nil), &adminTemplates)
+	for _, tmpl := range adminTemplates {
+		if tmpl.OwnerUserID == bobID || tmpl.OwnerUserID == aliceID {
+			t.Fatalf("admin ordinary template list leaked user resource: %+v", adminTemplates)
+		}
+	}
+}
+
 func TestNodeUsageEndpoint(t *testing.T) {
 	_, ts := testServer(t)
 	c := newClient(t, ts.URL)

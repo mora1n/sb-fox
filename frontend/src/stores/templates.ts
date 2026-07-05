@@ -80,6 +80,14 @@ export const useTemplatesStore = defineStore('templates', () => {
     await downloadGet('/templates/' + id + '/export', filename)
   }
 
+  function reset(): void {
+    templates.value = []
+    structures.value = {}
+    loading.value = false
+    loaded.value = false
+    inFlight = null
+  }
+
   return {
     templates,
     structures,
@@ -94,6 +102,7 @@ export const useTemplatesStore = defineStore('templates', () => {
     structure,
     saveStructure,
     exportTemplate,
+    reset,
   }
 })
 

@@ -175,18 +175,21 @@ func (s *Store) CreateNode(n *models.Node) (int64, error) {
 
 // UpdateNode updates the mutable fields of a node.
 func (s *Store) UpdateNode(n *models.Node) error {
-	_, err := s.db.Exec(`UPDATE nodes SET tag=?, type=?, server=?, server_port=?,
+	return requireRowsAffected(s.db.Exec(`UPDATE nodes SET tag=?, type=?, server=?, server_port=?,
 		country_code=?, country_source=?, has_detour=?, detour=?, raw=?, updated_at=?
-		WHERE id=?`,
+		WHERE id=? AND owner_user_id=?`,
 		n.Tag, n.Type, n.Server, n.ServerPort, n.CountryCode, n.CountrySource,
-		boolToInt(n.HasDetour), n.Detour, n.Raw, now(), n.ID)
-	return err
+		boolToInt(n.HasDetour), n.Detour, n.Raw, now(), n.ID, n.OwnerUserID))
 }
 
 // DeleteNode removes a node by id.
 func (s *Store) DeleteNode(id int64) error {
 	_, err := s.db.Exec(`DELETE FROM nodes WHERE id = ?`, id)
 	return err
+}
+
+func (s *Store) DeleteNodeForUser(id, ownerUserID int64) error {
+	return requireRowsAffected(s.db.Exec(`DELETE FROM nodes WHERE id = ? AND owner_user_id = ?`, id, ownerUserID))
 }
 
 func (s *Store) ListNodeUsage(id, ownerUserID int64, allOwners bool) ([]*models.NodeUsage, error) {
@@ -249,6 +252,11 @@ func (s *Store) ListNodeUsage(id, ownerUserID int64, allOwners bool) ([]*models.
 // DeleteNodesBySource removes all nodes attached to a subscription source.
 func (s *Store) DeleteNodesBySource(sourceRef int64) error {
 	_, err := s.db.Exec(`DELETE FROM nodes WHERE source = 'subscription' AND source_ref = ?`, sourceRef)
+	return err
+}
+
+func (s *Store) DeleteNodesBySourceForUser(sourceRef, ownerUserID int64) error {
+	_, err := s.db.Exec(`DELETE FROM nodes WHERE source = 'subscription' AND source_ref = ? AND owner_user_id = ?`, sourceRef, ownerUserID)
 	return err
 }
 

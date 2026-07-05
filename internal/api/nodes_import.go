@@ -179,7 +179,7 @@ func (s *Server) refreshSourceNodes(user *models.User, src *models.SubscriptionS
 	} else if !ok {
 		return nil, 0, warnings, errQuotaExceeded
 	}
-	if err := s.Store.DeleteNodesBySource(src.ID); err != nil {
+	if err := s.Store.DeleteNodesBySourceForUser(src.ID, src.OwnerUserID); err != nil {
 		return nil, 0, warnings, err
 	}
 	created, err := s.insertNodes(nodes)

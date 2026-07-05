@@ -124,6 +124,10 @@ func (s *Server) handleUpdateNode(w http.ResponseWriter, r *http.Request) {
 	updated.OwnerUserID = existing.OwnerUserID
 	applyManualCountry(updated, req)
 	if err := s.Store.UpdateNode(updated); err != nil {
+		if err == store.ErrNotFound {
+			respondError(w, http.StatusNotFound, "not_found", "node not found")
+			return
+		}
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
@@ -133,14 +137,19 @@ func (s *Server) handleUpdateNode(w http.ResponseWriter, r *http.Request) {
 // handleDeleteNode removes a node.
 func (s *Server) handleDeleteNode(w http.ResponseWriter, r *http.Request) {
 	ownerID, allOwners := ownerScope(r)
-	if _, err := s.Store.GetNodeForUser(pathID(r), ownerID, allOwners); err == store.ErrNotFound {
+	n, err := s.Store.GetNodeForUser(pathID(r), ownerID, allOwners)
+	if err == store.ErrNotFound {
 		respondError(w, http.StatusNotFound, "not_found", "node not found")
 		return
 	} else if err != nil {
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	if err := s.Store.DeleteNode(pathID(r)); err != nil {
+	if err := s.Store.DeleteNodeForUser(n.ID, n.OwnerUserID); err != nil {
+		if err == store.ErrNotFound {
+			respondError(w, http.StatusNotFound, "not_found", "node not found")
+			return
+		}
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}

@@ -159,15 +159,23 @@ func (s *Store) SeedUserTemplate(ownerUserID int64, name, content, description s
 
 // UpdateTemplate updates a user template's content/description.
 func (s *Store) UpdateTemplate(id int64, content, description string) error {
-	_, err := s.db.Exec(`UPDATE templates SET content = ?, description = ?, updated_at = ?
-		WHERE id = ? AND kind = 'user'`, content, description, now(), id)
-	return err
+	return requireRowsAffected(s.db.Exec(`UPDATE templates SET content = ?, description = ?, updated_at = ?
+		WHERE id = ? AND kind = 'user'`, content, description, now(), id))
+}
+
+func (s *Store) UpdateTemplateForUser(id, ownerUserID int64, content, description string) error {
+	return requireRowsAffected(s.db.Exec(`UPDATE templates SET content = ?, description = ?, updated_at = ?
+		WHERE id = ? AND owner_user_id = ? AND kind = 'user'`, content, description, now(), id, ownerUserID))
 }
 
 // DeleteTemplate removes a user template. Builtins are protected by the caller.
 func (s *Store) DeleteTemplate(id int64) error {
 	_, err := s.db.Exec(`DELETE FROM templates WHERE id = ? AND kind = 'user'`, id)
 	return err
+}
+
+func (s *Store) DeleteTemplateForUser(id, ownerUserID int64) error {
+	return requireRowsAffected(s.db.Exec(`DELETE FROM templates WHERE id = ? AND owner_user_id = ? AND kind = 'user'`, id, ownerUserID))
 }
 
 func (s *Store) CountTemplates(ownerUserID int64) (int, error) {

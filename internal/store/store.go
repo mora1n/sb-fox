@@ -41,6 +41,20 @@ func (s *Store) Close() error { return s.db.Close() }
 // DB exposes the raw handle for advanced callers (e.g. health checks).
 func (s *Store) DB() *sql.DB { return s.db }
 
+func requireRowsAffected(res sql.Result, err error) error {
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // migrate applies any migrations not yet recorded in schema_migrations.
 func (s *Store) migrate() error {
 	// The bookkeeping table (migration 0) is created unconditionally first.

@@ -68,7 +68,11 @@ func (s *Server) handleUpdateTemplateStructure(w http.ResponseWriter, r *http.Re
 		respondError(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
-	if err := s.Store.UpdateTemplate(t.ID, content, t.Description); err != nil {
+	if err := s.Store.UpdateTemplateForUser(t.ID, t.OwnerUserID, content, t.Description); err != nil {
+		if err == store.ErrNotFound {
+			respondError(w, http.StatusNotFound, "not_found", "template not found")
+			return
+		}
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}

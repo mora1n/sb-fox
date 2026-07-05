@@ -65,8 +65,7 @@ func (s *Server) handleCreateNodeGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUpdateNodeGroup(w http.ResponseWriter, r *http.Request) {
-	u, ok := requireCurrentUser(w, r)
-	if !ok {
+	if _, ok := requireCurrentUser(w, r); !ok {
 		return
 	}
 	ownerID, allOwners := ownerScope(r)
@@ -88,7 +87,7 @@ func (s *Server) handleUpdateNodeGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.NodeIDs = uniqueInt64s(req.NodeIDs)
-	refAllOwners := u.IsAdmin()
+	refAllOwners := false
 	if !s.validateNodeAccessForOwner(w, existing.OwnerUserID, refAllOwners, req.NodeIDs) {
 		return
 	}
@@ -96,6 +95,10 @@ func (s *Server) handleUpdateNodeGroup(w http.ResponseWriter, r *http.Request) {
 	existing.Description = req.Description
 	existing.NodeIDs = req.NodeIDs
 	if err := s.Store.UpdateNodeGroup(existing); err != nil {
+		if err == store.ErrNotFound {
+			respondError(w, http.StatusNotFound, "not_found", "node group not found")
+			return
+		}
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
@@ -104,14 +107,19 @@ func (s *Server) handleUpdateNodeGroup(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteNodeGroup(w http.ResponseWriter, r *http.Request) {
 	ownerID, allOwners := ownerScope(r)
-	if _, err := s.Store.GetNodeGroupForUser(pathID(r), ownerID, allOwners); err == store.ErrNotFound {
+	g, err := s.Store.GetNodeGroupForUser(pathID(r), ownerID, allOwners)
+	if err == store.ErrNotFound {
 		respondError(w, http.StatusNotFound, "not_found", "node group not found")
 		return
 	} else if err != nil {
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	if err := s.Store.DeleteNodeGroup(pathID(r)); err != nil {
+	if err := s.Store.DeleteNodeGroupForUser(g.ID, g.OwnerUserID); err != nil {
+		if err == store.ErrNotFound {
+			respondError(w, http.StatusNotFound, "not_found", "node group not found")
+			return
+		}
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}

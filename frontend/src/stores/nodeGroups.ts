@@ -41,5 +41,12 @@ export const useNodeGroupsStore = defineStore('nodeGroups', () => {
     loaded.value = true
   }
 
-  return { groups, loading, fetchAll, create, update, remove }
+  function reset(): void {
+    groups.value = []
+    loading.value = false
+    loaded.value = false
+    inFlight = null
+  }
+
+  return { groups, loading, fetchAll, create, update, remove, reset }
 })

@@ -236,8 +236,9 @@ func (s *Store) UpdateProfile(p *models.Profile) error {
 	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`UPDATE profiles SET name=?, template_id=?, options=?, subscription_enabled=?, updated_at=?
-		WHERE id=?`, p.Name, p.TemplateID, p.Options, boolInt(p.SubEnabled), now(), p.ID); err != nil {
+	res, err := tx.Exec(`UPDATE profiles SET name=?, template_id=?, options=?, subscription_enabled=?, updated_at=?
+		WHERE id=? AND owner_user_id=?`, p.Name, p.TemplateID, p.Options, boolInt(p.SubEnabled), now(), p.ID, p.OwnerUserID)
+	if err := requireRowsAffected(res, err); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -266,9 +267,13 @@ func (s *Store) DeleteProfile(id int64) error {
 	return err
 }
 
-func (s *Store) SetProfileSubscriptionEnabled(id int64, enabled bool) error {
-	_, err := s.db.Exec(`UPDATE profiles SET subscription_enabled = ?, updated_at = ? WHERE id = ?`, boolInt(enabled), now(), id)
-	return err
+func (s *Store) DeleteProfileForUser(id, ownerUserID int64) error {
+	return requireRowsAffected(s.db.Exec(`DELETE FROM profiles WHERE id = ? AND owner_user_id = ?`, id, ownerUserID))
+}
+
+func (s *Store) SetProfileSubscriptionEnabled(id, ownerUserID int64, enabled bool) error {
+	return requireRowsAffected(s.db.Exec(`UPDATE profiles SET subscription_enabled = ?, updated_at = ? WHERE id = ? AND owner_user_id = ?`,
+		boolInt(enabled), now(), id, ownerUserID))
 }
 
 func (s *Store) CountProfiles(ownerUserID int64) (int, error) {

@@ -47,5 +47,10 @@ export const useUsersStore = defineStore('users', () => {
     return r.password
   }
 
-  return { users, loading, fetchAll, create, update, remove, resetPassword }
+  function reset(): void {
+    users.value = []
+    loading.value = false
+  }
+
+  return { users, loading, fetchAll, create, update, remove, resetPassword, reset }
 })

@@ -153,23 +153,15 @@ func (s *Server) handleUpdateTemplate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	owner := u
-	if t.OwnerUserID != u.ID {
-		owner, err = s.Store.GetUser(t.OwnerUserID)
-		if err == store.ErrNotFound {
-			respondError(w, http.StatusNotFound, "not_found", "template owner not found")
-			return
-		}
-		if err != nil {
-			respondError(w, http.StatusInternalServerError, "internal", err.Error())
-			return
-		}
-	}
-	processed, importedNodes, deduped, ok := s.processTemplateRequest(w, owner, req.Content)
+	processed, importedNodes, deduped, ok := s.processTemplateRequest(w, u, req.Content)
 	if !ok {
 		return
 	}
-	if err := s.Store.UpdateTemplate(id, processed, req.Description); err != nil {
+	if err := s.Store.UpdateTemplateForUser(id, t.OwnerUserID, processed, req.Description); err != nil {
+		if err == store.ErrNotFound {
+			respondError(w, http.StatusNotFound, "not_found", "template not found")
+			return
+		}
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
@@ -199,7 +191,11 @@ func (s *Server) handleDeleteTemplate(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusForbidden, "forbidden", "built-in templates cannot be deleted")
 		return
 	}
-	if err := s.Store.DeleteTemplate(id); err != nil {
+	if err := s.Store.DeleteTemplateForUser(id, t.OwnerUserID); err != nil {
+		if err == store.ErrNotFound {
+			respondError(w, http.StatusNotFound, "not_found", "template not found")
+			return
+		}
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}

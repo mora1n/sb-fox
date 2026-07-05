@@ -152,8 +152,9 @@ func (s *Store) UpdateNodeGroup(g *models.NodeGroup) error {
 	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`UPDATE node_groups SET name=?, description=?, updated_at=? WHERE id=?`,
-		g.Name, g.Description, now(), g.ID); err != nil {
+	res, err := tx.Exec(`UPDATE node_groups SET name=?, description=?, updated_at=? WHERE id=? AND owner_user_id=?`,
+		g.Name, g.Description, now(), g.ID, g.OwnerUserID)
+	if err := requireRowsAffected(res, err); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -171,6 +172,10 @@ func (s *Store) UpdateNodeGroup(g *models.NodeGroup) error {
 func (s *Store) DeleteNodeGroup(id int64) error {
 	_, err := s.db.Exec(`DELETE FROM node_groups WHERE id = ?`, id)
 	return err
+}
+
+func (s *Store) DeleteNodeGroupForUser(id, ownerUserID int64) error {
+	return requireRowsAffected(s.db.Exec(`DELETE FROM node_groups WHERE id = ? AND owner_user_id = ?`, id, ownerUserID))
 }
 
 func (s *Store) nodeGroupNodeIDs(groupID int64) ([]int64, error) {

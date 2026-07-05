@@ -64,8 +64,5 @@ func ownerScope(r *http.Request) (int64, bool) {
 	if !ok {
 		return 0, false
 	}
-	if u.IsAdmin() {
-		return 0, true
-	}
 	return u.ID, false
 }

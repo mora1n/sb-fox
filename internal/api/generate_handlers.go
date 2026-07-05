@@ -40,7 +40,7 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 	req.NodeIDs = uniqueInt64s(req.NodeIDs)
 	req.NodeGroupIDs = uniqueInt64s(req.NodeGroupIDs)
 	normalizePreviewRequestOptions(&req)
-	if !s.validateOptionSelectionAccess(w, u.ID, u.IsAdmin(), req.Options) {
+	if !s.validateOptionSelectionAccess(w, u.ID, false, req.Options) {
 		return
 	}
 	if !validateChainProxySelection(w, req.NodeIDs, req.NodeGroupIDs, req.Options) {
@@ -48,7 +48,7 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 	}
 	content := req.TemplateContent
 	if content == "" {
-		t, err := s.Store.GetTemplateForUser(req.TemplateID, u.ID, u.IsAdmin())
+		t, err := s.Store.GetTemplateForUser(req.TemplateID, u.ID, false)
 		if err != nil {
 			respondError(w, http.StatusBadRequest, "bad_request", "template not found")
 			return
@@ -71,7 +71,7 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusUnprocessableEntity, "generate_error", err.Error())
 		return
 	}
-	config, err := s.generateFromInputs(content, req.NodeIDs, req.NodeGroupIDs, req.Options, u.ID, u.IsAdmin(), order)
+	config, err := s.generateFromInputs(content, req.NodeIDs, req.NodeGroupIDs, req.Options, u.ID, false, order)
 	if err != nil {
 		respondGenerateFailure(w, err)
 		return
@@ -145,7 +145,7 @@ func (s *Server) renderProfile(profileID int64) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	t, err := s.Store.GetTemplate(p.TemplateID)
+	t, err := s.Store.GetTemplateForUser(p.TemplateID, p.OwnerUserID, false)
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +197,7 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request, toke
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	t, err := s.Store.GetTemplate(p.TemplateID)
+	t, err := s.Store.GetTemplateForUser(p.TemplateID, p.OwnerUserID, false)
 	if err != nil {
 		http.Error(w, "template missing", http.StatusInternalServerError)
 		return
