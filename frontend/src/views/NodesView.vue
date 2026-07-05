@@ -441,19 +441,19 @@ async function exportLinks() {
     </div>
 
     <div class="flex items-center justify-between gap-2 flex-wrap">
-      <div role="tablist" class="tabs tabs-boxed">
-        <button role="tab" class="tab" :class="{ 'tab-active': activeTab === 'single' }" @click="setActiveTab('single')">
+      <div role="tablist" class="ui-segment">
+        <button role="tab" class="btn btn-sm" :class="{ 'is-active': activeTab === 'single' }" @click="setActiveTab('single')">
           {{ i18n.t('单节点') }}
         </button>
-        <button role="tab" class="tab" :class="{ 'tab-active': activeTab === 'groups' }" @click="setActiveTab('groups')">
+        <button role="tab" class="btn btn-sm" :class="{ 'is-active': activeTab === 'groups' }" @click="setActiveTab('groups')">
           {{ i18n.t('组合节点') }}
         </button>
       </div>
-      <div class="join">
-        <button type="button" class="btn btn-sm join-item" :class="{ 'btn-active': activeViewMode === 'card' }" @click="setViewMode('card')">
+      <div class="ui-segment">
+        <button type="button" class="btn btn-sm" :class="{ 'is-active': activeViewMode === 'card' }" @click="setViewMode('card')">
           <Squares2X2Icon class="h-4 w-4" /> {{ i18n.t('卡片') }}
         </button>
-        <button type="button" class="btn btn-sm join-item" :class="{ 'btn-active': activeViewMode === 'list' }" @click="setViewMode('list')">
+        <button type="button" class="btn btn-sm" :class="{ 'is-active': activeViewMode === 'list' }" @click="setViewMode('list')">
           <ListBulletIcon class="h-4 w-4" /> {{ i18n.t('列表') }}
         </button>
       </div>
@@ -472,8 +472,8 @@ async function exportLinks() {
           </div>
           <div class="flex gap-2 flex-wrap">
             <button
-              class="btn btn-sm shadow-sm"
-              :class="allFilteredSelected ? 'btn-neutral' : 'btn-outline border-base-content/30 bg-base-100 hover:bg-base-200'"
+              class="btn btn-sm btn-soft-action"
+              :class="{ 'is-active': allFilteredSelected }"
               @click="selectAll"
               :disabled="!nodesStore.nodes.length"
             >
@@ -571,8 +571,8 @@ async function exportLinks() {
           </div>
           <div class="flex gap-2 flex-wrap">
             <button
-              class="btn btn-sm shadow-sm"
-              :class="allGroupsSelected ? 'btn-neutral' : 'btn-outline border-base-content/30 bg-base-100 hover:bg-base-200'"
+              class="btn btn-sm btn-soft-action"
+              :class="{ 'is-active': allGroupsSelected }"
               @click="selectAllNodeGroups"
               :disabled="!nodeGroups.groups.length"
             >

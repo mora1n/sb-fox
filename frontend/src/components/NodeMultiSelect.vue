@@ -133,8 +133,8 @@ function dropSelected(event: DragEvent) {
   <div class="flex flex-col gap-2" :class="{ 'opacity-60': disabled }">
     <div class="flex items-center gap-2 flex-wrap">
       <input v-model="filters.search" class="input input-bordered input-sm min-w-0 flex-1" :placeholder="i18n.t('搜索节点...')" :disabled="disabled" />
-      <button type="button" class="btn btn-xs min-h-7 h-7 shrink-0" @click="selectAllFiltered" :disabled="disabled">{{ i18n.t('全选') }}</button>
-      <button type="button" class="btn btn-xs min-h-7 h-7 shrink-0" @click="clearAll" :disabled="disabled">{{ i18n.t('清空') }}</button>
+      <button type="button" class="btn btn-xs btn-soft-action min-h-7 h-7 shrink-0" @click="selectAllFiltered" :disabled="disabled">{{ i18n.t('全选') }}</button>
+      <button type="button" class="btn btn-xs btn-soft-action min-h-7 h-7 shrink-0" @click="clearAll" :disabled="disabled">{{ i18n.t('清空') }}</button>
       <span class="badge badge-primary shrink-0">{{ modelValue.length }}</span>
     </div>
     <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">

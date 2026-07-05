@@ -453,19 +453,19 @@ async function remove(t: TemplateSummary) {
     <div class="flex items-center justify-between gap-2 flex-wrap">
       <h1 class="text-2xl font-bold">{{ i18n.t('模板') }}</h1>
       <div class="flex items-center gap-2 flex-wrap">
-        <div class="join">
+        <div class="ui-segment">
           <button
             type="button"
-            class="btn btn-sm join-item"
-            :class="{ 'btn-active': templateViewMode === 'card' }"
+            class="btn btn-sm"
+            :class="{ 'is-active': templateViewMode === 'card' }"
             @click="templateViewMode = 'card'"
           >
             <Squares2X2Icon class="h-4 w-4" /> {{ i18n.t('卡片') }}
           </button>
           <button
             type="button"
-            class="btn btn-sm join-item"
-            :class="{ 'btn-active': templateViewMode === 'list' }"
+            class="btn btn-sm"
+            :class="{ 'is-active': templateViewMode === 'list' }"
             @click="templateViewMode = 'list'"
           >
             <ListBulletIcon class="h-4 w-4" /> {{ i18n.t('列表') }}
@@ -482,8 +482,8 @@ async function remove(t: TemplateSummary) {
       </div>
       <div class="flex items-center gap-2 flex-wrap">
         <button
-          class="btn btn-sm shadow-sm"
-          :class="allTemplatesSelected ? 'btn-neutral' : 'btn-outline border-base-content/30 bg-base-100 hover:bg-base-200'"
+          class="btn btn-sm btn-soft-action"
+          :class="{ 'is-active': allTemplatesSelected }"
           @click="selectAllTemplates"
           :disabled="!selectableTemplates.length"
         >
@@ -663,7 +663,7 @@ async function remove(t: TemplateSummary) {
                   <span>{{ i18n.t('出口') }}</span>
                   <span class="flex gap-1">
                     <button
-                      class="btn btn-xs min-h-0 h-5 px-1.5 text-[10px]"
+                      class="btn btn-xs btn-soft-action min-h-0 h-5 px-1.5 text-[10px]"
                       type="button"
                       :disabled="!outboundOptions(g).length || allOutboundsSelected(g)"
                       @click="selectAllOutbounds(g)"
@@ -671,7 +671,7 @@ async function remove(t: TemplateSummary) {
                       {{ i18n.t('全选') }}
                     </button>
                     <button
-                      class="btn btn-xs min-h-0 h-5 px-1.5 text-[10px]"
+                      class="btn btn-xs btn-soft-action min-h-0 h-5 px-1.5 text-[10px]"
                       type="button"
                       :disabled="!g.outbounds.length"
                       @click="clearOutbounds(g)"

@@ -171,19 +171,19 @@ function onProfileSubscriptionEnabledChange(profile: Profile, event: Event) {
     <div class="flex items-center justify-between gap-2 flex-wrap">
       <h1 class="text-2xl font-bold">{{ i18n.t('订阅') }}</h1>
       <div class="flex items-center gap-2 flex-wrap justify-end">
-        <div class="join">
+        <div class="ui-segment">
           <button
             type="button"
-            class="btn btn-sm join-item"
-            :class="{ 'btn-active': profileViewMode === 'card' }"
+            class="btn btn-sm"
+            :class="{ 'is-active': profileViewMode === 'card' }"
             @click="profileViewMode = 'card'"
           >
             <Squares2X2Icon class="h-4 w-4" /> {{ i18n.t('卡片') }}
           </button>
           <button
             type="button"
-            class="btn btn-sm join-item"
-            :class="{ 'btn-active': profileViewMode === 'list' }"
+            class="btn btn-sm"
+            :class="{ 'is-active': profileViewMode === 'list' }"
             @click="profileViewMode = 'list'"
           >
             <ListBulletIcon class="h-4 w-4" /> {{ i18n.t('列表') }}
@@ -216,7 +216,7 @@ function onProfileSubscriptionEnabledChange(profile: Profile, event: Event) {
         <span v-if="selectedProfiles.size" class="badge badge-outline">{{ i18n.t('已选') }} {{ selectedProfiles.size }}</span>
       </div>
       <div class="flex items-center gap-2 flex-wrap">
-        <button class="btn btn-sm" @click="selectAllProfiles" :disabled="!store.profiles.length">
+        <button class="btn btn-sm btn-soft-action" :class="{ 'is-active': allProfilesSelected }" @click="selectAllProfiles" :disabled="!store.profiles.length">
           {{ allProfilesSelected ? i18n.t('取消全选') : i18n.t('全选') }}
         </button>
         <button class="btn btn-sm btn-error btn-outline" @click="removeSelectedProfiles" :disabled="busy || !selectedProfiles.size">
