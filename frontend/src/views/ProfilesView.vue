@@ -38,7 +38,7 @@ import {
 
 type ViewMode = 'card' | 'list'
 type SortDir = 'asc' | 'desc'
-type ProfileSortKey = 'name' | 'template' | 'options' | 'link'
+type ProfileSortKey = 'name' | 'template' | 'link'
 type EditorMode = 'group' | 'country' | 'chain'
 
 const VIEW_MODES = ['card', 'list'] as const
@@ -219,17 +219,6 @@ function templateName(id: number) {
   return templates.templates.find((t) => t.id === id)?.name || `#${id}`
 }
 
-function optionBadges(p: Profile) {
-  const opts = parseOptions(p.options)
-  const badges: string[] = []
-  if (opts.chainProxy) badges.push(i18n.t('链式代理'))
-  return badges
-}
-
-function optionText(p: Profile) {
-  return optionBadges(p).join(' ')
-}
-
 function profileLinkText(p: Profile) {
   const base = (tokenHost.value || window.location.origin).replace(/\/+$/, '')
   return `${base}/sub/${encodeURIComponent(store.subscriptionToken)}/${encodeURIComponent(p.name)}`
@@ -242,7 +231,6 @@ function compareText(a: string, b: string, dir: SortDir) {
 
 function compareProfile(a: Profile, b: Profile, key: ProfileSortKey, dir: SortDir) {
   if (key === 'template') return compareText(templateName(a.template_id), templateName(b.template_id), dir)
-  if (key === 'options') return compareText(optionText(a), optionText(b), dir)
   if (key === 'link') return compareText(profileLinkText(a), profileLinkText(b), dir)
   return compareText(a.name, b.name, dir)
 }
@@ -963,9 +951,6 @@ async function remove(p: Profile) {
               <button type="button" class="btn btn-xs btn-ghost text-error" :title="i18n.t('删除')" @click.stop="remove(p)"><TrashIcon class="h-4 w-4" /></button>
             </div>
           </div>
-          <div class="flex flex-wrap gap-1">
-            <span v-for="badge in optionBadges(p)" :key="badge" class="badge badge-sm badge-neutral">{{ badge }}</span>
-          </div>
           <div v-if="store.subscriptionToken" class="space-y-1" @click.stop @keydown.stop>
             <div class="flex items-center justify-between gap-2">
               <span class="text-xs opacity-60">{{ i18n.t('订阅链接') }}</span>
@@ -996,7 +981,6 @@ async function remove(p: Profile) {
             <th class="w-10"></th>
             <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleProfileSort('name')">{{ i18n.t('名称') }} {{ sortIndicator(profileSortKey, profileSortDir, 'name') }}</button></th>
             <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleProfileSort('template')">{{ i18n.t('模板') }} {{ sortIndicator(profileSortKey, profileSortDir, 'template') }}</button></th>
-            <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleProfileSort('options')">{{ i18n.t('选项') }} {{ sortIndicator(profileSortKey, profileSortDir, 'options') }}</button></th>
             <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleProfileSort('link')">{{ i18n.t('订阅链接') }} {{ sortIndicator(profileSortKey, profileSortDir, 'link') }}</button></th>
             <th class="text-right">{{ i18n.t('操作') }}</th>
           </tr>
@@ -1020,12 +1004,6 @@ async function remove(p: Profile) {
             </td>
             <td class="font-medium max-w-64 truncate" :title="p.name">{{ p.name }}</td>
             <td class="max-w-64 truncate" :title="templateName(p.template_id)">{{ templateName(p.template_id) }}</td>
-            <td>
-              <div class="flex flex-wrap gap-1">
-                <span v-for="badge in optionBadges(p)" :key="badge" class="badge badge-sm badge-neutral">{{ badge }}</span>
-                <span v-if="!optionBadges(p).length" class="opacity-50">-</span>
-              </div>
-            </td>
             <td class="min-w-80" @click.stop>
               <div v-if="store.subscriptionToken" class="flex items-center gap-2 min-w-0">
                 <TokenLinkField

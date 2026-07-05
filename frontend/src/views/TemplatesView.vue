@@ -24,7 +24,7 @@ import {
 
 type ViewMode = 'card' | 'list'
 type SortDir = 'asc' | 'desc'
-type TemplateSortKey = 'name' | 'kind' | 'description'
+type TemplateSortKey = 'name' | 'description'
 
 const VIEW_MODES = ['card', 'list'] as const
 
@@ -526,7 +526,6 @@ async function remove(t: TemplateSummary) {
                 <p v-if="t.description" class="text-xs opacity-70 truncate" :title="t.description">{{ t.description }}</p>
               </div>
             </div>
-            <span class="badge badge-sm flex-none" :class="t.kind === 'builtin' ? 'badge-neutral' : 'badge-primary'">{{ t.kind }}</span>
           </div>
           <div class="flex gap-1 justify-end">
             <button type="button" class="btn btn-xs btn-ghost" @click.stop="view(t)" :title="i18n.t('查看')"><EyeIcon class="h-4 w-4" /></button>
@@ -545,7 +544,6 @@ async function remove(t: TemplateSummary) {
           <tr>
             <th class="w-10"></th>
             <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleTemplateSort('name')">{{ i18n.t('名称') }} {{ sortIndicator(templateSortKey, templateSortDir, 'name') }}</button></th>
-            <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleTemplateSort('kind')">{{ i18n.t('类型') }} {{ sortIndicator(templateSortKey, templateSortDir, 'kind') }}</button></th>
             <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleTemplateSort('description')">{{ i18n.t('描述') }} {{ sortIndicator(templateSortKey, templateSortDir, 'description') }}</button></th>
             <th class="text-right">{{ i18n.t('操作') }}</th>
           </tr>
@@ -571,9 +569,6 @@ async function remove(t: TemplateSummary) {
               />
             </td>
             <td class="font-semibold">{{ t.name }}</td>
-            <td>
-              <span class="badge badge-sm" :class="t.kind === 'builtin' ? 'badge-neutral' : 'badge-primary'">{{ t.kind }}</span>
-            </td>
             <td class="text-sm opacity-70 max-w-xs truncate">{{ t.description }}</td>
             <td>
               <div class="flex gap-1 justify-end">
