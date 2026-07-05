@@ -46,6 +46,13 @@ type kernelStatusResponse struct {
 	Kernels        []kernelProbeResponse `json:"kernels"`
 }
 
+const kernelProbeCacheTTL = 10 * time.Second
+
+type kernelProbeCacheEntry struct {
+	probe     kernel.ProbeResult
+	expiresAt time.Time
+}
+
 func parseKernelProfiles(raw string) ([]kernelProfile, error) {
 	if strings.TrimSpace(raw) == "" {
 		return nil, nil
@@ -132,8 +139,45 @@ func (s *Server) kernelRuntime(path string) *kernel.Kernel {
 	return kernel.New(path, dataDir, timeout)
 }
 
+func (s *Server) probeKernelPath(path string, force bool) kernel.ProbeResult {
+	path = strings.TrimSpace(path)
+	if !force {
+		now := time.Now()
+		s.kernelProbeMu.Lock()
+		entry, ok := s.kernelProbeCache[path]
+		if ok && now.Before(entry.expiresAt) {
+			probe := entry.probe
+			s.kernelProbeMu.Unlock()
+			return probe
+		}
+		s.kernelProbeMu.Unlock()
+	}
+
+	probe := s.kernelRuntime(path).Probe()
+	s.kernelProbeMu.Lock()
+	if s.kernelProbeCache == nil {
+		s.kernelProbeCache = make(map[string]kernelProbeCacheEntry)
+	}
+	s.kernelProbeCache[path] = kernelProbeCacheEntry{
+		probe:     probe,
+		expiresAt: time.Now().Add(kernelProbeCacheTTL),
+	}
+	s.kernelProbeMu.Unlock()
+	return probe
+}
+
+func (s *Server) clearKernelProbeCache() {
+	s.kernelProbeMu.Lock()
+	defer s.kernelProbeMu.Unlock()
+	s.kernelProbeCache = nil
+}
+
 func (s *Server) probeKernelProfile(profile kernelProfile, includePath bool, active bool) kernelProbeResponse {
-	probe := s.kernelRuntime(profile.Path).Probe()
+	return s.probeKernelProfileWithForce(profile, includePath, active, false)
+}
+
+func (s *Server) probeKernelProfileWithForce(profile kernelProfile, includePath bool, active bool, force bool) kernelProbeResponse {
+	probe := s.probeKernelPath(profile.Path, force)
 	out := kernelProbeResponse{
 		ID:        profile.ID,
 		Name:      profile.Name,
@@ -260,6 +304,7 @@ func (s *Server) handleSaveKernels(w http.ResponseWriter, r *http.Request) {
 	if len(profiles) > 0 {
 		_ = s.Store.SetSetting(settingKernelPath, profiles[0].Path)
 	}
+	s.clearKernelProbeCache()
 	respondJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -280,7 +325,7 @@ func (s *Server) handleTestKernel(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "bad_request", "kernel path is required")
 		return
 	}
-	respondJSON(w, http.StatusOK, s.probeKernelProfile(req, true, false))
+	respondJSON(w, http.StatusOK, s.probeKernelProfileWithForce(req, true, false, true))
 }
 
 // handleKernelStatus is the legacy admin endpoint. It now returns the active
@@ -369,7 +414,7 @@ func (s *Server) refreshKernelVersion() {
 	if s.Kernel == nil {
 		return
 	}
-	probe := s.Kernel.Probe()
+	probe := s.probeKernelPath(s.Kernel.Path, true)
 	if probe.Valid {
 		_ = s.Store.SetSetting(settingKernelVersion, probe.Version)
 	}

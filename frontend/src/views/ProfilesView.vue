@@ -3,8 +3,6 @@ import { onMounted, ref } from 'vue'
 import { post } from '../api/client'
 import { useProfilesStore } from '../stores/profiles'
 import { useTemplatesStore } from '../stores/templates'
-import { useNodesStore } from '../stores/nodes'
-import { useNodeGroupsStore } from '../stores/nodeGroups'
 import { useSettingsStore } from '../stores/settings'
 import { useUiStore } from '../stores/ui'
 import { errMsg } from '../utils/error'
@@ -17,8 +15,6 @@ type EditorLaunchMode = 'create' | 'edit' | 'copy'
 
 const store = useProfilesStore()
 const templates = useTemplatesStore()
-const nodes = useNodesStore()
-const nodeGroups = useNodeGroupsStore()
 const settings = useSettingsStore()
 const ui = useUiStore()
 
@@ -35,30 +31,10 @@ onMounted(async () => {
       templates.fetchAll(),
       settings.fetchAppInfo(),
     ])
-    void warmEditorData()
   } catch (e) {
     ui.error(errMsg(e))
   }
 })
-
-async function warmEditorData() {
-  try {
-    await Promise.all([
-      nodes.fetchSummary(),
-      nodeGroups.fetchAll(),
-      settings.fetchKernelStatus(),
-      prefetchDefaultStructure(),
-    ])
-  } catch (e) {
-    ui.error(errMsg(e))
-  }
-}
-
-async function prefetchDefaultStructure() {
-  const id = templates.templates[0]?.id
-  if (!id || templates.structures[id]) return
-  await templates.structure(id)
-}
 
 function openCreate() {
   editorMode.value = 'create'

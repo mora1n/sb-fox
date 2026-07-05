@@ -113,6 +113,7 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if k == settingKernelPath {
 			s.Kernel.Path = value
+			s.clearKernelProbeCache()
 			s.refreshKernelVersion()
 		}
 		if k == settingAllowPrivate {
