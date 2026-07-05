@@ -26,15 +26,6 @@
 curl -fsSL https://raw.githubusercontent.com/mora1n/sb-fox/main/scripts/install.sh | sh
 ```
 
-如果是私有仓库，需使用具备 `Contents: read` 权限的 GitHub token：
-
-```sh
-export SB_FOX_GITHUB_TOKEN=ghp_xxx
-curl -fsSL -H "Authorization: Bearer $SB_FOX_GITHUB_TOKEN" \
-  https://raw.githubusercontent.com/mora1n/sb-fox/main/scripts/install.sh \
-  | sudo env SB_FOX_GITHUB_TOKEN="$SB_FOX_GITHUB_TOKEN" sh
-```
-
 安装脚本会下载匹配当前系统的 release 包，安装 `sb-fox` 二进制，并把种子模板复制到默认数据目录的 `templates` 子目录。安装完成后不会自动启用守护进程，只会打印下一步命令。
 
 root 用户安装时，种子模板默认复制到 `/var/lib/sb-fox/templates`；普通用户安装时默认复制到 `~/.local/share/sb-fox/templates`。
@@ -101,14 +92,6 @@ journalctl -u sb-fox -f
 ```sh
 sudo sb-fox -u
 ```
-
-私有仓库更新同样通过环境变量传入 token：
-
-```sh
-sudo env SB_FOX_GITHUB_TOKEN=ghp_xxx sb-fox -u
-```
-
-如果当前机器上的旧版 `sb-fox` 尚不支持私有仓库 release 鉴权，需要先用上面的私有仓库安装命令替换一次二进制，之后即可用 `sb-fox -u` 正常升级。
 
 ## 卸载
 

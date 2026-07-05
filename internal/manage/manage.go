@@ -32,8 +32,9 @@ const (
 	DefaultDataDir    = "/var/lib/sb-fox"
 	DefaultSocketPath = "/var/run/sb-fox.sock"
 
-	defaultLatestURL    = "https://api.github.com/repos/mora1n/sb-fox/releases/latest"
-	defaultDownloadBase = "https://api.github.com/repos/mora1n/sb-fox/releases/assets"
+	defaultLatestURL      = "https://api.github.com/repos/mora1n/sb-fox/releases/latest"
+	defaultDownloadBase   = "https://api.github.com/repos/mora1n/sb-fox/releases/assets"
+	privateRepoUpdateHint = "hint: export SB_FOX_GITHUB_TOKEN=...\n      sb-fox -u"
 )
 
 // Runner executes an external command and returns its combined output.
@@ -614,9 +615,9 @@ func releaseAssetByName(assets []releaseAsset, name string) (releaseAsset, error
 func releaseMetadataStatusError(status int, hasToken bool) error {
 	if releaseAuthStatus(status) {
 		if hasToken {
-			return fmt.Errorf("release metadata unavailable; check SB_FOX_GITHUB_TOKEN permission or release availability (HTTP %d)", status)
+			return fmt.Errorf("release metadata unavailable; check SB_FOX_GITHUB_TOKEN permission or release availability (HTTP %d)\n%s", status, privateRepoUpdateHint)
 		}
-		return errors.New("release metadata unavailable; private repository requires SB_FOX_GITHUB_TOKEN with Contents read permission")
+		return errors.New("release metadata unavailable; private repository requires SB_FOX_GITHUB_TOKEN with Contents read permission\n" + privateRepoUpdateHint)
 	}
 	return fmt.Errorf("release metadata unavailable (HTTP %d)", status)
 }
@@ -624,9 +625,9 @@ func releaseMetadataStatusError(status int, hasToken bool) error {
 func releaseDownloadStatusError(label string, status int, hasToken bool) error {
 	if releaseAuthStatus(status) {
 		if hasToken {
-			return fmt.Errorf("%s failed; check SB_FOX_GITHUB_TOKEN permission or release availability (HTTP %d)", label, status)
+			return fmt.Errorf("%s failed; check SB_FOX_GITHUB_TOKEN permission or release availability (HTTP %d)\n%s", label, status, privateRepoUpdateHint)
 		}
-		return fmt.Errorf("%s failed; private repository requires SB_FOX_GITHUB_TOKEN with Contents read permission", label)
+		return fmt.Errorf("%s failed; private repository requires SB_FOX_GITHUB_TOKEN with Contents read permission\n%s", label, privateRepoUpdateHint)
 	}
 	return fmt.Errorf("%s failed (HTTP %d)", label, status)
 }

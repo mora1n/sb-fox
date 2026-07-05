@@ -16,6 +16,18 @@ ASSET_BASE="${API_BASE}/releases/assets"
 
 info() { printf '\033[1;34m==>\033[0m %s\n' "$1"; }
 err()  { printf '\033[1;31merror:\033[0m %s\n' "$1" >&2; exit 1; }
+private_repo_hint() {
+  cat >&2 <<'EOF'
+hint: private repositories need a GitHub token:
+  export SB_FOX_GITHUB_TOKEN=...
+  curl -fsSL -H "Authorization: Bearer $SB_FOX_GITHUB_TOKEN" <install.sh-url> | env SB_FOX_GITHUB_TOKEN="$SB_FOX_GITHUB_TOKEN" sh
+EOF
+}
+err_private() {
+  printf '\033[1;31merror:\033[0m %s\n' "$1" >&2
+  private_repo_hint
+  exit 1
+}
 
 token="${SB_FOX_GITHUB_TOKEN:-${GITHUB_TOKEN:-}}"
 
@@ -88,7 +100,7 @@ version="${SB_FOX_VERSION:-}"
 if [ -z "$version" ]; then
   info "resolving latest release"
   release_json="$(github_api "${API_BASE}/releases/latest")" \
-    || err "release metadata unavailable; private repositories require SB_FOX_GITHUB_TOKEN"
+    || err_private "release metadata unavailable; private repositories require SB_FOX_GITHUB_TOKEN"
   version="$(printf '%s\n' "$release_json" \
     | grep '"tag_name"' \
     | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/' \
@@ -97,7 +109,7 @@ if [ -z "$version" ]; then
 else
   info "resolving release assets"
   release_json="$(github_api "${API_BASE}/releases/tags/${version}")" \
-    || err "release metadata unavailable; private repositories require SB_FOX_GITHUB_TOKEN"
+    || err_private "release metadata unavailable; private repositories require SB_FOX_GITHUB_TOKEN"
 fi
 
 # --- download + verify ---
@@ -111,11 +123,11 @@ trap 'rm -rf "$tmp"' EXIT
 
 info "downloading ${archive}"
 github_asset "${ASSET_BASE}/${archive_id}" -o "${tmp}/${archive}" \
-  || err "download archive failed; private repositories require SB_FOX_GITHUB_TOKEN"
+  || err_private "download archive failed; private repositories require SB_FOX_GITHUB_TOKEN"
 
 info "downloading SHA256SUMS"
 github_asset "${ASSET_BASE}/${sum_id}" -o "${tmp}/SHA256SUMS" \
-  || err "download checksum failed; private repositories require SB_FOX_GITHUB_TOKEN"
+  || err_private "download checksum failed; private repositories require SB_FOX_GITHUB_TOKEN"
 
 info "verifying checksum"
 ( cd "$tmp" && grep " ${archive}\$" SHA256SUMS | sha256sum -c - ) \

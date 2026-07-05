@@ -594,6 +594,11 @@ func TestUpdateMetadataHTTPErrorDoesNotExposeSourceURL(t *testing.T) {
 	if !strings.Contains(msg, "release metadata unavailable; private repository requires SB_FOX_GITHUB_TOKEN") {
 		t.Fatalf("metadata error = %q", msg)
 	}
+	for _, want := range []string{"export SB_FOX_GITHUB_TOKEN=...", "sb-fox -u"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("metadata error missing %q: %q", want, msg)
+		}
+	}
 	if strings.Contains(msg, server.URL) || strings.Contains(msg, "mora1n") || strings.Contains(msg, "sb-fox/releases") {
 		t.Fatalf("metadata error exposed source info: %q", msg)
 	}
@@ -631,6 +636,11 @@ func TestUpdateMetadataTokenErrorDoesNotExposeToken(t *testing.T) {
 	msg := err.Error()
 	if !strings.Contains(msg, "check SB_FOX_GITHUB_TOKEN permission or release availability") {
 		t.Fatalf("metadata error = %q", msg)
+	}
+	for _, want := range []string{"export SB_FOX_GITHUB_TOKEN=...", "sb-fox -u"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("metadata error missing %q: %q", want, msg)
+		}
 	}
 	if strings.Contains(msg, "secret-token") || strings.Contains(msg, server.URL) || strings.Contains(msg, "mora1n") {
 		t.Fatalf("metadata error exposed sensitive info: %q", msg)
