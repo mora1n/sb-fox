@@ -10,6 +10,8 @@ import (
 	"github.com/mora1n/sb-fox/internal/models"
 )
 
+const chainNodeTagPrefix = "📥"
+
 // generateConfig renders a final config.json from a template and node set using
 // the merge engine. templateContent is the raw template JSON; nodes are DB rows
 // whose Raw blobs are the authoritative outbounds.
@@ -110,6 +112,9 @@ func generateConfigWithGroupSelections(templateContent string, groupNodes map[st
 	}
 	chainIDs := nodeIDs(chainNodes)
 	if opts.ChainProxy {
+		opts.ChainProxyNodeIDs = chainIDs
+	}
+	if opts.ChainProxy {
 		if len(chainIDs) == 0 {
 			return nil, newGenerationError(
 				"chain proxy nodes are required",
@@ -126,7 +131,7 @@ func generateConfigWithGroupSelections(templateContent string, groupNodes map[st
 	out, err := merge.Generate(cfg, mergeNodes, merge.Options{
 		AutoCountryGroups:      opts.AutoCountryGroups,
 		CountryHeatOrder:       countryHeatOrder,
-		CountryGroupSourceTags: countrySourceTags(opts, autoCountryNodes),
+		CountryGroupSourceTags: countrySourceTags(opts, autoCountryNodes, chainIDs),
 	})
 	if err != nil {
 		return nil, err
@@ -137,7 +142,7 @@ func generateConfigWithGroupSelections(templateContent string, groupNodes map[st
 		return nil, err
 	}
 
-	chainTags := nodeTags(chainNodes)
+	chainTags := chainNodeTags(chainNodes)
 	if opts.ChainProxy {
 		upstreamTags := upstreamNodeTags(groupNodes, chainIDs, autoCountryNodes)
 		if len(upstreamTags) == 0 {
@@ -193,11 +198,34 @@ func generateConfigWithGroupSelections(templateContent string, groupNodes map[st
 	return merge.Indent(compact)
 }
 
-func countrySourceTags(opts models.ProfileOptions, nodes []*models.Node) []string {
+func countrySourceTags(opts models.ProfileOptions, nodes []*models.Node, chainIDs []int64) []string {
 	if !opts.AutoCountryGroups {
 		return nil
 	}
-	return nodeTags(nodes)
+	if !opts.ChainProxy {
+		return nodeTags(nodes)
+	}
+	chainSet := make(map[int64]bool, len(chainIDs))
+	for _, id := range chainIDs {
+		chainSet[id] = true
+	}
+	out := make([]string, 0, len(nodes))
+	seen := map[string]bool{}
+	for _, n := range nodes {
+		if n == nil || n.Tag == "" {
+			continue
+		}
+		tag := n.Tag
+		if chainSet[n.ID] {
+			tag = chainNodeTag(tag)
+		}
+		if seen[tag] {
+			continue
+		}
+		seen[tag] = true
+		out = append(out, tag)
+	}
+	return out
 }
 
 func ensureGroupSelectionsFromNodes(opts models.ProfileOptions, groupNodes map[string][]*models.Node) models.ProfileOptions {
@@ -509,6 +537,30 @@ func nodeTags(nodes []*models.Node) []string {
 	return out
 }
 
+func chainNodeTags(nodes []*models.Node) []string {
+	out := make([]string, 0, len(nodes))
+	seen := map[string]bool{}
+	for _, n := range nodes {
+		if n == nil || n.Tag == "" {
+			continue
+		}
+		tag := chainNodeTag(n.Tag)
+		if seen[tag] {
+			continue
+		}
+		seen[tag] = true
+		out = append(out, tag)
+	}
+	return out
+}
+
+func chainNodeTag(tag string) string {
+	if tag == "" || strings.HasPrefix(tag, chainNodeTagPrefix) {
+		return tag
+	}
+	return chainNodeTagPrefix + tag
+}
+
 func upstreamNodeTags(groupNodes map[string][]*models.Node, chainIDs []int64, extraGroups ...[]*models.Node) []string {
 	chainSet := make(map[int64]bool, len(chainIDs))
 	for _, id := range chainIDs {
@@ -596,6 +648,9 @@ func applyChainProxy(nodes []*models.Node, mergeNodes []*merge.Node, opts models
 	for i, n := range nodes {
 		if chainSet[n.ID] {
 			mergeNodes[i].Raw.Set("detour", merge.ChainProxyTag)
+			if tag := mergeNodes[i].Raw.GetString("tag"); tag != "" {
+				mergeNodes[i].Raw.Set("tag", chainNodeTag(tag))
+			}
 			found++
 		}
 	}

@@ -44,7 +44,7 @@ func TestGenerateConfigChainProxyAddsDetourToSelectedNodes(t *testing.T) {
 			outbounds[tag] = ob
 		}
 	}
-	for _, tag := range []string{"down-a", "down-b"} {
+	for _, tag := range []string{"📥down-a", "📥down-b"} {
 		if got := outbounds[tag]["detour"]; got != merge.ChainProxyTag {
 			t.Fatalf("%s detour = %v, want %q", tag, got, merge.ChainProxyTag)
 		}
@@ -86,13 +86,13 @@ func TestGenerateConfigWithGroupSelectionsAndChainProxy(t *testing.T) {
 	}
 
 	outbounds := generatedOutboundMap(t, config)
-	if got := outbounds["chain-node"]["detour"]; got != merge.ChainProxyTag {
+	if got := outbounds["📥chain-node"]["detour"]; got != merge.ChainProxyTag {
 		t.Fatalf("chain-node detour = %v, want %q", got, merge.ChainProxyTag)
 	}
-	if got := stringSliceValue(t, outbounds["Proxy"]["outbounds"]); !sameStrings(got, []string{"proxy-node", "chain-node"}) {
+	if got := stringSliceValue(t, outbounds["Proxy"]["outbounds"]); !sameStrings(got, []string{"proxy-node", "📥chain-node"}) {
 		t.Fatalf("Proxy outbounds = %v", got)
 	}
-	if got := stringSliceValue(t, outbounds["Rule"]["outbounds"]); !sameStrings(got, []string{"rule-node", "chain-node"}) {
+	if got := stringSliceValue(t, outbounds["Rule"]["outbounds"]); !sameStrings(got, []string{"rule-node", "📥chain-node"}) {
 		t.Fatalf("Rule outbounds = %v", got)
 	}
 	if got := stringSliceValue(t, outbounds[merge.ChainProxyTag]["outbounds"]); !sameStrings(got, []string{"proxy-node", "rule-node"}) {
@@ -128,7 +128,7 @@ func TestGenerateConfigChainProxyUsesAutoCountryUpstreams(t *testing.T) {
 	}
 
 	outbounds := generatedOutboundMap(t, config)
-	if got := outbounds["chain-node"]["detour"]; got != merge.ChainProxyTag {
+	if got := outbounds["📥chain-node"]["detour"]; got != merge.ChainProxyTag {
 		t.Fatalf("chain-node detour = %v, want %q", got, merge.ChainProxyTag)
 	}
 	if got := stringSliceValue(t, outbounds[merge.ChainProxyTag]["outbounds"]); !sameStrings(got, []string{"proxy-node", "auto-a", "auto-b"}) {

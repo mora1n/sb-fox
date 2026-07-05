@@ -33,7 +33,7 @@ type Options struct {
 	ChainProxyTag string
 }
 
-const ChainProxyTag = "🔗 Chain Proxy"
+const ChainProxyTag = "📤 Chain Proxy"
 
 // DefaultOptions returns options matching merge.js defaults.
 func DefaultOptions() Options {

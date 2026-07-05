@@ -177,7 +177,7 @@ func TestChainProxySelector(t *testing.T) {
 	if err != nil {
 		t.Fatalf("outbounds: %v", err)
 	}
-	chainSelector := findTestOutbound(outbounds, "🔗 Chain Proxy")
+	chainSelector := findTestOutbound(outbounds, ChainProxyTag)
 	if chainSelector == nil {
 		t.Fatal("missing chain proxy selector")
 	}
@@ -187,7 +187,7 @@ func TestChainProxySelector(t *testing.T) {
 		}
 	}
 	proxy := findTestOutboundMatch(outbounds, "Proxy")
-	if proxy == nil || !containsStringForTest(outboundTagsForTest(proxy), "🔗 Chain Proxy") {
+	if proxy == nil || !containsStringForTest(outboundTagsForTest(proxy), ChainProxyTag) {
 		t.Fatalf("Proxy selector does not include chain selector: %+v", proxy)
 	}
 }
@@ -208,7 +208,7 @@ func TestChainProxySelectorUsesExplicitOutbounds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("outbounds: %v", err)
 	}
-	chainSelector := findTestOutbound(outbounds, "🔗 Chain Proxy")
+	chainSelector := findTestOutbound(outbounds, ChainProxyTag)
 	if chainSelector == nil {
 		t.Fatal("missing chain proxy selector")
 	}
