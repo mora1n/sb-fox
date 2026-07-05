@@ -204,7 +204,7 @@ func readTemplateStructure(content string) (templateStructure, error) {
 		g := &st.Groups[i]
 		g.ReferencedBy = refs[g.Tag]
 		g.Deletable = false
-		g.DeleteReason = "route outbound groups cannot be deleted"
+		g.DeleteReason = "route-reachable outbound groups cannot be deleted"
 	}
 	return st, nil
 }
@@ -301,29 +301,37 @@ func routeReferencedGroups(groups []templateStructureGroup, refs map[string][]st
 }
 
 func routeGroupRefs(cfg *merge.OrderedMap, groups []templateStructureGroup) map[string][]string {
-	groupTags := make(map[string]bool, len(groups))
+	groupByTag := make(map[string]templateStructureGroup, len(groups))
 	for _, g := range groups {
-		groupTags[g.Tag] = true
+		groupByTag[g.Tag] = g
 	}
 	refs := map[string][]string{}
-	if final := routeFinal(cfg); final != "" && groupTags[final] {
-		refs[final] = append(refs[final], "route.final")
+	addRouteDirectGroupRefs(cfg, groupByTag, refs)
+	addNestedGroupRefs(groups, groupByTag, refs)
+	return refs
+}
+
+func addRouteDirectGroupRefs(cfg *merge.OrderedMap, groupByTag map[string]templateStructureGroup, refs map[string][]string) {
+	if final := routeFinal(cfg); final != "" {
+		if _, ok := groupByTag[final]; ok {
+			appendGroupRef(refs, final, "route.final")
+		}
 	}
 	raw, ok := cfg.Get("route")
 	if !ok {
-		return refs
+		return
 	}
 	route, ok := raw.(*merge.OrderedMap)
 	if !ok {
-		return refs
+		return
 	}
 	rawRules, ok := route.Get("rules")
 	if !ok {
-		return refs
+		return
 	}
 	rules, ok := rawRules.([]any)
 	if !ok {
-		return refs
+		return
 	}
 	for i, item := range rules {
 		rule, ok := item.(*merge.OrderedMap)
@@ -331,11 +339,59 @@ func routeGroupRefs(cfg *merge.OrderedMap, groups []templateStructureGroup) map[
 			continue
 		}
 		outbound := rule.GetString("outbound")
-		if outbound != "" && groupTags[outbound] {
-			refs[outbound] = append(refs[outbound], fmt.Sprintf("route.rules[%d].outbound", i))
+		if _, ok := groupByTag[outbound]; ok && outbound != "" {
+			appendGroupRef(refs, outbound, fmt.Sprintf("route.rules[%d].outbound", i))
 		}
 	}
-	return refs
+}
+
+func addNestedGroupRefs(groups []templateStructureGroup, groupByTag map[string]templateStructureGroup, refs map[string][]string) {
+	visited := map[string]bool{}
+	var visit func(string)
+	visit = func(tag string) {
+		if visited[tag] {
+			return
+		}
+		visited[tag] = true
+		g, ok := groupByTag[tag]
+		if !ok {
+			return
+		}
+		for _, outbound := range g.Outbounds {
+			outbound = strings.TrimSpace(outbound)
+			if outbound == "" || outbound == g.Tag {
+				continue
+			}
+			if _, ok := groupByTag[outbound]; !ok {
+				continue
+			}
+			appendGroupRef(refs, outbound, g.Tag)
+			visit(outbound)
+		}
+		if def := strings.TrimSpace(g.Default); def != "" && def != g.Tag {
+			if _, ok := groupByTag[def]; ok {
+				appendGroupRef(refs, def, g.Tag+" default")
+				visit(def)
+			}
+		}
+	}
+	for _, g := range groups {
+		if len(refs[g.Tag]) > 0 {
+			visit(g.Tag)
+		}
+	}
+}
+
+func appendGroupRef(refs map[string][]string, tag, ref string) {
+	if tag == "" || ref == "" {
+		return
+	}
+	for _, existing := range refs[tag] {
+		if existing == ref {
+			return
+		}
+	}
+	refs[tag] = append(refs[tag], ref)
 }
 
 func availableTemplateOutbounds(arr []any, groups []templateStructureGroup) []string {
@@ -452,7 +508,7 @@ func validateTemplateGroupSet(desired []templateStructureGroup, valid []template
 	}
 	for tag := range desiredTags {
 		if !validTags[tag] {
-			return fmt.Errorf("outbound group %q is not referenced by route.final or route.rules", tag)
+			return fmt.Errorf("outbound group %q is not reachable from route.final or route.rules", tag)
 		}
 	}
 	return nil

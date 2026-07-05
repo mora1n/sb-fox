@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -154,6 +155,61 @@ func TestGenerateConfigWithGroupSelectionUsesTemplateDefaultRefs(t *testing.T) {
 	outbounds := generatedOutboundMap(t, config)
 	if got := stringSliceValue(t, outbounds["Proxy"]["outbounds"]); !sameStrings(got, []string{"Direct"}) {
 		t.Fatalf("Proxy outbounds = %v", got)
+	}
+}
+
+func TestGenerateConfigWithNestedURLTestGroupSelection(t *testing.T) {
+	template := `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":["Auto"]},
+    {"type":"urltest","tag":"Auto","outbounds":[]},
+    {"type":"direct","tag":"Direct"}
+  ],
+  "route": {"final":"Proxy"}
+}`
+	autoNode := testNode(1, "auto-node", "US")
+	config, err := generateConfigWithGroupSelections(template, map[string][]*models.Node{
+		"Auto": {autoNode},
+	}, nil, nil, models.ProfileOptions{
+		AutoCountryGroups: false,
+		GroupSelections: map[string]models.NodeSelection{
+			"Auto": {NodeIDs: []int64{1}},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("generateConfigWithGroupSelections: %v", err)
+	}
+
+	outbounds := generatedOutboundMap(t, config)
+	if got := stringSliceValue(t, outbounds["Proxy"]["outbounds"]); !sameStrings(got, []string{"Auto"}) {
+		t.Fatalf("Proxy outbounds = %v", got)
+	}
+	if got := stringSliceValue(t, outbounds["Auto"]["outbounds"]); !sameStrings(got, []string{"auto-node"}) {
+		t.Fatalf("Auto outbounds = %v", got)
+	}
+}
+
+func TestGenerateConfigRejectsEmptyNestedURLTest(t *testing.T) {
+	template := `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":["Auto"]},
+    {"type":"urltest","tag":"Auto","outbounds":[]},
+    {"type":"direct","tag":"Direct"}
+  ],
+  "route": {"final":"Proxy"}
+}`
+	_, err := generateConfigWithGroupSelections(template, map[string][]*models.Node{}, nil, nil, models.ProfileOptions{
+		AutoCountryGroups: false,
+	}, nil)
+	if err == nil {
+		t.Fatal("expected empty nested urltest error")
+	}
+	var ge *generationError
+	if !errors.As(err, &ge) {
+		t.Fatalf("expected generation error, got %T %v", err, err)
+	}
+	if ge.details.Kind != generateErrEmptyGroup || ge.details.GroupTag != "Auto" {
+		t.Fatalf("details = %+v", ge.details)
 	}
 }
 
