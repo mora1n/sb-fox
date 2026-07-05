@@ -81,7 +81,7 @@ func TestWriteTemplateStructureValidation(t *testing.T) {
 	}
 }
 
-func TestReadTemplateStructureIncludesRouteReachableURLTest(t *testing.T) {
+func TestReadTemplateStructureIncludesReachableAndEmptyURLTestGroups(t *testing.T) {
 	content := `{
   "outbounds": [
     {"type":"selector","tag":"Proxy","outbounds":["Auto","Direct"]},
@@ -96,10 +96,10 @@ func TestReadTemplateStructureIncludesRouteReachableURLTest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.Final != "Proxy" || len(st.Groups) != 2 {
+	if st.Final != "Proxy" || len(st.Groups) != 3 {
 		t.Fatalf("structure = %+v", st)
 	}
-	if st.Groups[0].Tag != "Proxy" || st.Groups[1].Tag != "Auto" {
+	if st.Groups[0].Tag != "Proxy" || st.Groups[1].Tag != "Auto" || st.Groups[2].Tag != "Unused" {
 		t.Fatalf("groups = %+v", st.Groups)
 	}
 	auto := st.Groups[1]
@@ -109,10 +109,35 @@ func TestReadTemplateStructureIncludesRouteReachableURLTest(t *testing.T) {
 	if !containsString(auto.ReferencedBy, "Proxy") {
 		t.Fatalf("Auto referenced_by = %+v", auto.ReferencedBy)
 	}
+	if len(st.Groups[2].ReferencedBy) != 0 {
+		t.Fatalf("empty unreachable group should not have route refs: %+v", st.Groups[2])
+	}
+}
+
+func TestReadTemplateStructureIncludesEmptyUnreachableGroupsOnly(t *testing.T) {
+	content := `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":["Direct"]},
+    {"type":"urltest","tag":"Auto","outbounds":[]},
+    {"type":"selector","tag":"EmptySelector"},
+    {"type":"urltest","tag":"NullURLTest","outbounds":null},
+    {"type":"selector","tag":"Hidden","outbounds":["Direct"]},
+    {"type":"direct","tag":"Direct"}
+  ],
+  "route": {"final":"Proxy"}
+}`
+
+	st, err := readTemplateStructure(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, 0, len(st.Groups))
 	for _, g := range st.Groups {
-		if g.Tag == "Unused" {
-			t.Fatalf("unused group should not be route-reachable: %+v", st.Groups)
-		}
+		got = append(got, g.Tag)
+	}
+	want := []string{"Proxy", "Auto", "EmptySelector", "NullURLTest"}
+	if !sameStrings(got, want) {
+		t.Fatalf("groups = %v, want %v", got, want)
 	}
 }
 
@@ -155,6 +180,70 @@ func TestWriteTemplateStructureAllowsReachableURLTestAndRejectsDeletingIt(t *tes
 	})
 	if err == nil || !strings.Contains(err.Error(), "cannot be deleted") {
 		t.Fatalf("expected deleting reachable urltest rejection, got %v", err)
+	}
+}
+
+func TestWriteTemplateStructureRejectsURLTestGroupCycle(t *testing.T) {
+	content := `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":["Auto","Direct"]},
+    {"type":"urltest","tag":"Auto","outbounds":[]},
+    {"type":"direct","tag":"Direct"}
+  ],
+  "route": {"final":"Proxy"}
+}`
+
+	_, err := writeTemplateStructure(content, templateStructure{
+		Final: "Proxy",
+		Groups: []templateStructureGroup{
+			{Tag: "Proxy", Type: "selector", Outbounds: []string{"Auto", "Direct"}},
+			{Tag: "Auto", Type: "urltest", Outbounds: []string{"Proxy"}},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "group reference cycle") {
+		t.Fatalf("expected urltest cycle rejection, got %v", err)
+	}
+}
+
+func TestWriteTemplateStructureRejectsDeletingEmptyUnreachableGroup(t *testing.T) {
+	content := `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":["Direct"]},
+    {"type":"urltest","tag":"Auto","outbounds":[]},
+    {"type":"direct","tag":"Direct"}
+  ],
+  "route": {"final":"Proxy"}
+}`
+
+	_, err := writeTemplateStructure(content, templateStructure{
+		Final: "Proxy",
+		Groups: []templateStructureGroup{
+			{Tag: "Proxy", Type: "selector", Outbounds: []string{"Direct"}},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "cannot be deleted") {
+		t.Fatalf("expected deleting empty unreachable group rejection, got %v", err)
+	}
+
+	updated, err := writeTemplateStructure(content, templateStructure{
+		Final: "Proxy",
+		Groups: []templateStructureGroup{
+			{Tag: "Proxy", Type: "selector", Outbounds: []string{"Direct"}},
+			{Tag: "Auto", Type: "urltest", Outbounds: []string{"Direct"}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := readTemplateStructure(updated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Groups) != 1 || st.Groups[0].Tag != "Proxy" {
+		t.Fatalf("filled unreachable Auto should stop being managed: %+v", st.Groups)
+	}
+	if !strings.Contains(updated, `"tag": "Auto"`) {
+		t.Fatalf("unmanaged filled Auto should be preserved:\n%s", updated)
 	}
 }
 
@@ -287,7 +376,7 @@ func TestWriteTemplateStructureRejectsGroupAddDeleteAndPreservesReferences(t *te
 			{Tag: "New", Type: "selector", Outbounds: []string{"Direct"}},
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "not reachable") {
+	if err == nil || !strings.Contains(err.Error(), "not managed") {
 		t.Fatalf("expected add rejection, got %v", err)
 	}
 

@@ -194,7 +194,7 @@ func readTemplateStructure(content string) (templateStructure, error) {
 		return templateStructure{}, err
 	}
 	refs := routeGroupRefs(cfg, allGroups)
-	groups := routeReferencedGroups(allGroups, refs)
+	groups := managedTemplateGroups(allGroups, refs)
 	st := templateStructure{
 		Final:              routeFinal(cfg),
 		Groups:             groups,
@@ -204,7 +204,7 @@ func readTemplateStructure(content string) (templateStructure, error) {
 		g := &st.Groups[i]
 		g.ReferencedBy = refs[g.Tag]
 		g.Deletable = false
-		g.DeleteReason = "route-reachable outbound groups cannot be deleted"
+		g.DeleteReason = "managed outbound groups cannot be deleted"
 	}
 	return st, nil
 }
@@ -229,7 +229,7 @@ func writeTemplateStructure(content string, st templateStructure) (string, error
 		return "", err
 	}
 	validRefs := routeGroupRefs(cfg, allGroups)
-	validGroups := routeReferencedGroups(allGroups, validRefs)
+	validGroups := managedTemplateGroups(allGroups, validRefs)
 	for _, g := range allGroups {
 		staticTags[g.Tag] = true
 	}
@@ -290,14 +290,18 @@ func templateGroups(arr []any) ([]templateStructureGroup, error) {
 	return groups, nil
 }
 
-func routeReferencedGroups(groups []templateStructureGroup, refs map[string][]string) []templateStructureGroup {
+func managedTemplateGroups(groups []templateStructureGroup, refs map[string][]string) []templateStructureGroup {
 	out := make([]templateStructureGroup, 0, len(groups))
 	for _, g := range groups {
-		if len(refs[g.Tag]) > 0 {
+		if len(refs[g.Tag]) > 0 || isEmptyTemplateGroup(g) {
 			out = append(out, g)
 		}
 	}
 	return out
+}
+
+func isEmptyTemplateGroup(g templateStructureGroup) bool {
+	return len(g.Outbounds) == 0
 }
 
 func routeGroupRefs(cfg *merge.OrderedMap, groups []templateStructureGroup) map[string][]string {
@@ -508,7 +512,7 @@ func validateTemplateGroupSet(desired []templateStructureGroup, valid []template
 	}
 	for tag := range desiredTags {
 		if !validTags[tag] {
-			return fmt.Errorf("outbound group %q is not reachable from route.final or route.rules", tag)
+			return fmt.Errorf("outbound group %q is not managed by route references or an empty placeholder", tag)
 		}
 	}
 	return nil
