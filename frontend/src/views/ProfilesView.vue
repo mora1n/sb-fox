@@ -59,7 +59,6 @@ const suppressTemplateWatch = ref(false)
 const config = ref('')
 const viewingProfile = ref<Profile | null>(null)
 const viewingConfig = ref('')
-const viewingProfileID = ref<number | null>(null)
 const validation = ref<KernelResult | null>(null)
 const allNodes = ref<NodeSummary[]>([])
 const structure = ref<TemplateStructure | null>(null)
@@ -750,7 +749,6 @@ async function generate() {
 }
 
 async function viewProfileConfig(p: Profile) {
-  viewingProfileID.value = p.id
   viewingProfile.value = null
   viewingConfig.value = ''
   try {
@@ -759,8 +757,6 @@ async function viewProfileConfig(p: Profile) {
     viewingConfig.value = r.config
   } catch (e) {
     ui.error(errMsg(e, '生成失败'))
-  } finally {
-    viewingProfileID.value = null
   }
 }
 
@@ -972,11 +968,9 @@ async function remove(p: Profile) {
                 type="button"
                 class="btn btn-xs btn-ghost"
                 :title="i18n.t('查看配置')"
-                :disabled="viewingProfileID === p.id"
                 @click.stop="viewProfileConfig(p)"
               >
-                <span v-if="viewingProfileID === p.id" class="loading loading-spinner loading-xs"></span>
-                <EyeIcon v-else class="h-4 w-4" />
+                <EyeIcon class="h-4 w-4" />
               </button>
               <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('复制订阅')" @click.stop="openCopy(p)"><DocumentDuplicateIcon class="h-4 w-4" /></button>
               <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('编辑订阅')" @click.stop="openEdit(p)"><PencilSquareIcon class="h-4 w-4" /></button>
@@ -1073,11 +1067,9 @@ async function remove(p: Profile) {
                   type="button"
                   class="btn btn-xs btn-ghost"
                   :title="i18n.t('查看配置')"
-                  :disabled="viewingProfileID === p.id"
                   @click.stop="viewProfileConfig(p)"
                 >
-                  <span v-if="viewingProfileID === p.id" class="loading loading-spinner loading-xs"></span>
-                  <EyeIcon v-else class="h-4 w-4" />
+                  <EyeIcon class="h-4 w-4" />
                 </button>
                 <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('复制订阅')" @click.stop="openCopy(p)"><DocumentDuplicateIcon class="h-4 w-4" /></button>
                 <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('编辑订阅')" @click.stop="openEdit(p)"><PencilSquareIcon class="h-4 w-4" /></button>
