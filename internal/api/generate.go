@@ -143,7 +143,6 @@ func generateConfigWithGroupSelections(templateContent string, groupNodes map[st
 		return nil, err
 	}
 
-	chainTags := chainNodeTags(chainNodes)
 	if opts.ChainProxy {
 		upstreamTags := upstreamNodeTags(groupNodes, chainIDs, autoCountryNodes)
 		if len(upstreamTags) == 0 {
@@ -159,9 +158,6 @@ func generateConfigWithGroupSelections(templateContent string, groupNodes map[st
 	for _, g := range st.Groups {
 		sel := opts.GroupSelections[g.Tag]
 		configured := selectionHasInputs(sel) || autoCountryFillsSelection(sel, opts)
-		if opts.ChainProxy && g.Tag == st.Final && len(chainTags) > 0 {
-			configured = true
-		}
 		if !configured {
 			continue
 		}
@@ -171,9 +167,6 @@ func generateConfigWithGroupSelections(templateContent string, groupNodes map[st
 			return nil, fmt.Errorf("template outbound group %q is missing", g.Tag)
 		}
 		tags := selectableTagsForSelection(sel, groupNodes[g.Tag], autoCountryNodes, outbounds, templateGroupTags, opts, chainSet)
-		if opts.ChainProxy {
-			tags = appendUniqueStrings(tags, chainTags)
-		}
 		if g.Tag == st.Final && len(tags) == 0 {
 			return nil, newGenerationError(
 				fmt.Sprintf("final selector %q has no selected nodes", g.Tag),
@@ -321,9 +314,6 @@ func validateRequiredGroupSelections(st templateStructure, opts models.ProfileOp
 			continue
 		}
 		if autoCountryFillsSelection(sel, opts) {
-			continue
-		}
-		if opts.ChainProxy && g.Tag == st.Final && opts.ChainProxySelected != nil && selectionHasInputs(*opts.ChainProxySelected) {
 			continue
 		}
 		if g.Tag == st.Final {
@@ -516,23 +506,6 @@ func generatedNodeTags(nodes []*models.Node, chainSet map[int64]bool) []string {
 	for _, n := range nodes {
 		tag := generatedNodeTag(n, chainSet)
 		if tag == "" || seen[tag] {
-			continue
-		}
-		seen[tag] = true
-		out = append(out, tag)
-	}
-	return out
-}
-
-func chainNodeTags(nodes []*models.Node) []string {
-	out := make([]string, 0, len(nodes))
-	seen := map[string]bool{}
-	for _, n := range nodes {
-		if n == nil || n.Tag == "" {
-			continue
-		}
-		tag := chainNodeTag(n.Tag)
-		if seen[tag] {
 			continue
 		}
 		seen[tag] = true

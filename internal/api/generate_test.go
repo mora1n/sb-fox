@@ -92,10 +92,10 @@ func TestGenerateConfigWithGroupSelectionsAndChainProxy(t *testing.T) {
 	if got := outbounds["📥chain-node"]["detour"]; got != merge.ChainProxyTag {
 		t.Fatalf("chain-node detour = %v, want %q", got, merge.ChainProxyTag)
 	}
-	if got := stringSliceValue(t, outbounds["Proxy"]["outbounds"]); !sameStrings(got, []string{"proxy-node", "📥chain-node"}) {
+	if got := stringSliceValue(t, outbounds["Proxy"]["outbounds"]); !sameStrings(got, []string{"proxy-node"}) {
 		t.Fatalf("Proxy outbounds = %v", got)
 	}
-	if got := stringSliceValue(t, outbounds["Rule"]["outbounds"]); !sameStrings(got, []string{"rule-node", "📥chain-node"}) {
+	if got := stringSliceValue(t, outbounds["Rule"]["outbounds"]); !sameStrings(got, []string{"rule-node"}) {
 		t.Fatalf("Rule outbounds = %v", got)
 	}
 	if got := stringSliceValue(t, outbounds[merge.ChainProxyTag]["outbounds"]); !sameStrings(got, []string{"proxy-node", "rule-node"}) {
@@ -134,6 +134,9 @@ func TestGenerateConfigChainProxyUsesAutoCountryUpstreams(t *testing.T) {
 	assertNoGeneratedReference(t, outbounds, "chain-node")
 	if got := outbounds["📥chain-node"]["detour"]; got != merge.ChainProxyTag {
 		t.Fatalf("chain-node detour = %v, want %q", got, merge.ChainProxyTag)
+	}
+	if got := stringSliceValue(t, outbounds["Proxy"]["outbounds"]); !sameStrings(got, []string{"🇺🇸 United States"}) {
+		t.Fatalf("Proxy outbounds = %v", got)
 	}
 	if got := stringSliceValue(t, outbounds["🇭🇰 Hong Kong"]["outbounds"]); !sameStrings(got, []string{"📥chain-node"}) {
 		t.Fatalf("HK selector outbounds = %v", got)
@@ -176,8 +179,45 @@ func TestGenerateConfigChainProxyReplacesAutoCountrySelectedNodeRefs(t *testing.
 	if got := stringSliceValue(t, outbounds["🇭🇰 Hong Kong"]["outbounds"]); !sameStrings(got, []string{"📥👼 BWH.MINIBOX"}) {
 		t.Fatalf("HK selector outbounds = %v", got)
 	}
-	if got := stringSliceValue(t, outbounds["Proxy"]["outbounds"]); !sameStrings(got, []string{"🇭🇰 Hong Kong", "📥👼 BWH.MINIBOX"}) {
+	if got := stringSliceValue(t, outbounds["Proxy"]["outbounds"]); !sameStrings(got, []string{"🇭🇰 Hong Kong"}) {
 		t.Fatalf("Proxy outbounds = %v", got)
+	}
+}
+
+func TestGenerateConfigChainProxyDoesNotFillFinalGroup(t *testing.T) {
+	template := `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":[]},
+    {"type":"selector","tag":"Upstream","outbounds":["Direct"]},
+    {"type":"direct","tag":"Direct"}
+  ],
+  "route": {
+    "rules": [{"domain":["upstream.example"],"outbound":"Upstream"}],
+    "final":"Proxy"
+  }
+}`
+	chainNode := testNode(1, "chain-node", "HK")
+	upstream := testNode(2, "upstream", "US")
+	_, err := generateConfigWithGroupSelections(template, map[string][]*models.Node{
+		"Upstream": {upstream},
+	}, nil, []*models.Node{chainNode}, models.ProfileOptions{
+		AutoCountryGroups: false,
+		ChainProxy:        true,
+		GroupSelections: map[string]models.NodeSelection{
+			"Proxy":    {},
+			"Upstream": {NodeIDs: []int64{2}},
+		},
+		ChainProxySelected: &models.NodeSelection{NodeIDs: []int64{1}},
+	}, nil)
+	if err == nil {
+		t.Fatal("expected final selector error")
+	}
+	var genErr *generationError
+	if !errors.As(err, &genErr) {
+		t.Fatalf("err = %T %v, want generationError", err, err)
+	}
+	if genErr.details.Kind != generateErrInvalidFinal || genErr.details.GroupTag != "Proxy" {
+		t.Fatalf("details = %+v, want invalid final for Proxy", genErr.details)
 	}
 }
 
