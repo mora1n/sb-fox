@@ -100,6 +100,42 @@ func TestGenerateConfigWithGroupSelectionsAndChainProxy(t *testing.T) {
 	}
 }
 
+func TestGenerateConfigChainProxyUsesAutoCountryUpstreams(t *testing.T) {
+	template := `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":["Direct"]},
+    {"type":"direct","tag":"Direct"}
+  ],
+  "route": {"final":"Proxy"}
+}`
+	proxyNode := testNode(1, "proxy-node", "US")
+	autoNodeA := testNode(2, "auto-a", "JP")
+	autoNodeB := testNode(3, "auto-b", "SG")
+	chainNode := testNode(4, "chain-node", "HK")
+	config, err := generateConfigWithGroupSelections(template, map[string][]*models.Node{
+		"Proxy": {proxyNode},
+	}, []*models.Node{proxyNode, autoNodeA, chainNode, autoNodeB}, []*models.Node{chainNode}, models.ProfileOptions{
+		AutoCountryGroups: true,
+		ChainProxy:        true,
+		GroupSelections: map[string]models.NodeSelection{
+			"Proxy": {NodeIDs: []int64{1}},
+		},
+		AutoCountrySelected: &models.NodeSelection{NodeIDs: []int64{1, 2, 3, 4}},
+		ChainProxySelected:  &models.NodeSelection{NodeIDs: []int64{4}},
+	}, nil)
+	if err != nil {
+		t.Fatalf("generateConfigWithGroupSelections: %v", err)
+	}
+
+	outbounds := generatedOutboundMap(t, config)
+	if got := outbounds["chain-node"]["detour"]; got != merge.ChainProxyTag {
+		t.Fatalf("chain-node detour = %v, want %q", got, merge.ChainProxyTag)
+	}
+	if got := stringSliceValue(t, outbounds[merge.ChainProxyTag]["outbounds"]); !sameStrings(got, []string{"proxy-node", "auto-a", "auto-b"}) {
+		t.Fatalf("chain selector outbounds = %v", got)
+	}
+}
+
 func TestGenerateConfigWithGroupSelectionOutboundRef(t *testing.T) {
 	template := `{
   "outbounds": [

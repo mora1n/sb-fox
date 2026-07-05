@@ -139,7 +139,7 @@ func generateConfigWithGroupSelections(templateContent string, groupNodes map[st
 
 	chainTags := nodeTags(chainNodes)
 	if opts.ChainProxy {
-		upstreamTags := upstreamNodeTags(groupNodes, chainIDs)
+		upstreamTags := upstreamNodeTags(groupNodes, chainIDs, autoCountryNodes)
 		if len(upstreamTags) == 0 {
 			return nil, newGenerationError(
 				"chain proxy selector has no upstream nodes",
@@ -509,20 +509,14 @@ func nodeTags(nodes []*models.Node) []string {
 	return out
 }
 
-func upstreamNodeTags(groupNodes map[string][]*models.Node, chainIDs []int64) []string {
+func upstreamNodeTags(groupNodes map[string][]*models.Node, chainIDs []int64, extraGroups ...[]*models.Node) []string {
 	chainSet := make(map[int64]bool, len(chainIDs))
 	for _, id := range chainIDs {
 		chainSet[id] = true
 	}
 	var out []string
 	seen := map[string]bool{}
-	keys := make([]string, 0, len(groupNodes))
-	for key := range groupNodes {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		nodes := groupNodes[key]
+	add := func(nodes []*models.Node) {
 		for _, n := range nodes {
 			if n == nil || chainSet[n.ID] || n.Tag == "" || seen[n.Tag] {
 				continue
@@ -530,6 +524,17 @@ func upstreamNodeTags(groupNodes map[string][]*models.Node, chainIDs []int64) []
 			seen[n.Tag] = true
 			out = append(out, n.Tag)
 		}
+	}
+	keys := make([]string, 0, len(groupNodes))
+	for key := range groupNodes {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		add(groupNodes[key])
+	}
+	for _, nodes := range extraGroups {
+		add(nodes)
 	}
 	return out
 }
