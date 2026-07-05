@@ -1,14 +1,16 @@
-import type { Envelope } from './types'
+import type { ApiErrorDetails, Envelope } from './types'
 
 // ApiRequestError carries the server-provided error code/message.
 export class ApiRequestError extends Error {
   code: string
   status: number
-  constructor(message: string, code: string, status: number) {
+  details?: ApiErrorDetails
+  constructor(message: string, code: string, status: number, details?: ApiErrorDetails) {
     super(message)
     this.name = 'ApiRequestError'
     this.code = code
     this.status = status
+    this.details = details
   }
 }
 
@@ -65,7 +67,7 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
     if (res.status === 401 && isSessionUnauthorized(message) && !opts.silent401 && onUnauthorized) {
       onUnauthorized()
     }
-    throw new ApiRequestError(message, env.error.code || 'error', res.status)
+    throw new ApiRequestError(message, env.error.code || 'error', res.status, env.error.details)
   }
   return env.data as T
 }
@@ -91,18 +93,20 @@ async function downloadError(res: Response): Promise<ApiRequestError> {
   const text = await res.text()
   let code = 'http_error'
   let message = '下载失败 (HTTP ' + res.status + ')'
+  let details: ApiErrorDetails | undefined
   if (text) {
     try {
       const env = JSON.parse(text) as Envelope<unknown>
       if (env.error) {
         code = env.error.code || code
         message = env.error.message || message
+        details = env.error.details
       }
     } catch {
       message = text.slice(0, 200)
     }
   }
-  return new ApiRequestError(message, code, res.status)
+  return new ApiRequestError(message, code, res.status, details)
 }
 
 // downloadPost triggers a browser file download from a POST endpoint that

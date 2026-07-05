@@ -72,11 +72,11 @@ func (s *Server) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := validateOptionOutboundRefs(t.Content, req.Options); err != nil {
-		respondError(w, http.StatusBadRequest, "bad_request", err.Error())
+		respondBadGenerationRequest(w, err)
 		return
 	}
 	if err := validateOptionGroupInputs(t.Content, req.Options); err != nil {
-		respondError(w, http.StatusBadRequest, "bad_request", err.Error())
+		respondBadGenerationRequest(w, err)
 		return
 	}
 	if !validateAutoCountrySelection(w, req.Options) {
@@ -154,11 +154,11 @@ func (s *Server) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := validateOptionOutboundRefs(t.Content, req.Options); err != nil {
-		respondError(w, http.StatusBadRequest, "bad_request", err.Error())
+		respondBadGenerationRequest(w, err)
 		return
 	}
 	if err := validateOptionGroupInputs(t.Content, req.Options); err != nil {
-		respondError(w, http.StatusBadRequest, "bad_request", err.Error())
+		respondBadGenerationRequest(w, err)
 		return
 	}
 	if !validateAutoCountrySelection(w, req.Options) {
@@ -309,7 +309,8 @@ func validateAutoCountrySelection(w http.ResponseWriter, opts models.ProfileOpti
 		return true
 	}
 	if opts.AutoCountrySelected == nil || !selectionHasInputs(*opts.AutoCountrySelected) {
-		respondError(w, http.StatusBadRequest, "bad_request", "auto country group nodes are required")
+		respondErrorWithDetails(w, http.StatusBadRequest, "bad_request", "auto country group nodes are required",
+			generationErrorDetails{Kind: generateErrAutoCountryEmpty, Panel: "country"})
 		return false
 	}
 	return true
@@ -330,13 +331,15 @@ func validateChainProxySelection(w http.ResponseWriter, nodeIDs, nodeGroupIDs []
 	}
 	if len(opts.GroupSelections) > 0 {
 		if opts.ChainProxySelected == nil || (len(opts.ChainProxySelected.NodeIDs) == 0 && len(opts.ChainProxySelected.NodeGroupIDs) == 0) {
-			respondError(w, http.StatusBadRequest, "bad_request", "chain proxy nodes are required")
+			respondErrorWithDetails(w, http.StatusBadRequest, "bad_request", "chain proxy nodes are required",
+				generationErrorDetails{Kind: generateErrChainProxyEmpty, Panel: "chain"})
 			return false
 		}
 		return true
 	}
 	if len(opts.ChainProxyNodeIDs) == 0 {
-		respondError(w, http.StatusBadRequest, "bad_request", "chain proxy nodes are required")
+		respondErrorWithDetails(w, http.StatusBadRequest, "bad_request", "chain proxy nodes are required",
+			generationErrorDetails{Kind: generateErrChainProxyEmpty, Panel: "chain"})
 		return false
 	}
 	selected := make(map[int64]bool, len(nodeIDs))
@@ -345,12 +348,14 @@ func validateChainProxySelection(w http.ResponseWriter, nodeIDs, nodeGroupIDs []
 	}
 	for _, id := range opts.ChainProxyNodeIDs {
 		if !selected[id] {
-			respondError(w, http.StatusBadRequest, "bad_request", "chain proxy nodes must be selected as single nodes")
+			respondErrorWithDetails(w, http.StatusBadRequest, "bad_request", "chain proxy nodes must be selected as single nodes",
+				generationErrorDetails{Kind: generateErrChainProxyEmpty, Panel: "chain"})
 			return false
 		}
 	}
 	if len(opts.ChainProxyNodeIDs) >= len(nodeIDs) && len(nodeGroupIDs) == 0 {
-		respondError(w, http.StatusBadRequest, "bad_request", "chain proxy needs at least one upstream node")
+		respondErrorWithDetails(w, http.StatusBadRequest, "bad_request", "chain proxy needs at least one upstream node",
+			generationErrorDetails{Kind: generateErrChainProxyEmpty, Panel: "chain"})
 		return false
 	}
 	return true

@@ -463,10 +463,16 @@ func normalizeOutboundRefs(groupTag string, refs []string, allowed map[string]bo
 			return nil, fmt.Errorf("group %q contains an empty outbound", groupTag)
 		}
 		if ref == groupTag {
-			return nil, fmt.Errorf("group %q cannot reference itself", groupTag)
+			return nil, newGenerationError(
+				fmt.Sprintf("group %q cannot reference itself", groupTag),
+				generationErrorDetails{Kind: generateErrGroupCycle, Panel: "group", GroupTag: groupTag, Cycle: []string{groupTag, groupTag}},
+			)
 		}
 		if !allowed[ref] {
-			return nil, fmt.Errorf("group %q references unknown outbound %q", groupTag, ref)
+			return nil, newGenerationError(
+				fmt.Sprintf("group %q references unknown outbound %q", groupTag, ref),
+				generationErrorDetails{Kind: generateErrUnknownOutboundRef, Panel: "group", GroupTag: groupTag, OutboundTag: ref},
+			)
 		}
 		if seen[ref] {
 			return nil, fmt.Errorf("group %q has duplicate outbound %q", groupTag, ref)
@@ -498,7 +504,10 @@ func validateTemplateGroupCycles(groups []templateStructureGroup) error {
 	visit = func(tag string) error {
 		if i, ok := visiting[tag]; ok {
 			cycle := append(append([]string{}, stack[i:]...), tag)
-			return fmt.Errorf("group reference cycle: %s", strings.Join(cycle, " -> "))
+			return newGenerationError(
+				fmt.Sprintf("group reference cycle: %s", strings.Join(cycle, " -> ")),
+				generationErrorDetails{Kind: generateErrGroupCycle, Panel: "group", GroupTag: tag, Cycle: cycle},
+			)
 		}
 		if visited[tag] {
 			return nil

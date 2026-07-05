@@ -143,6 +143,25 @@ func decodeError(t *testing.T, resp *http.Response) (int, string, string) {
 	return resp.StatusCode, env.Error.Code, env.Error.Message
 }
 
+func decodeErrorDetails(t *testing.T, resp *http.Response) (int, string, string, generationErrorDetails) {
+	t.Helper()
+	defer resp.Body.Close()
+	var env struct {
+		Error *struct {
+			Code    string                 `json:"code"`
+			Message string                 `json:"message"`
+			Details generationErrorDetails `json:"details"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
+		t.Fatalf("decode error envelope: %v", err)
+	}
+	if env.Error == nil {
+		t.Fatalf("expected api error, got status %d", resp.StatusCode)
+	}
+	return resp.StatusCode, env.Error.Code, env.Error.Message, env.Error.Details
+}
+
 // --- helpers ---
 
 func login(t *testing.T, base string) http.CookieJar {

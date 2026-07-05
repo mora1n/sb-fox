@@ -31,7 +31,7 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 		ownerID, allOwners := ownerScope(r)
 		config, err := s.renderProfileForUser(req.ProfileID, ownerID, allOwners)
 		if err != nil {
-			respondError(w, http.StatusUnprocessableEntity, "generate_error", err.Error())
+			respondGenerateFailure(w, err)
 			return
 		}
 		respondJSON(w, http.StatusOK, map[string]string{"config": string(config)})
@@ -56,11 +56,11 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 		content = t.Content
 	}
 	if err := validateOptionOutboundRefs(content, req.Options); err != nil {
-		respondError(w, http.StatusBadRequest, "bad_request", err.Error())
+		respondBadGenerationRequest(w, err)
 		return
 	}
 	if err := validateOptionGroupInputs(content, req.Options); err != nil {
-		respondError(w, http.StatusBadRequest, "bad_request", err.Error())
+		respondBadGenerationRequest(w, err)
 		return
 	}
 	if !validateAutoCountrySelection(w, req.Options) {
@@ -73,7 +73,7 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 	}
 	config, err := s.generateFromInputs(content, req.NodeIDs, req.NodeGroupIDs, req.Options, u.ID, u.IsAdmin(), order)
 	if err != nil {
-		respondError(w, http.StatusUnprocessableEntity, "generate_error", err.Error())
+		respondGenerateFailure(w, err)
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]string{"config": string(config)})
@@ -130,7 +130,7 @@ func (s *Server) resolveConfig(w http.ResponseWriter, r *http.Request) ([]byte, 
 		ownerID, allOwners := ownerScope(r)
 		config, err := s.renderProfileForUser(req.ProfileID, ownerID, allOwners)
 		if err != nil {
-			respondError(w, http.StatusUnprocessableEntity, "generate_error", err.Error())
+			respondGenerateFailure(w, err)
 			return nil, false
 		}
 		return config, true

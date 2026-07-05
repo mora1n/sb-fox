@@ -3,11 +3,29 @@
 export interface ApiError {
   code: string
   message: string
+  details?: ApiErrorDetails
 }
 
 export interface Envelope<T> {
   data: T | null
   error: ApiError | null
+}
+
+export type ApiErrorPanel = 'group' | 'country' | 'chain'
+export type ApiErrorKind =
+  | 'empty_group'
+  | 'invalid_final'
+  | 'unknown_outbound_ref'
+  | 'group_cycle'
+  | 'auto_country_empty'
+  | 'chain_proxy_empty'
+
+export interface ApiErrorDetails {
+  kind: ApiErrorKind
+  panel?: ApiErrorPanel
+  groupTag?: string
+  outboundTag?: string
+  cycle?: string[]
 }
 
 export type CountrySource = 'auto' | 'manual' | 'override'

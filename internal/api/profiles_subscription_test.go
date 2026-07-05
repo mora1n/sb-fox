@@ -114,7 +114,168 @@ func TestPreviewPreservesSelectionAndNodeGroupOrder(t *testing.T) {
 	}
 }
 
-func createPreviewOrderTemplate(t *testing.T, c *apiClient) int64 {
+func TestPreviewReturnsStructuredGenerationErrors(t *testing.T) {
+	_, ts := testServer(t)
+	c := newClient(t, ts.URL)
+	c.http.Jar = login(t, ts.URL)
+	nodeID := createPreviewOrderNodes(t, c, []string{"node-us"})[0]
+	baseTemplateID := createTemplate(t, c, "structured-base", `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":["Direct"]},
+    {"type":"direct","tag":"Direct"}
+  ],
+  "route": {"final":"Proxy"}
+}`)
+
+	tests := []struct {
+		name       string
+		templateID int64
+		content    string
+		options    map[string]any
+		status     int
+		code       string
+		want       generationErrorDetails
+	}{
+		{
+			name: "empty group",
+			content: `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":["Direct"]},
+    {"type":"selector","tag":"Fallback","outbounds":[]},
+    {"type":"direct","tag":"Direct"}
+  ],
+  "route": {
+    "rules": [{"domain":["example.com"],"outbound":"Fallback"}],
+    "final":"Proxy"
+  }
+}`,
+			options: map[string]any{
+				"autoCountryGroups": false,
+				"groupSelections": map[string]any{
+					"Proxy": map[string]any{"outboundRefs": []string{"Direct"}},
+				},
+			},
+			status: http.StatusBadRequest,
+			code:   "bad_request",
+			want:   generationErrorDetails{Kind: generateErrEmptyGroup, Panel: "group", GroupTag: "Fallback"},
+		},
+		{
+			name: "invalid final",
+			content: `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":[]},
+    {"type":"direct","tag":"Direct"}
+  ],
+  "route": {"final":"Proxy"}
+}`,
+			options: map[string]any{
+				"autoCountryGroups": false,
+			},
+			status: http.StatusUnprocessableEntity,
+			code:   "generate_error",
+			want:   generationErrorDetails{Kind: generateErrInvalidFinal, Panel: "group", GroupTag: "Proxy"},
+		},
+		{
+			name: "unknown outbound ref",
+			content: `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":["Direct"]},
+    {"type":"selector","tag":"Fallback","outbounds":["Direct"]},
+    {"type":"direct","tag":"Direct"}
+  ],
+  "route": {
+    "rules": [{"domain":["example.com"],"outbound":"Fallback"}],
+    "final":"Proxy"
+  }
+}`,
+			options: map[string]any{
+				"autoCountryGroups": false,
+				"groupSelections": map[string]any{
+					"Fallback": map[string]any{"outboundRefs": []string{"Proxy"}},
+				},
+			},
+			status: http.StatusBadRequest,
+			code:   "bad_request",
+			want:   generationErrorDetails{Kind: generateErrUnknownOutboundRef, Panel: "group", GroupTag: "Fallback", OutboundTag: "Proxy"},
+		},
+		{
+			name: "group cycle",
+			content: `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":["Fallback","Direct"]},
+    {"type":"selector","tag":"Fallback","outbounds":["Proxy","Direct"]},
+    {"type":"direct","tag":"Direct"}
+  ],
+  "route": {
+    "rules": [{"domain":["example.com"],"outbound":"Fallback"}],
+    "final":"Proxy"
+  }
+}`,
+			options: map[string]any{
+				"autoCountryGroups": false,
+				"groupSelections": map[string]any{
+					"Proxy":    map[string]any{"outboundRefs": []string{"Fallback"}},
+					"Fallback": map[string]any{"outboundRefs": []string{"Proxy"}},
+				},
+			},
+			status: http.StatusBadRequest,
+			code:   "bad_request",
+			want:   generationErrorDetails{Kind: generateErrGroupCycle, Panel: "group", GroupTag: "Proxy", Cycle: []string{"Proxy", "Fallback", "Proxy"}},
+		},
+		{
+			name:       "auto country empty",
+			templateID: baseTemplateID,
+			options: map[string]any{
+				"autoCountryGroups":    true,
+				"autoCountrySelection": map[string]any{},
+				"groupSelections": map[string]any{
+					"Proxy": map[string]any{"nodeIds": []int64{nodeID}},
+				},
+			},
+			status: http.StatusBadRequest,
+			code:   "bad_request",
+			want:   generationErrorDetails{Kind: generateErrAutoCountryEmpty, Panel: "country"},
+		},
+		{
+			name:       "chain proxy empty",
+			templateID: baseTemplateID,
+			options: map[string]any{
+				"autoCountryGroups": false,
+				"chainProxy":        true,
+				"groupSelections": map[string]any{
+					"Proxy": map[string]any{"outboundRefs": []string{"Direct"}},
+				},
+			},
+			status: http.StatusBadRequest,
+			code:   "bad_request",
+			want:   generationErrorDetails{Kind: generateErrChainProxyEmpty, Panel: "chain"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			templateID := tc.templateID
+			if tc.content != "" {
+				templateID = createTemplate(t, c, "structured-"+strings.ReplaceAll(tc.name, " ", "-"), tc.content)
+			}
+			status, code, _, details := decodeErrorDetails(t, c.do(http.MethodPost, "/api/generate/preview", map[string]any{
+				"template_id": templateID,
+				"options":     tc.options,
+			}))
+			if status != tc.status || code != tc.code {
+				t.Fatalf("status=%d code=%q, want status=%d code=%q", status, code, tc.status, tc.code)
+			}
+			if details.Kind != tc.want.Kind || details.Panel != tc.want.Panel || details.GroupTag != tc.want.GroupTag || details.OutboundTag != tc.want.OutboundTag {
+				t.Fatalf("details=%+v, want %+v", details, tc.want)
+			}
+			if len(tc.want.Cycle) > 0 && !sameStrings(details.Cycle, tc.want.Cycle) {
+				t.Fatalf("cycle=%v, want %v", details.Cycle, tc.want.Cycle)
+			}
+		})
+	}
+}
+
+func createTemplate(t *testing.T, c *apiClient, name, content string) int64 {
 	t.Helper()
 	var created struct {
 		Template struct {
@@ -122,10 +283,15 @@ func createPreviewOrderTemplate(t *testing.T, c *apiClient) int64 {
 		} `json:"template"`
 	}
 	decodeData(t, c.do(http.MethodPost, "/api/templates", map[string]string{
-		"name":    "preview-order",
-		"content": `{"outbounds":[{"type":"selector","tag":"Proxy","outbounds":[]},{"type":"direct","tag":"Direct"}],"route":{"final":"Proxy"}}`,
+		"name":    name,
+		"content": content,
 	}), &created)
 	return created.Template.ID
+}
+
+func createPreviewOrderTemplate(t *testing.T, c *apiClient) int64 {
+	t.Helper()
+	return createTemplate(t, c, "preview-order", `{"outbounds":[{"type":"selector","tag":"Proxy","outbounds":[]},{"type":"direct","tag":"Direct"}],"route":{"final":"Proxy"}}`)
 }
 
 func createPreviewOrderNodes(t *testing.T, c *apiClient, tags []string) []int64 {

@@ -76,7 +76,10 @@ func generateConfigWithGroupSelections(templateContent string, groupNodes map[st
 	}
 	for tag := range opts.GroupSelections {
 		if !validGroups[tag] {
-			return nil, fmt.Errorf("group selection references unknown outbound group %q", tag)
+			return nil, newGenerationError(
+				fmt.Sprintf("group selection references unknown outbound group %q", tag),
+				generationErrorDetails{Kind: generateErrUnknownOutboundRef, Panel: "group", GroupTag: tag},
+			)
 		}
 	}
 
@@ -94,7 +97,10 @@ func generateConfigWithGroupSelections(templateContent string, groupNodes map[st
 	}
 
 	if opts.AutoCountryGroups && len(autoCountryNodes) == 0 {
-		return nil, fmt.Errorf("auto country group nodes are required")
+		return nil, newGenerationError(
+			"auto country group nodes are required",
+			generationErrorDetails{Kind: generateErrAutoCountryEmpty, Panel: "country"},
+		)
 	}
 
 	allNodes := uniqueNodes(groupNodes, autoCountryNodes, chainNodes)
@@ -105,7 +111,10 @@ func generateConfigWithGroupSelections(templateContent string, groupNodes map[st
 	chainIDs := nodeIDs(chainNodes)
 	if opts.ChainProxy {
 		if len(chainIDs) == 0 {
-			return nil, fmt.Errorf("chain proxy nodes are required")
+			return nil, newGenerationError(
+				"chain proxy nodes are required",
+				generationErrorDetails{Kind: generateErrChainProxyEmpty, Panel: "chain"},
+			)
 		}
 		chainOpts := opts
 		chainOpts.ChainProxyNodeIDs = chainIDs
@@ -132,7 +141,10 @@ func generateConfigWithGroupSelections(templateContent string, groupNodes map[st
 	if opts.ChainProxy {
 		upstreamTags := upstreamNodeTags(groupNodes, chainIDs)
 		if len(upstreamTags) == 0 {
-			return nil, fmt.Errorf("chain proxy selector has no upstream nodes")
+			return nil, newGenerationError(
+				"chain proxy selector has no upstream nodes",
+				generationErrorDetails{Kind: generateErrChainProxyEmpty, Panel: "chain"},
+			)
 		}
 		outbounds = append(outbounds, chainSelector(upstreamTags))
 		out.Set("outbounds", outbounds)
@@ -157,7 +169,10 @@ func generateConfigWithGroupSelections(templateContent string, groupNodes map[st
 			tags = appendUniqueStrings(tags, chainTags)
 		}
 		if g.Tag == st.Final && len(tags) == 0 {
-			return nil, fmt.Errorf("final selector %q has no selected nodes", g.Tag)
+			return nil, newGenerationError(
+				fmt.Sprintf("final selector %q has no selected nodes", g.Tag),
+				generationErrorDetails{Kind: generateErrInvalidFinal, Panel: "group", GroupTag: g.Tag},
+			)
 		}
 		group.Set("outbounds", stringSliceToAny(tags))
 		if def := group.GetString("default"); def != "" && !containsString(tags, def) {
@@ -234,7 +249,10 @@ func validateGroupSelectionRefs(st templateStructure, opts models.ProfileOptions
 	for tag, sel := range opts.GroupSelections {
 		g, ok := groups[tag]
 		if !ok {
-			return fmt.Errorf("group selection references unknown outbound group %q", tag)
+			return newGenerationError(
+				fmt.Sprintf("group selection references unknown outbound group %q", tag),
+				generationErrorDetails{Kind: generateErrUnknownOutboundRef, Panel: "group", GroupTag: tag},
+			)
 		}
 		allowed := make(map[string]bool, len(g.Outbounds))
 		for _, outbound := range g.Outbounds {
@@ -299,7 +317,16 @@ func validateRequiredGroupSelections(st templateStructure, opts models.ProfileOp
 		if opts.ChainProxy && g.Tag == st.Final && opts.ChainProxySelected != nil && selectionHasInputs(*opts.ChainProxySelected) {
 			continue
 		}
-		return fmt.Errorf("outbound group %q has no selected nodes or references", g.Tag)
+		if g.Tag == st.Final {
+			return newGenerationError(
+				fmt.Sprintf("final selector %q has no selected nodes", g.Tag),
+				generationErrorDetails{Kind: generateErrInvalidFinal, Panel: "group", GroupTag: g.Tag},
+			)
+		}
+		return newGenerationError(
+			fmt.Sprintf("outbound group %q has no selected nodes or references", g.Tag),
+			generationErrorDetails{Kind: generateErrEmptyGroup, Panel: "group", GroupTag: g.Tag},
+		)
 	}
 	return nil
 }
@@ -392,10 +419,16 @@ func validateRouteFinalOutbound(cfg *merge.OrderedMap) error {
 	}
 	outbound := findOutboundByTag(outbounds, final)
 	if outbound == nil {
-		return fmt.Errorf("final outbound %q is missing", final)
+		return newGenerationError(
+			fmt.Sprintf("final outbound %q is missing", final),
+			generationErrorDetails{Kind: generateErrInvalidFinal, Panel: "group", GroupTag: final, OutboundTag: final},
+		)
 	}
 	if isTemplateGroup(outbound) && len(outboundStringList(outbound)) == 0 {
-		return fmt.Errorf("final selector %q has no selected nodes", final)
+		return newGenerationError(
+			fmt.Sprintf("final selector %q has no selected nodes", final),
+			generationErrorDetails{Kind: generateErrInvalidFinal, Panel: "group", GroupTag: final},
+		)
 	}
 	return nil
 }
@@ -545,7 +578,10 @@ func applyChainProxy(nodes []*models.Node, mergeNodes []*merge.Node, opts models
 	}
 	chainIDs := normalizedChainProxyNodeIDs(opts)
 	if len(chainIDs) == 0 {
-		return fmt.Errorf("chain proxy nodes are required")
+		return newGenerationError(
+			"chain proxy nodes are required",
+			generationErrorDetails{Kind: generateErrChainProxyEmpty, Panel: "chain"},
+		)
 	}
 	chainSet := make(map[int64]bool, len(chainIDs))
 	for _, id := range chainIDs {
@@ -559,7 +595,10 @@ func applyChainProxy(nodes []*models.Node, mergeNodes []*merge.Node, opts models
 		}
 	}
 	if found != len(chainSet) {
-		return fmt.Errorf("chain proxy node not found")
+		return newGenerationError(
+			"chain proxy node not found",
+			generationErrorDetails{Kind: generateErrChainProxyEmpty, Panel: "chain"},
+		)
 	}
 	return nil
 }
@@ -584,7 +623,10 @@ func chainProxySelectorTags(nodes []*models.Node, mergeNodes []*merge.Node, opts
 		}
 	}
 	if len(tags) == 0 {
-		return nil, fmt.Errorf("chain proxy selector has no upstream nodes")
+		return nil, newGenerationError(
+			"chain proxy selector has no upstream nodes",
+			generationErrorDetails{Kind: generateErrChainProxyEmpty, Panel: "chain"},
+		)
 	}
 	return tags, nil
 }

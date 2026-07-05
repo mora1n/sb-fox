@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { post } from '../../api/client'
+import { ApiRequestError, post } from '../../api/client'
 import { useProfilesStore } from '../../stores/profiles'
 import { useTemplatesStore } from '../../stores/templates'
 import { useNodesStore } from '../../stores/nodes'
@@ -10,6 +10,7 @@ import { useUiStore } from '../../stores/ui'
 import { useI18nStore } from '../../stores/i18n'
 import { errMsg } from '../../utils/error'
 import type {
+  ApiErrorDetails,
   KernelResult,
   NodeSummary,
   NodeSelection,
@@ -49,6 +50,15 @@ const structure = ref<TemplateStructure | null>(null)
 const activeGroup = ref('')
 const activeEditor = ref<EditorMode>('group')
 const kernelHint = computed(() => i18n.t('请选择有效 sing-box 内核或联系管理员配置内核'))
+
+class ProfileFormError extends Error {
+  details: ApiErrorDetails
+  constructor(message: string, details: ApiErrorDetails) {
+    super(message)
+    this.name = 'ProfileFormError'
+    this.details = details
+  }
+}
 
 const form = ref<{
   name: string
@@ -461,12 +471,42 @@ function autoCountryFillsSelection(sel: NodeSelection) {
   return form.value.options.autoCountryGroups && hasSelection(autoCountrySelection()) && !sel.skipCountryGroups
 }
 
+function formError(message: string, details: ApiErrorDetails): never {
+  throw new ProfileFormError(message, details)
+}
+
+function errorDetails(e: unknown): ApiErrorDetails | undefined {
+  if (e instanceof ApiRequestError) return e.details
+  if (e instanceof ProfileFormError) return e.details
+  return undefined
+}
+
+function focusErrorTarget(e: unknown) {
+  const details = errorDetails(e)
+  if (!details) return
+  if (details.panel === 'country') {
+    setActivePanel('country')
+    return
+  }
+  if (details.panel === 'chain') {
+    setActivePanel('chain')
+    return
+  }
+  if (details.panel === 'group') {
+    if (details.groupTag && structure.value?.groups.some((g) => g.tag === details.groupTag)) {
+      setActiveGroup(details.groupTag)
+    } else {
+      setActivePanel('group')
+    }
+  }
+}
+
 function validateForm() {
   if (!form.value.name.trim()) throw new Error('请填写名称')
   if (!form.value.template_id) throw new Error('请选择模板')
   if (!structure.value) throw new Error('模板没有可用出口分组')
   if (form.value.options.autoCountryGroups && !hasSelection(autoCountrySelection())) {
-    throw new Error('请选择自动国家分组来源节点')
+    formError('请选择自动国家分组来源节点', { kind: 'auto_country_empty', panel: 'country' })
   }
   const finalTag = managedFinalGroupTag()
   for (const g of structure.value.groups) {
@@ -476,18 +516,22 @@ function validateForm() {
     const autoCountryFillsGroup = autoCountryFillsSelection(sel)
     if (!hasSelection(sel) && !chainFillsFinal && !autoCountryFillsGroup) {
       if (isFinalGroup) continue
-      throw new Error(`出口分组 "${g.tag}" 不能为空`)
+      formError(`出口分组 "${g.tag}" 不能为空`, { kind: 'empty_group', panel: 'group', groupTag: g.tag })
     }
   }
   if (finalTag) {
     const finalSelection = selectionFor(finalTag)
     const chainFillsFinal = form.value.options.chainProxy && hasSelection(chainSelection())
     if (!hasSelection(finalSelection) && !chainFillsFinal && !autoCountryFillsSelection(finalSelection)) {
-      throw new Error(`最终出口 "${finalTag}" 至少需要选择一个节点、组合节点或引用出口`)
+      formError(`最终出口 "${finalTag}" 至少需要选择一个节点、组合节点或引用出口`, {
+        kind: 'invalid_final',
+        panel: 'group',
+        groupTag: finalTag,
+      })
     }
   }
   if (form.value.options.chainProxy && !hasSelection(chainSelection())) {
-    throw new Error('请选择链式代理节点')
+    formError('请选择链式代理节点', { kind: 'chain_proxy_empty', panel: 'chain' })
   }
 }
 
@@ -584,6 +628,7 @@ async function submit() {
     }
     emit('saved')
   } catch (e) {
+    focusErrorTarget(e)
     ui.error(errMsg(e))
   } finally {
     busy.value = false
@@ -607,6 +652,7 @@ async function generate() {
     config.value = r.config
     ui.success('已生成配置')
   } catch (e) {
+    focusErrorTarget(e)
     ui.error(errMsg(e, '生成失败'))
   } finally {
     busy.value = false

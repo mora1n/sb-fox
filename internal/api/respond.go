@@ -15,6 +15,7 @@ type envelope struct {
 type apiError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	Details any    `json:"details,omitempty"`
 }
 
 // respondJSON writes data in the success envelope with the given status.
@@ -26,9 +27,13 @@ func respondJSON(w http.ResponseWriter, status int, data any) {
 
 // respondError writes an error envelope with the given status and code.
 func respondError(w http.ResponseWriter, status int, code, message string) {
+	respondErrorWithDetails(w, status, code, message, nil)
+}
+
+func respondErrorWithDetails(w http.ResponseWriter, status int, code, message string, details any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(envelope{Error: &apiError{Code: code, Message: message}})
+	_ = json.NewEncoder(w).Encode(envelope{Error: &apiError{Code: code, Message: message, Details: details}})
 }
 
 // decodeJSON decodes the request body into dst, returning false (and writing a
