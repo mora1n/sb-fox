@@ -557,8 +557,8 @@ func TestUserSettingsPermissionsAndPublicKernelStatus(t *testing.T) {
 
 	decodeData(t, admin.do(http.MethodPut, "/api/settings/kernels", map[string]any{
 		"kernels": []map[string]string{
-			{"name": "stable", "path": validPath},
-			{"name": "bad", "path": invalidPath},
+			{"name": "sing-box", "path": validPath},
+			{"name": "sing-box", "path": invalidPath},
 		},
 	}), &struct{}{})
 
@@ -580,6 +580,15 @@ func TestUserSettingsPermissionsAndPublicKernelStatus(t *testing.T) {
 	}
 	if validID == "" || invalidID == "" {
 		t.Fatalf("expected one valid and one invalid kernel: %+v", adminKernels.Kernels)
+	}
+	status, _, msg = decodeError(t, admin.do(http.MethodPut, "/api/settings/kernels", map[string]any{
+		"kernels": []map[string]string{
+			{"name": "sing-box stable", "path": validPath},
+			{"name": "sing-box duplicate", "path": validPath},
+		},
+	}))
+	if status != http.StatusBadRequest || !strings.Contains(msg, "duplicate kernel path") {
+		t.Fatalf("duplicate kernel path status=%d msg=%q", status, msg)
 	}
 
 	var userStatus kernelStatusResponse

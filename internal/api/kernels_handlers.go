@@ -60,7 +60,7 @@ func parseKernelProfiles(raw string) ([]kernelProfile, error) {
 func normalizeKernelProfiles(profiles []kernelProfile) ([]kernelProfile, error) {
 	out := make([]kernelProfile, 0, len(profiles))
 	seenID := map[string]bool{}
-	seenName := map[string]bool{}
+	seenPath := map[string]bool{}
 	for i, p := range profiles {
 		p.ID = strings.TrimSpace(p.ID)
 		p.Name = strings.TrimSpace(p.Name)
@@ -81,11 +81,11 @@ func normalizeKernelProfiles(profiles []kernelProfile) ([]kernelProfile, error) 
 		if seenID[p.ID] {
 			return nil, fmt.Errorf("duplicate kernel id %q", p.ID)
 		}
-		if seenName[p.Name] {
-			return nil, fmt.Errorf("duplicate kernel name %q", p.Name)
+		if seenPath[p.Path] {
+			return nil, fmt.Errorf("duplicate kernel path %q", p.Path)
 		}
 		seenID[p.ID] = true
-		seenName[p.Name] = true
+		seenPath[p.Path] = true
 		out = append(out, p)
 	}
 	return out, nil
