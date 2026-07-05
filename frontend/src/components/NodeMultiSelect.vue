@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import type { NodeSummary } from '../api/types'
 import CountryFlag from './CountryFlag.vue'
+import VirtualNodeList from './VirtualNodeList.vue'
 import { useI18nStore } from '../stores/i18n'
 import { useSettingsStore } from '../stores/settings'
 import { nodeSourceLabel } from '../utils/nodeSource'
@@ -21,9 +22,9 @@ const sourceOptions = computed(() => nodeSources(props.nodes))
 const countryOptions = computed(() => nodeCountries(props.nodes, settings.countryHeatOrder))
 const typeOptions = computed(() => nodeTypes(props.nodes))
 const filtered = computed(() => filterNodes(props.nodes, filters.value))
+const nodesByID = computed(() => new Map(props.nodes.map((node) => [node.id, node])))
 const selectedItems = computed(() => {
-  const byID = new Map(props.nodes.map((node) => [node.id, node]))
-  return props.modelValue.map((id) => ({ id, node: byID.get(id) }))
+  return props.modelValue.map((id) => ({ id, node: nodesByID.value.get(id) }))
 })
 
 function toggle(id: number) {
@@ -199,25 +200,6 @@ function dropSelected(event: DragEvent) {
       </div>
     </div>
     <div class="label-text">{{ i18n.t('节点列表') }}</div>
-    <div class="border border-base-300 rounded-box max-h-64 overflow-y-auto divide-y divide-base-200">
-      <label
-        v-for="n in filtered"
-        :key="n.id"
-        class="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-base-200"
-      >
-        <input
-          type="checkbox"
-          class="checkbox checkbox-sm"
-          :checked="modelValue.includes(n.id)"
-          :disabled="disabled"
-          @change="toggle(n.id)"
-        />
-        <CountryFlag v-if="n.country_code" :code="n.country_code" :show-code="false" />
-        <span class="truncate flex-1 text-sm">{{ n.tag }}</span>
-        <span class="badge badge-ghost badge-sm">{{ n.type }}</span>
-        <span class="badge badge-ghost badge-sm hidden sm:inline-flex">{{ i18n.t(nodeSourceLabel(n.source)) }}</span>
-      </label>
-      <div v-if="!filtered.length" class="px-3 py-4 text-sm opacity-60 text-center">{{ i18n.t('无匹配节点') }}</div>
-    </div>
+    <VirtualNodeList :nodes="filtered" :selected-ids="modelValue" :disabled="disabled" @toggle="toggle" />
   </div>
 </template>
