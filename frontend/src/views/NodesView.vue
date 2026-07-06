@@ -10,6 +10,7 @@ import type { Node, NodeGroup } from '../api/types'
 import { nodeSourceLabel } from '../utils/nodeSource'
 import { NODE_SOURCES } from '../utils/nodeFilters'
 import { readViewPref, writeViewPref } from '../utils/viewPrefs'
+import { formatDateTime, timeSortValue } from '../utils/time'
 import NodeCard from '../components/NodeCard.vue'
 import NodeEditForm from '../components/NodeEditForm.vue'
 import NodeMultiSelect from '../components/NodeMultiSelect.vue'
@@ -32,8 +33,8 @@ import {
 type NodeTab = 'single' | 'groups'
 type ViewMode = 'card' | 'list'
 type SortDir = 'asc' | 'desc'
-type NodeSortKey = 'tag' | 'server' | 'type' | 'country' | 'source'
-type GroupSortKey = 'name' | 'description' | 'nodes'
+type NodeSortKey = 'tag' | 'server' | 'type' | 'country' | 'source' | 'created_at' | 'updated_at'
+type GroupSortKey = 'name' | 'description' | 'nodes' | 'created_at' | 'updated_at'
 
 const VIEW_MODES = ['card', 'list'] as const
 const NODE_TABS = ['single', 'groups'] as const
@@ -190,13 +191,19 @@ function compareNumber(a: number, b: number, dir: SortDir) {
   return dir === 'asc' ? result : -result
 }
 
+function compareTime(a: string, b: string, dir: SortDir) {
+  return compareNumber(timeSortValue(a), timeSortValue(b), dir)
+}
+
 function compareNode(a: Node, b: Node, key: NodeSortKey, dir: SortDir) {
   if (key === 'server') return compareText(`${a.server}:${a.server_port}`, `${b.server}:${b.server_port}`, dir)
   if (key === 'country') return compareText(a.country_code, b.country_code, dir)
+  if (key === 'created_at' || key === 'updated_at') return compareTime(a[key], b[key], dir)
   return compareText(String(a[key] ?? ''), String(b[key] ?? ''), dir)
 }
 
 function compareGroup(a: NodeGroup, b: NodeGroup, key: GroupSortKey, dir: SortDir) {
+  if (key === 'created_at' || key === 'updated_at') return compareTime(a[key], b[key], dir)
   if (key === 'nodes') {
     const byNames = compareText(groupNodeSortText(a), groupNodeSortText(b), dir)
     if (byNames !== 0) return byNames
@@ -507,7 +514,7 @@ async function exportLinks() {
         </div>
         <div v-else-if="nodeViewMode === 'card'" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <NodeCard
-            v-for="n in nodesStore.nodes"
+            v-for="n in sortedNodes"
             :key="n.id"
             :node="n"
             :selected="selected.has(n.id)"
@@ -527,6 +534,8 @@ async function exportLinks() {
                 <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleNodeSort('type')">{{ i18n.t('协议类型') }} {{ sortIndicator(nodeSortKey, nodeSortDir, 'type') }}</button></th>
                 <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleNodeSort('country')">{{ i18n.t('国家') }} {{ sortIndicator(nodeSortKey, nodeSortDir, 'country') }}</button></th>
                 <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleNodeSort('source')">{{ i18n.t('来源') }} {{ sortIndicator(nodeSortKey, nodeSortDir, 'source') }}</button></th>
+                <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleNodeSort('created_at')">{{ i18n.t('导入时间') }} {{ sortIndicator(nodeSortKey, nodeSortDir, 'created_at') }}</button></th>
+                <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleNodeSort('updated_at')">{{ i18n.t('修改时间') }} {{ sortIndicator(nodeSortKey, nodeSortDir, 'updated_at') }}</button></th>
                 <th class="text-right">{{ i18n.t('操作') }}</th>
               </tr>
             </thead>
@@ -549,6 +558,8 @@ async function exportLinks() {
                   <span v-else class="opacity-50">-</span>
                 </td>
                 <td><span class="badge badge-sm badge-neutral">{{ i18n.t(nodeSourceLabel(n.source)) }}</span></td>
+                <td class="whitespace-nowrap text-xs opacity-70" :title="n.created_at">{{ formatDateTime(n.created_at) }}</td>
+                <td class="whitespace-nowrap text-xs opacity-70" :title="n.updated_at">{{ formatDateTime(n.updated_at) }}</td>
                 <td class="text-right">
                   <div class="flex justify-end gap-1">
                     <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('复制节点')" @click.stop="openCopy(n)"><DocumentDuplicateIcon class="h-4 w-4" /></button>
@@ -627,6 +638,10 @@ async function exportLinks() {
                 <span v-for="id in g.node_ids.slice(0, 8)" :key="id" class="badge badge-sm badge-ghost max-w-full truncate">{{ nodeLabel(id) }}</span>
                 <span v-if="g.node_ids.length > 8" class="badge badge-sm">+{{ g.node_ids.length - 8 }}</span>
               </div>
+              <div class="grid grid-cols-2 gap-2 text-[11px] opacity-60">
+                <div class="truncate" :title="formatDateTime(g.created_at)">{{ i18n.t('创建时间') }}: {{ formatDateTime(g.created_at) }}</div>
+                <div class="truncate" :title="formatDateTime(g.updated_at)">{{ i18n.t('修改时间') }}: {{ formatDateTime(g.updated_at) }}</div>
+              </div>
             </div>
           </div>
         </div>
@@ -638,6 +653,8 @@ async function exportLinks() {
                 <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleGroupSort('name')">{{ i18n.t('名称') }} {{ sortIndicator(groupSortKey, groupSortDir, 'name') }}</button></th>
                 <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleGroupSort('description')">{{ i18n.t('描述') }} {{ sortIndicator(groupSortKey, groupSortDir, 'description') }}</button></th>
                 <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleGroupSort('nodes')">{{ i18n.t('节点') }} {{ sortIndicator(groupSortKey, groupSortDir, 'nodes') }}</button></th>
+                <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleGroupSort('created_at')">{{ i18n.t('创建时间') }} {{ sortIndicator(groupSortKey, groupSortDir, 'created_at') }}</button></th>
+                <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleGroupSort('updated_at')">{{ i18n.t('修改时间') }} {{ sortIndicator(groupSortKey, groupSortDir, 'updated_at') }}</button></th>
                 <th class="text-right">{{ i18n.t('操作') }}</th>
               </tr>
             </thead>
@@ -660,6 +677,8 @@ async function exportLinks() {
                     <span v-if="g.node_ids.length > 6" class="badge badge-sm">+{{ g.node_ids.length - 6 }}</span>
                   </div>
                 </td>
+                <td class="whitespace-nowrap text-xs opacity-70" :title="g.created_at">{{ formatDateTime(g.created_at) }}</td>
+                <td class="whitespace-nowrap text-xs opacity-70" :title="g.updated_at">{{ formatDateTime(g.updated_at) }}</td>
                 <td class="text-right">
                   <div class="flex justify-end gap-1">
                     <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('复制组合节点')" @click.stop="openCopyGroup(g)"><DocumentDuplicateIcon class="h-4 w-4" /></button>

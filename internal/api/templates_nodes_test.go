@@ -1,7 +1,9 @@
 package api
 
 import (
+	"encoding/base64"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -325,5 +327,126 @@ func TestImportConfigDedupesExactNodesButKeepsDifferentTags(t *testing.T) {
 	decodeData(t, c.do(http.MethodGet, "/api/nodes", nil), &nodes)
 	if len(nodes) != 2 {
 		t.Fatalf("node count = %d, want 2", len(nodes))
+	}
+}
+
+func TestImportPreviewConfigDedupesAndDoesNotWriteNodes(t *testing.T) {
+	_, ts := testServer(t)
+	c := newClient(t, ts.URL)
+	c.http.Jar = login(t, ts.URL)
+
+	node := `{"type":"shadowsocks","tag":"preview","server":"preview.example.com","server_port":8388,"method":"aes-256-gcm","password":"pw"}`
+	direct := `{"type":"direct","tag":"Direct"}`
+
+	var preview struct {
+		Parsed     int              `json:"parsed"`
+		Importable int              `json:"importable"`
+		Deduped    int              `json:"deduped"`
+		Nodes      []map[string]any `json:"nodes"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/nodes/import/config/preview", map[string]string{
+		"config": `{"outbounds":[` + node + `,` + node + `,` + direct + `]}`,
+	}), &preview)
+	if preview.Parsed != 2 || preview.Importable != 1 || preview.Deduped != 1 {
+		t.Fatalf("preview parsed/importable/deduped = %d/%d/%d, want 2/1/1", preview.Parsed, preview.Importable, preview.Deduped)
+	}
+	if len(preview.Nodes) != 1 || preview.Nodes[0]["tag"] != "preview" {
+		t.Fatalf("preview nodes = %+v", preview.Nodes)
+	}
+	if _, ok := preview.Nodes[0]["raw"]; ok {
+		t.Fatalf("preview node leaked raw: %+v", preview.Nodes[0])
+	}
+
+	var nodes []struct {
+		ID int64 `json:"id"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/nodes", nil), &nodes)
+	if len(nodes) != 0 {
+		t.Fatalf("preview wrote nodes: %+v", nodes)
+	}
+
+	var imported struct {
+		Imported int `json:"imported"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/nodes/import/config", map[string]string{
+		"config": `{"outbounds":[` + node + `]}`,
+	}), &imported)
+	if imported.Imported != 1 {
+		t.Fatalf("imported = %d, want 1", imported.Imported)
+	}
+
+	var duplicatePreview struct {
+		Parsed     int `json:"parsed"`
+		Importable int `json:"importable"`
+		Deduped    int `json:"deduped"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/nodes/import/config/preview", map[string]string{
+		"config": `{"outbounds":[` + node + `]}`,
+	}), &duplicatePreview)
+	if duplicatePreview.Parsed != 1 || duplicatePreview.Importable != 0 || duplicatePreview.Deduped != 1 {
+		t.Fatalf("duplicate preview parsed/importable/deduped = %d/%d/%d, want 1/0/1", duplicatePreview.Parsed, duplicatePreview.Importable, duplicatePreview.Deduped)
+	}
+}
+
+func TestImportPreviewSubscriptionDoesNotCreateSource(t *testing.T) {
+	srv, ts := testServer(t)
+	srv.Fetcher.AllowPrivate = true
+	c := newClient(t, ts.URL)
+	c.http.Jar = login(t, ts.URL)
+
+	link := "ss://" + base64.StdEncoding.EncodeToString([]byte("aes-256-gcm:pw")) + "@1.1.1.1:8388#PreviewSub"
+	sub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(link))
+	}))
+	t.Cleanup(sub.Close)
+
+	var preview struct {
+		Parsed     int `json:"parsed"`
+		Importable int `json:"importable"`
+		Deduped    int `json:"deduped"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/nodes/import/subscription/preview", map[string]string{
+		"url": sub.URL,
+	}), &preview)
+	if preview.Parsed != 1 || preview.Importable != 1 || preview.Deduped != 0 {
+		t.Fatalf("subscription preview parsed/importable/deduped = %d/%d/%d, want 1/1/0", preview.Parsed, preview.Importable, preview.Deduped)
+	}
+
+	var sources []struct {
+		ID int64 `json:"id"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/sources", nil), &sources)
+	if len(sources) != 0 {
+		t.Fatalf("preview created sources: %+v", sources)
+	}
+	var nodes []struct {
+		ID int64 `json:"id"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/nodes", nil), &nodes)
+	if len(nodes) != 0 {
+		t.Fatalf("preview wrote nodes: %+v", nodes)
+	}
+}
+
+func TestImportPreviewRespectsNodeQuota(t *testing.T) {
+	_, ts := testServer(t)
+	admin := newClient(t, ts.URL)
+	admin.http.Jar = login(t, ts.URL)
+
+	decodeData(t, admin.do(http.MethodPost, "/api/users", map[string]any{
+		"username": "preview-quota", "password": "password123", "node_limit": 1,
+	}), nil)
+
+	user := newClient(t, ts.URL)
+	user.http.Jar = loginAs(t, ts.URL, "preview-quota", "password123")
+	decodeData(t, user.do(http.MethodPost, "/api/nodes", map[string]string{
+		"raw": `{"type":"shadowsocks","tag":"existing","server":"one.example.com","server_port":8388,"method":"aes-256-gcm","password":"pw"}`,
+	}), nil)
+
+	status, code, _ := decodeError(t, user.do(http.MethodPost, "/api/nodes/import/config/preview", map[string]string{
+		"config": `{"outbounds":[{"type":"shadowsocks","tag":"new","server":"two.example.com","server_port":8388,"method":"aes-256-gcm","password":"pw"}]}`,
+	}))
+	if status != http.StatusForbidden || code != "quota_exceeded" {
+		t.Fatalf("quota preview status=%d code=%q, want 403 quota_exceeded", status, code)
 	}
 }

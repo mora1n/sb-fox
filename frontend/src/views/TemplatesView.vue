@@ -5,6 +5,7 @@ import { useUiStore } from '../stores/ui'
 import { useI18nStore } from '../stores/i18n'
 import { errMsg } from '../utils/error'
 import { readViewPref, writeViewPref } from '../utils/viewPrefs'
+import { formatDateTime, timeSortValue } from '../utils/time'
 import type { Template, TemplateStructure, TemplateStructureGroup, TemplateSummary } from '../api/types'
 import JsonViewer from '../components/JsonViewer.vue'
 import {
@@ -24,7 +25,7 @@ import {
 
 type ViewMode = 'card' | 'list'
 type SortDir = 'asc' | 'desc'
-type TemplateSortKey = 'name' | 'description'
+type TemplateSortKey = 'name' | 'description' | 'created_at' | 'updated_at'
 
 const VIEW_MODES = ['card', 'list'] as const
 
@@ -58,7 +59,7 @@ const allTemplatesSelected = computed(
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 const sortedTemplates = computed(() => {
   if (!templateSortKey.value) return store.templates
-  return [...store.templates].sort((a, b) => compareText(String(a[templateSortKey.value as TemplateSortKey] ?? ''), String(b[templateSortKey.value as TemplateSortKey] ?? ''), templateSortDir.value))
+  return [...store.templates].sort((a, b) => compareTemplate(a, b, templateSortKey.value as TemplateSortKey, templateSortDir.value))
 })
 const formTitle = computed(() => {
   if (editing.value) return i18n.t('编辑模板')
@@ -99,6 +100,18 @@ async function load() {
 function compareText(a: string, b: string, dir: SortDir) {
   const result = collator.compare(a || '', b || '')
   return dir === 'asc' ? result : -result
+}
+
+function compareNumber(a: number, b: number, dir: SortDir) {
+  const result = a === b ? 0 : a > b ? 1 : -1
+  return dir === 'asc' ? result : -result
+}
+
+function compareTemplate(a: TemplateSummary, b: TemplateSummary, key: TemplateSortKey, dir: SortDir) {
+  if (key === 'created_at' || key === 'updated_at') {
+    return compareNumber(timeSortValue(a[key]), timeSortValue(b[key]), dir)
+  }
+  return compareText(String(a[key] ?? ''), String(b[key] ?? ''), dir)
 }
 
 function toggleTemplateSort(key: TemplateSortKey) {
@@ -501,7 +514,7 @@ async function remove(t: TemplateSummary) {
     </div>
     <div v-else-if="templateViewMode === 'card'" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
       <div
-        v-for="t in store.templates"
+        v-for="t in sortedTemplates"
         :key="t.id"
         class="card bg-base-100 border border-base-300 shadow-sm transition-colors"
         :class="[
@@ -532,6 +545,10 @@ async function remove(t: TemplateSummary) {
               </div>
             </div>
           </div>
+          <div class="grid grid-cols-2 gap-2 text-[11px] opacity-60">
+            <div class="truncate" :title="formatDateTime(t.created_at)">{{ i18n.t('创建时间') }}: {{ formatDateTime(t.created_at) }}</div>
+            <div class="truncate" :title="formatDateTime(t.updated_at)">{{ i18n.t('修改时间') }}: {{ formatDateTime(t.updated_at) }}</div>
+          </div>
           <div class="flex gap-1 justify-end">
             <button type="button" class="btn btn-xs btn-ghost" @click.stop="view(t)" :title="i18n.t('查看')"><EyeIcon class="h-4 w-4" /></button>
             <button type="button" class="btn btn-xs btn-ghost" @click.stop="editStructure(t)" :title="i18n.t('分组管理')"><RectangleGroupIcon class="h-4 w-4" /></button>
@@ -550,6 +567,8 @@ async function remove(t: TemplateSummary) {
             <th class="w-10"></th>
             <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleTemplateSort('name')">{{ i18n.t('名称') }} {{ sortIndicator(templateSortKey, templateSortDir, 'name') }}</button></th>
             <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleTemplateSort('description')">{{ i18n.t('描述') }} {{ sortIndicator(templateSortKey, templateSortDir, 'description') }}</button></th>
+            <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleTemplateSort('created_at')">{{ i18n.t('创建时间') }} {{ sortIndicator(templateSortKey, templateSortDir, 'created_at') }}</button></th>
+            <th><button type="button" class="btn btn-xs btn-ghost px-1" @click="toggleTemplateSort('updated_at')">{{ i18n.t('修改时间') }} {{ sortIndicator(templateSortKey, templateSortDir, 'updated_at') }}</button></th>
             <th class="text-right">{{ i18n.t('操作') }}</th>
           </tr>
         </thead>
@@ -575,6 +594,8 @@ async function remove(t: TemplateSummary) {
             </td>
             <td class="font-semibold">{{ t.name }}</td>
             <td class="text-sm opacity-70 max-w-xs truncate">{{ t.description }}</td>
+            <td class="whitespace-nowrap text-xs opacity-70" :title="t.created_at">{{ formatDateTime(t.created_at) }}</td>
+            <td class="whitespace-nowrap text-xs opacity-70" :title="t.updated_at">{{ formatDateTime(t.updated_at) }}</td>
             <td>
               <div class="flex gap-1 justify-end">
                 <button type="button" class="btn btn-xs btn-ghost" @click.stop="view(t)" :title="i18n.t('查看')"><EyeIcon class="h-4 w-4" /></button>

@@ -3,6 +3,7 @@ import type { Node } from '../api/types'
 import CountryFlag from './CountryFlag.vue'
 import { useI18nStore } from '../stores/i18n'
 import { nodeSourceLabel } from '../utils/nodeSource'
+import { formatDateTime } from '../utils/time'
 import { PencilSquareIcon, TrashIcon, ArrowsRightLeftIcon, DocumentDuplicateIcon } from '@heroicons/vue/24/outline'
 
 defineProps<{ node: Node; selected: boolean }>()
@@ -55,6 +56,10 @@ const sourceCls: Record<string, string> = {
           <ArrowsRightLeftIcon class="h-3 w-3" /> detour
         </span>
         <span v-if="node.country_source === 'manual'" class="badge badge-sm badge-info">手动</span>
+      </div>
+      <div class="grid grid-cols-2 gap-2 text-[11px] opacity-60">
+        <div class="truncate" :title="formatDateTime(node.created_at)">{{ i18n.t('导入时间') }}: {{ formatDateTime(node.created_at) }}</div>
+        <div class="truncate" :title="formatDateTime(node.updated_at)">{{ i18n.t('修改时间') }}: {{ formatDateTime(node.updated_at) }}</div>
       </div>
     </div>
   </div>

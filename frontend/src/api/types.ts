@@ -208,6 +208,26 @@ export interface ImportResult {
   warnings?: string[]
 }
 
+export interface ImportPreviewNode {
+  tag: string
+  type: string
+  server: string
+  server_port: number
+  country_code: string
+  country_source: CountrySource
+  source: NodeSource
+  has_detour: boolean
+  detour?: string
+}
+
+export interface ImportPreviewResult {
+  parsed: number
+  importable: number
+  deduped: number
+  nodes: ImportPreviewNode[]
+  warnings?: string[]
+}
+
 export interface NodeUsage {
   profile_id: number
   profile_name: string

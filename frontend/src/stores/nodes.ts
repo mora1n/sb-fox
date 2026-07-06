@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { del, get, post, put } from '../api/client'
-import type { ImportResult, Node, NodeSummary, NodeUsage } from '../api/types'
+import type { ImportPreviewResult, ImportResult, Node, NodeSummary, NodeUsage } from '../api/types'
 import { useSettingsStore } from './settings'
 import { nodeCountries, nodeTypes } from '../utils/nodeFilters'
 
@@ -127,16 +127,28 @@ export const useNodesStore = defineStore('nodes', () => {
     return r
   }
 
+  async function previewImportLinks(links: string): Promise<ImportPreviewResult> {
+    return post<ImportPreviewResult>('/nodes/import/links/preview', { links })
+  }
+
   async function importSubscription(name: string, url: string): Promise<ImportResult> {
     const r = await post<ImportResult>('/nodes/import/subscription', { name, url })
     await refreshAfterMutation()
     return r
   }
 
+  async function previewImportSubscription(url: string): Promise<ImportPreviewResult> {
+    return post<ImportPreviewResult>('/nodes/import/subscription/preview', { url })
+  }
+
   async function importConfig(config: string): Promise<ImportResult> {
     const r = await post<ImportResult>('/nodes/import/config', { config })
     await refreshAfterMutation()
     return r
+  }
+
+  async function previewImportConfig(config: string): Promise<ImportPreviewResult> {
+    return post<ImportPreviewResult>('/nodes/import/config/preview', { config })
   }
 
   async function refreshCountry(nodeIds: number[]): Promise<number> {
@@ -180,8 +192,11 @@ export const useNodesStore = defineStore('nodes', () => {
     remove,
     usage,
     importLinks,
+    previewImportLinks,
     importSubscription,
+    previewImportSubscription,
     importConfig,
+    previewImportConfig,
     refreshCountry,
     reset,
   }

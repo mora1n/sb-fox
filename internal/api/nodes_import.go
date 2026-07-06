@@ -1,6 +1,8 @@
 package api
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -8,6 +10,27 @@ import (
 	"github.com/mora1n/sb-fox/internal/models"
 	"github.com/mora1n/sb-fox/internal/sblink"
 )
+
+// handlePreviewImportLinks parses share-links and reports what would be
+// imported without writing nodes.
+func (s *Server) handlePreviewImportLinks(w http.ResponseWriter, r *http.Request) {
+	u, ok := requireCurrentUser(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Links string `json:"links"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	outbounds, warnings, err := sblink.ParseManyWithWarnings(req.Links)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "parse_error", err.Error())
+		return
+	}
+	s.respondImportPreview(w, u, outbounds, "protocol", nil, warnings)
+}
 
 // handleImportLinks parses share-links into nodes (requirement d.1).
 func (s *Server) handleImportLinks(w http.ResponseWriter, r *http.Request) {
@@ -33,6 +56,27 @@ func (s *Server) handleImportLinks(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusCreated, importResponse(result.Nodes, 0, result.Deduped, warnings))
 }
 
+// handlePreviewImportConfig extracts importable outbound nodes without writing
+// nodes.
+func (s *Server) handlePreviewImportConfig(w http.ResponseWriter, r *http.Request) {
+	u, ok := requireCurrentUser(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Config string `json:"config"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	proxies, err := proxyOutboundsFromConfig(req.Config)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	s.respondImportPreview(w, u, proxies, "config", nil, nil)
+}
+
 // handleImportConfig extracts outbound nodes from an uploaded config or a
 // template's content (requirement d.2). Group outbounds (selector/urltest/
 // direct/block/dns) are skipped — only real proxy nodes are imported.
@@ -47,30 +91,41 @@ func (s *Server) handleImportConfig(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	cfg, err := merge.ParseOrdered([]byte(req.Config))
+	proxies, err := proxyOutboundsFromConfig(req.Config)
 	if err != nil {
-		respondError(w, http.StatusBadRequest, "bad_request", "config is not valid JSON: "+err.Error())
+		respondError(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
-	}
-	raw, ok := cfg.Get("outbounds")
-	if !ok {
-		respondError(w, http.StatusBadRequest, "bad_request", "config has no outbounds")
-		return
-	}
-	arr, _ := raw.([]any)
-	var proxies []*merge.OrderedMap
-	for _, ob := range arr {
-		om, ok := ob.(*merge.OrderedMap)
-		if !ok || !isProxyOutbound(om.GetString("type")) {
-			continue
-		}
-		proxies = append(proxies, om)
 	}
 	result, ok := s.persistOutbounds(w, u, proxies, "config", nil)
 	if !ok {
 		return
 	}
 	respondJSON(w, http.StatusCreated, importResponse(result.Nodes, 0, result.Deduped, nil))
+}
+
+// handlePreviewImportSubscription fetches and parses a subscription URL without
+// creating a source or writing nodes.
+func (s *Server) handlePreviewImportSubscription(w http.ResponseWriter, r *http.Request) {
+	u, ok := requireCurrentUser(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		URL string `json:"url"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.URL == "" {
+		respondError(w, http.StatusBadRequest, "bad_request", "url is required")
+		return
+	}
+	outbounds, warnings, err := s.previewSourceOutbounds(req.URL)
+	if err != nil {
+		respondError(w, http.StatusBadGateway, "fetch_error", err.Error())
+		return
+	}
+	s.respondImportPreview(w, u, outbounds, "subscription", nil, warnings)
 }
 
 // handleImportSubscription creates a source, fetches it and imports nodes
@@ -211,6 +266,17 @@ func (s *Server) fetchSourceOutbounds(sourceID int64, url string) ([]*merge.Orde
 	return outbounds, warnings, nil
 }
 
+func (s *Server) previewSourceOutbounds(url string) ([]*merge.OrderedMap, []string, error) {
+	ctx, cancel := contextWithTimeout(25 * time.Second)
+	defer cancel()
+
+	body, err := s.Fetcher.Fetch(ctx, url)
+	if err != nil {
+		return nil, nil, err
+	}
+	return sblink.ParseManyWithWarnings(body)
+}
+
 func (s *Server) insertNodes(nodes []*models.Node) ([]*models.Node, error) {
 	var created []*models.Node
 	sourceID := int64(0)
@@ -271,6 +337,50 @@ type nodeImportResult struct {
 	Deduped int
 }
 
+type importPreviewResponse struct {
+	Parsed     int                 `json:"parsed"`
+	Importable int                 `json:"importable"`
+	Deduped    int                 `json:"deduped"`
+	Nodes      []importPreviewNode `json:"nodes"`
+	Warnings   []string            `json:"warnings,omitempty"`
+}
+
+type importPreviewNode struct {
+	Tag           string `json:"tag"`
+	Type          string `json:"type"`
+	Server        string `json:"server"`
+	ServerPort    int    `json:"server_port"`
+	CountryCode   string `json:"country_code"`
+	CountrySource string `json:"country_source"`
+	Source        string `json:"source"`
+	HasDetour     bool   `json:"has_detour"`
+	Detour        string `json:"detour,omitempty"`
+}
+
+func (s *Server) respondImportPreview(w http.ResponseWriter, user *models.User, outbounds []*merge.OrderedMap, source string, sourceRef *int64, warnings []string) {
+	nodes := nodesFromOutbounds(user.ID, outbounds, source, sourceRef)
+	if len(nodes) == 0 {
+		respondError(w, http.StatusBadRequest, "no_nodes", "no valid nodes were imported")
+		return
+	}
+	parsed := len(nodes)
+	nodes, deduped, err := s.dedupeNodesForUser(user.ID, nodes, nil)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	if !s.checkQuota(w, user, quotaNodes, len(nodes)) {
+		return
+	}
+	respondJSON(w, http.StatusOK, importPreviewResponse{
+		Parsed:     parsed,
+		Importable: len(nodes),
+		Deduped:    deduped,
+		Nodes:      importPreviewNodes(nodes),
+		Warnings:   warnings,
+	})
+}
+
 // persistOutbounds saves a batch of parsed outbounds as nodes and returns them.
 // On zero valid parsed nodes it writes a 400 and returns false.
 func (s *Server) persistOutbounds(w http.ResponseWriter, user *models.User, outbounds []*merge.OrderedMap, source string, sourceRef *int64) (nodeImportResult, bool) {
@@ -293,6 +403,24 @@ func (s *Server) persistOutbounds(w http.ResponseWriter, user *models.User, outb
 		return nodeImportResult{}, false
 	}
 	return nodeImportResult{Nodes: created, Deduped: deduped}, true
+}
+
+func importPreviewNodes(nodes []*models.Node) []importPreviewNode {
+	out := make([]importPreviewNode, 0, len(nodes))
+	for _, n := range nodes {
+		out = append(out, importPreviewNode{
+			Tag:           n.Tag,
+			Type:          n.Type,
+			Server:        n.Server,
+			ServerPort:    n.ServerPort,
+			CountryCode:   n.CountryCode,
+			CountrySource: n.CountrySource,
+			Source:        n.Source,
+			HasDetour:     n.HasDetour,
+			Detour:        n.Detour,
+		})
+	}
+	return out
 }
 
 func importResponse(nodes []*models.Node, sourceID int64, deduped int, warnings []string) map[string]any {
@@ -320,6 +448,27 @@ func nodesFromOutbounds(ownerUserID int64, outbounds []*merge.OrderedMap, source
 		nodes = append(nodes, n)
 	}
 	return nodes
+}
+
+func proxyOutboundsFromConfig(config string) ([]*merge.OrderedMap, error) {
+	cfg, err := merge.ParseOrdered([]byte(config))
+	if err != nil {
+		return nil, fmt.Errorf("config is not valid JSON: %w", err)
+	}
+	raw, ok := cfg.Get("outbounds")
+	if !ok {
+		return nil, errors.New("config has no outbounds")
+	}
+	arr, _ := raw.([]any)
+	var proxies []*merge.OrderedMap
+	for _, ob := range arr {
+		om, ok := ob.(*merge.OrderedMap)
+		if !ok || !isProxyOutbound(om.GetString("type")) {
+			continue
+		}
+		proxies = append(proxies, om)
+	}
+	return proxies, nil
 }
 
 // isProxyOutbound reports whether a type is a real proxy node (vs a group or
