@@ -7,7 +7,14 @@ import { formatDateTime } from '../utils/time'
 import { PencilSquareIcon, TrashIcon, ArrowsRightLeftIcon, DocumentDuplicateIcon } from '@heroicons/vue/24/outline'
 
 defineProps<{ node: NodeSummary; selected: boolean }>()
-defineEmits<{ copy: []; edit: []; remove: []; 'toggle-select': [] }>()
+defineEmits<{
+  copy: []
+  edit: []
+  remove: []
+  'toggle-select': []
+  'prefetch-copy': []
+  'prefetch-edit': []
+}>()
 const i18n = useI18nStore()
 
 const sourceCls: Record<string, string> = {
@@ -42,8 +49,26 @@ const sourceCls: Record<string, string> = {
           <span class="font-semibold truncate" :title="node.tag">{{ node.tag }}</span>
         </div>
         <div class="flex gap-1 flex-none">
-          <button class="btn btn-xs btn-ghost" :title="i18n.t('复制节点')" @click.stop="$emit('copy')" @keydown.stop><DocumentDuplicateIcon class="h-4 w-4" /></button>
-          <button class="btn btn-xs btn-ghost" :title="i18n.t('编辑节点')" @click.stop="$emit('edit')" @keydown.stop><PencilSquareIcon class="h-4 w-4" /></button>
+          <button
+            class="btn btn-xs btn-ghost"
+            :title="i18n.t('复制节点')"
+            @pointerenter="$emit('prefetch-copy')"
+            @focus="$emit('prefetch-copy')"
+            @click.stop="$emit('copy')"
+            @keydown.stop
+          >
+            <DocumentDuplicateIcon class="h-4 w-4" />
+          </button>
+          <button
+            class="btn btn-xs btn-ghost"
+            :title="i18n.t('编辑节点')"
+            @pointerenter="$emit('prefetch-edit')"
+            @focus="$emit('prefetch-edit')"
+            @click.stop="$emit('edit')"
+            @keydown.stop
+          >
+            <PencilSquareIcon class="h-4 w-4" />
+          </button>
           <button class="btn btn-xs btn-ghost text-error" :title="i18n.t('删除')" @click.stop="$emit('remove')" @keydown.stop><TrashIcon class="h-4 w-4" /></button>
         </div>
       </div>

@@ -33,8 +33,7 @@ onMounted(async () => {
     void store.fetchSubscriptionToken().catch((e) => ui.error(errMsg(e)))
     void settings.fetchAppInfo().catch((e) => ui.error(errMsg(e)))
     window.setTimeout(() => {
-      void nodes.fetchSummary().catch((e) => ui.error(errMsg(e)))
-      void nodeGroups.fetchAll().catch((e) => ui.error(errMsg(e)))
+      prefetchEditorData([], true)
     }, 0)
   } catch (e) {
     ui.error(errMsg(e))
@@ -42,16 +41,19 @@ onMounted(async () => {
 })
 
 function openCreate() {
+  prefetchCreateEditor()
   editorMode.value = 'create'
   editorProfile.value = null
 }
 
 function openEdit(profile: Profile) {
+  prefetchProfileEditor(profile)
   editorMode.value = 'edit'
   editorProfile.value = profile
 }
 
 function openCopy(profile: Profile) {
+  prefetchProfileEditor(profile)
   editorMode.value = 'copy'
   editorProfile.value = profile
 }
@@ -77,6 +79,27 @@ function closeProfileConfigView() {
   viewingProfile.value = null
   viewingConfig.value = ''
 }
+
+function prefetchEditorData(templateIDs: number[] = [], includeProfileTemplates = false): void {
+  const ids = new Set(templateIDs.filter(Boolean))
+  if (includeProfileTemplates) {
+    for (const profile of store.profiles) ids.add(profile.template_id)
+  }
+  if (templates.templates[0]?.id) ids.add(templates.templates[0].id)
+  void Promise.all([
+    templates.prefetchStructures([...ids]),
+    nodes.fetchSummary(),
+    nodeGroups.fetchAll(),
+  ]).catch(() => undefined)
+}
+
+function prefetchCreateEditor(): void {
+  prefetchEditorData(templates.templates[0]?.id ? [templates.templates[0].id] : [])
+}
+
+function prefetchProfileEditor(profile: Profile): void {
+  prefetchEditorData([profile.template_id])
+}
 </script>
 
 <template>
@@ -85,6 +108,9 @@ function closeProfileConfigView() {
       @create="openCreate"
       @edit="openEdit"
       @copy="openCopy"
+      @prefetch-create="prefetchCreateEditor"
+      @prefetch-edit="prefetchProfileEditor"
+      @prefetch-copy="prefetchProfileEditor"
       @view-config="viewProfileConfig"
     />
     <ProfileConfigModal

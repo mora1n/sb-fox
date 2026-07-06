@@ -41,7 +41,9 @@ const i18n = useI18nStore()
 const editing = ref<Profile | null>(null)
 const copyingFrom = ref<Profile | null>(null)
 const busy = ref(false)
-const formLoading = ref(false)
+const structureLoading = ref(false)
+const dependenciesLoading = ref(false)
+const formLoading = computed(() => structureLoading.value || dependenciesLoading.value)
 const suppressTemplateWatch = ref(false)
 const config = ref('')
 const validation = ref<KernelResult | null>(null)
@@ -50,6 +52,9 @@ const structure = ref<TemplateStructure | null>(null)
 const activeGroup = ref('')
 const activeEditor = ref<EditorMode>('group')
 const kernelHint = computed(() => i18n.t('请选择有效 sing-box 内核或联系管理员配置内核'))
+let openSeq = 0
+let structureSeq = 0
+let dependenciesSeq = 0
 
 class ProfileFormError extends Error {
   details: ApiErrorDetails
@@ -113,13 +118,10 @@ watch(
   () => form.value.template_id,
   async (id) => {
     if (suppressTemplateWatch.value || !id) return
-    formLoading.value = !templates.structures[id]
     try {
       await loadStructure(id)
     } catch (e) {
       ui.error(errMsg(e))
-    } finally {
-      formLoading.value = false
     }
   },
 )
@@ -195,27 +197,40 @@ function parseOptions(s: string): ProfileOptions {
   }
 }
 
-async function loadStructure(templateID: number) {
-  structure.value = await templates.structure(templateID)
-  config.value = ''
-  validation.value = null
-  sanitizeGroupSelectionsForStructure()
-  if (!structure.value.groups.length) {
-    activeGroup.value = ''
-    return
+async function loadStructure(templateID: number, openToken = openSeq) {
+  const seq = ++structureSeq
+  structureLoading.value = !templates.structures[templateID]
+  try {
+    const next = await templates.structure(templateID)
+    if (seq !== structureSeq || openToken !== openSeq || form.value.template_id !== templateID) return
+    structure.value = next
+    config.value = ''
+    validation.value = null
+    sanitizeGroupSelectionsForStructure()
+    if (!structure.value.groups.length) {
+      activeGroup.value = ''
+      return
+    }
+    if (!activeGroup.value || !structure.value.groups.some((g) => g.tag === activeGroup.value)) {
+      activeGroup.value = structure.value.groups[0].tag
+    }
+    ensureGroupSelections()
+  } finally {
+    if (seq === structureSeq && openToken === openSeq) structureLoading.value = false
   }
-  if (!activeGroup.value || !structure.value.groups.some((g) => g.tag === activeGroup.value)) {
-    activeGroup.value = structure.value.groups[0].tag
-  }
-  ensureGroupSelections()
 }
 
-async function loadEditorDependencies() {
-  const [loadedNodes] = await Promise.all([
-    nodes.fetchSummary(),
-    nodeGroups.fetchAll(),
-  ])
-  allNodes.value = loadedNodes
+async function loadEditorDependencies(openToken = openSeq) {
+  const seq = ++dependenciesSeq
+  if (nodes.summaryNodes.length) allNodes.value = nodes.summaryNodes
+  dependenciesLoading.value = !nodes.summaryNodes.length
+  try {
+    const [loadedNodes] = await Promise.all([nodes.fetchSummary(), nodeGroups.fetchAll()])
+    if (seq !== dependenciesSeq || openToken !== openSeq) return
+    allNodes.value = loadedNodes
+  } finally {
+    if (seq === dependenciesSeq && openToken === openSeq) dependenciesLoading.value = false
+  }
 }
 
 function sanitizeGroupSelectionsForStructure() {
@@ -282,6 +297,7 @@ function numberArray(value: unknown): number[] {
 }
 
 async function openCreate() {
+  const seq = ++openSeq
   suppressTemplateWatch.value = true
   editing.value = null
   copyingFrom.value = null
@@ -298,21 +314,21 @@ async function openCreate() {
   structure.value = null
   activeGroup.value = ''
   activeEditor.value = 'group'
-  formLoading.value = true
   try {
     await Promise.all([
-      form.value.template_id ? loadStructure(form.value.template_id) : Promise.resolve(),
-      loadEditorDependencies(),
+      form.value.template_id ? loadStructure(form.value.template_id, seq) : Promise.resolve(),
+      loadEditorDependencies(seq),
     ])
   } catch (e) {
+    if (seq !== openSeq) return
     ui.error(errMsg(e))
   } finally {
-    formLoading.value = false
-    suppressTemplateWatch.value = false
+    if (seq === openSeq) suppressTemplateWatch.value = false
   }
 }
 
 async function openEdit(p: Profile) {
+  const seq = ++openSeq
   suppressTemplateWatch.value = true
   editing.value = p
   copyingFrom.value = null
@@ -329,7 +345,6 @@ async function openEdit(p: Profile) {
   structure.value = null
   activeGroup.value = ''
   activeEditor.value = 'group'
-  formLoading.value = true
   try {
     const options = parseOptions(p.options)
     const legacyNodeIDs = numberArray(p.node_ids)
@@ -344,17 +359,18 @@ async function openEdit(p: Profile) {
       subscription_enabled: p.subscription_enabled,
       options,
     }
-    await Promise.all([loadStructure(p.template_id), loadEditorDependencies()])
-    if (shouldHydrateLegacySelection) hydrateLegacySelection(legacyNodeIDs, legacyNodeGroupIDs)
+    await Promise.all([loadStructure(p.template_id, seq), loadEditorDependencies(seq)])
+    if (seq === openSeq && shouldHydrateLegacySelection) hydrateLegacySelection(legacyNodeIDs, legacyNodeGroupIDs)
   } catch (e) {
+    if (seq !== openSeq) return
     ui.error(errMsg(e))
   } finally {
-    formLoading.value = false
-    suppressTemplateWatch.value = false
+    if (seq === openSeq) suppressTemplateWatch.value = false
   }
 }
 
 async function openCopy(p: Profile) {
+  const seq = ++openSeq
   suppressTemplateWatch.value = true
   editing.value = null
   copyingFrom.value = p
@@ -371,7 +387,6 @@ async function openCopy(p: Profile) {
   structure.value = null
   activeGroup.value = ''
   activeEditor.value = 'group'
-  formLoading.value = true
   try {
     const options = parseOptions(p.options)
     const legacyNodeIDs = numberArray(p.node_ids)
@@ -386,17 +401,22 @@ async function openCopy(p: Profile) {
       subscription_enabled: true,
       options,
     }
-    await Promise.all([loadStructure(p.template_id), loadEditorDependencies()])
-    if (shouldHydrateLegacySelection) hydrateLegacySelection(legacyNodeIDs, legacyNodeGroupIDs)
+    await Promise.all([loadStructure(p.template_id, seq), loadEditorDependencies(seq)])
+    if (seq === openSeq && shouldHydrateLegacySelection) hydrateLegacySelection(legacyNodeIDs, legacyNodeGroupIDs)
   } catch (e) {
+    if (seq !== openSeq) return
     ui.error(errMsg(e))
   } finally {
-    formLoading.value = false
-    suppressTemplateWatch.value = false
+    if (seq === openSeq) suppressTemplateWatch.value = false
   }
 }
 
 function closeForm() {
+  openSeq++
+  structureSeq++
+  dependenciesSeq++
+  structureLoading.value = false
+  dependenciesLoading.value = false
   emit('close')
 }
 
@@ -824,12 +844,12 @@ async function formatGenerated() {
                 </div>
               </div>
             </div>
-            <NodeMultiSelect :nodes="allNodes" v-model="activeNodeIds" :disabled="formLoading" />
+            <NodeMultiSelect :nodes="allNodes" v-model="activeNodeIds" :disabled="dependenciesLoading || !activeGroup" />
             <div class="mt-3">
               <NodeGroupMultiSelect
                 :groups="nodeGroups.groups"
                 v-model="selectionFor(activeGroup).nodeGroupIds"
-                :disabled="formLoading"
+                :disabled="dependenciesLoading || !activeGroup"
               />
             </div>
           </div>
@@ -842,12 +862,12 @@ async function formatGenerated() {
                 <span class="label-text text-xs">{{ form.options.autoCountryGroups ? i18n.t('开启') : i18n.t('关闭') }}</span>
               </label>
             </div>
-            <NodeMultiSelect :nodes="allNodes" v-model="autoCountryNodeIds" :disabled="formLoading || !form.options.autoCountryGroups" />
+            <NodeMultiSelect :nodes="allNodes" v-model="autoCountryNodeIds" :disabled="dependenciesLoading || !form.options.autoCountryGroups" />
             <div class="mt-3">
               <NodeGroupMultiSelect
                 :groups="nodeGroups.groups"
                 v-model="autoCountrySelection().nodeGroupIds"
-                :disabled="formLoading || !form.options.autoCountryGroups"
+                :disabled="dependenciesLoading || !form.options.autoCountryGroups"
               />
             </div>
           </div>
@@ -860,12 +880,12 @@ async function formatGenerated() {
                 <span class="label-text text-xs">{{ form.options.chainProxy ? i18n.t('开启') : i18n.t('关闭') }}</span>
               </label>
             </div>
-            <NodeMultiSelect :nodes="allNodes" v-model="chainNodeIds" :disabled="formLoading || !form.options.chainProxy" />
+            <NodeMultiSelect :nodes="allNodes" v-model="chainNodeIds" :disabled="dependenciesLoading || !form.options.chainProxy" />
             <div class="mt-3">
               <NodeGroupMultiSelect
                 :groups="nodeGroups.groups"
                 v-model="chainSelection().nodeGroupIds"
-                :disabled="formLoading || !form.options.chainProxy"
+                :disabled="dependenciesLoading || !form.options.chainProxy"
               />
             </div>
           </div>

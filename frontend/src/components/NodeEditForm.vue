@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import type { Node } from '../api/types'
+import type { Node, NodeSummary } from '../api/types'
 import { useNodesStore } from '../stores/nodes'
 import { useSettingsStore } from '../stores/settings'
 import { useUiStore } from '../stores/ui'
@@ -8,7 +8,15 @@ import { useI18nStore } from '../stores/i18n'
 import { errMsg } from '../utils/error'
 import { COUNTRY_CODES, sortCountryOptions } from '../utils/countries'
 
-const props = defineProps<{ node: Node | null; copyFrom?: Node | null }>()
+type NodeFormMode = 'create' | 'edit' | 'copy'
+
+const props = defineProps<{
+  mode?: NodeFormMode
+  node: Node | null
+  copyFrom?: Node | null
+  summary?: NodeSummary | null
+  loading?: boolean
+}>()
 const emit = defineEmits<{ close: []; saved: [] }>()
 
 const nodesStore = useNodesStore()
@@ -75,13 +83,34 @@ const alpnText = computed({
 })
 
 const countryOptions = computed(() => sortCountryOptions(COUNTRY_CODES, settings.countryHeatOrder))
+const currentMode = computed<NodeFormMode>(() => props.mode ?? (props.node ? 'edit' : props.copyFrom ? 'copy' : 'create'))
 const formTitle = computed(() => {
-  if (props.node) return i18n.t('编辑节点')
-  if (props.copyFrom) return i18n.t('复制节点')
+  if (currentMode.value === 'edit') return i18n.t('编辑节点')
+  if (currentMode.value === 'copy') return i18n.t('复制节点')
   return i18n.t('新建节点')
 })
+const summaryLine = computed(() => {
+  const s = props.summary
+  if (!s) return ''
+  return [s.type, s.tag, `${s.server}:${s.server_port}`].filter(Boolean).join(' · ')
+})
+
+function resetPending() {
+  parseError.value = ''
+  for (const k of Object.keys(raw)) delete raw[k]
+  manualCountry.value = false
+  countryCode.value = ''
+}
 
 async function save() {
+  if (
+    props.loading ||
+    (currentMode.value === 'edit' && !props.node) ||
+    (currentMode.value === 'copy' && !props.copyFrom)
+  ) {
+    ui.info(i18n.t('正在加载节点...'))
+    return
+  }
   busy.value = true
   try {
     if (props.copyFrom && String(raw.tag ?? '').trim() === props.copyFrom.tag.trim()) {
@@ -103,7 +132,16 @@ async function save() {
     busy.value = false
   }
 }
-watch(() => [props.node, props.copyFrom], () => resetFrom(props.node ?? props.copyFrom ?? null), { immediate: true })
+watch(
+  () => [props.node, props.copyFrom, props.loading, currentMode.value, props.summary?.id],
+  () => {
+    const full = props.node ?? props.copyFrom ?? null
+    if (full) resetFrom(full)
+    else if (currentMode.value === 'create') resetFrom(null)
+    else resetPending()
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -115,7 +153,15 @@ watch(() => [props.node, props.copyFrom], () => resetFrom(props.node ?? props.co
         <span>{{ parseError }}</span>
       </div>
 
-      <div class="flex flex-col gap-3 max-h-[65vh] overflow-y-auto pr-1">
+      <div v-if="loading" class="alert py-2 mb-3">
+        <span class="loading loading-spinner loading-sm"></span>
+        <span class="text-sm">
+          {{ i18n.t('正在加载节点...') }}
+          <span v-if="summaryLine" class="opacity-70">· {{ summaryLine }}</span>
+        </span>
+      </div>
+
+      <fieldset class="flex flex-col gap-3 max-h-[65vh] overflow-y-auto pr-1" :disabled="loading" :class="{ 'opacity-60': loading }">
         <!-- header: type / tag / server / port -->
         <div class="grid grid-cols-2 gap-3">
           <label class="form-control">
@@ -359,12 +405,12 @@ watch(() => [props.node, props.copyFrom], () => resetFrom(props.node ?? props.co
             {{ c.code }} — {{ c.name }}
           </option>
         </select>
-      </div>
+      </fieldset>
 
       <div class="modal-action">
         <button class="btn" @click="emit('close')" :disabled="busy">{{ i18n.t('取消') }}</button>
-        <button class="btn btn-primary" @click="save" :disabled="busy || !!parseError">
-          <span v-if="busy" class="loading loading-spinner loading-sm"></span>
+        <button class="btn btn-primary" @click="save" :disabled="busy || loading || !!parseError">
+          <span v-if="busy || loading" class="loading loading-spinner loading-sm"></span>
           {{ i18n.t('保存') }}
         </button>
       </div>

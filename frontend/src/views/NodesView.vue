@@ -33,6 +33,7 @@ import {
 type NodeTab = 'single' | 'groups'
 type ViewMode = 'card' | 'list'
 type SortDir = 'asc' | 'desc'
+type NodeFormMode = 'create' | 'edit' | 'copy'
 type NodeSortKey = 'tag' | 'server' | 'type' | 'country' | 'source' | 'created_at' | 'updated_at'
 type GroupSortKey = 'name' | 'description' | 'nodes' | 'created_at' | 'updated_at'
 
@@ -48,6 +49,9 @@ const showImport = ref(false)
 const showEdit = ref(false)
 const editing = ref<Node | null>(null)
 const copyingNodeFrom = ref<Node | null>(null)
+const editingSummary = ref<NodeSummary | null>(null)
+const copyingSummaryFrom = ref<NodeSummary | null>(null)
+const nodeFormLoading = ref(false)
 const showGroupForm = ref(false)
 const editingGroup = ref<NodeGroup | null>(null)
 const copyingGroupFrom = ref<NodeGroup | null>(null)
@@ -62,6 +66,7 @@ const nodeSortDir = ref<SortDir>('asc')
 const groupSortKey = ref<GroupSortKey | ''>('')
 const groupSortDir = ref<SortDir>('asc')
 const groupForm = ref({ name: '', description: '', node_ids: [] as number[] })
+let nodeFormSeq = 0
 
 const loading = computed(() => {
   if (activeTab.value === 'single') return nodesStore.loading && !nodesStore.nodes.length
@@ -76,6 +81,11 @@ const allGroupsSelected = computed(
   () => nodeGroups.groups.length > 0 && nodeGroups.groups.every((g) => selectedGroups.value.has(g.id)),
 )
 const activeViewMode = computed(() => (activeTab.value === 'single' ? nodeViewMode.value : groupViewMode.value))
+const nodeFormMode = computed<NodeFormMode>(() => {
+  if (copyingNodeFrom.value || copyingSummaryFrom.value) return 'copy'
+  if (editing.value || editingSummary.value) return 'edit'
+  return 'create'
+})
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 const sortedNodes = computed(() => {
   if (!nodeSortKey.value) return nodesStore.nodes
@@ -149,51 +159,69 @@ function selectAllNodeGroups() {
 }
 
 function openCreate() {
+  nodeFormSeq++
   editing.value = null
   copyingNodeFrom.value = null
+  editingSummary.value = null
+  copyingSummaryFrom.value = null
+  nodeFormLoading.value = false
   showEdit.value = true
 }
-async function loadFullNode(n: NodeSummary): Promise<Node | null> {
-  try {
-    return await nodesStore.getOne(n.id)
-  } catch (e) {
-    ui.error(errMsg(e))
-    return null
-  }
+
+function prefetchNode(n: NodeSummary) {
+  void nodesStore.prefetchOne(n.id).catch(() => undefined)
 }
 
 async function openEdit(n: NodeSummary) {
-  if (busy.value) return
-  busy.value = true
+  const seq = ++nodeFormSeq
+  editing.value = null
+  copyingNodeFrom.value = null
+  editingSummary.value = n
+  copyingSummaryFrom.value = null
+  nodeFormLoading.value = true
+  showEdit.value = true
   try {
-    const full = await loadFullNode(n)
-    if (!full) return
+    const full = await nodesStore.getOne(n.id)
+    if (seq !== nodeFormSeq || !showEdit.value) return
     editing.value = full
-    copyingNodeFrom.value = null
-    showEdit.value = true
+  } catch (e) {
+    if (seq !== nodeFormSeq) return
+    ui.error(errMsg(e))
+    closeNodeForm()
   } finally {
-    busy.value = false
+    if (seq === nodeFormSeq) nodeFormLoading.value = false
   }
 }
 
 async function openCopy(n: NodeSummary) {
-  if (busy.value) return
-  busy.value = true
+  const seq = ++nodeFormSeq
+  editing.value = null
+  copyingNodeFrom.value = null
+  editingSummary.value = null
+  copyingSummaryFrom.value = n
+  nodeFormLoading.value = true
+  showEdit.value = true
   try {
-    const full = await loadFullNode(n)
-    if (!full) return
-    editing.value = null
+    const full = await nodesStore.getOne(n.id)
+    if (seq !== nodeFormSeq || !showEdit.value) return
     copyingNodeFrom.value = full
-    showEdit.value = true
+  } catch (e) {
+    if (seq !== nodeFormSeq) return
+    ui.error(errMsg(e))
+    closeNodeForm()
   } finally {
-    busy.value = false
+    if (seq === nodeFormSeq) nodeFormLoading.value = false
   }
 }
 
 function closeNodeForm() {
+  nodeFormSeq++
   showEdit.value = false
   editing.value = null
   copyingNodeFrom.value = null
+  editingSummary.value = null
+  copyingSummaryFrom.value = null
+  nodeFormLoading.value = false
 }
 
 function nodeLabel(id: number) {
@@ -553,6 +581,8 @@ async function exportLinks() {
             :selected="selected.has(n.id)"
             @copy="openCopy(n)"
             @edit="openEdit(n)"
+            @prefetch-copy="prefetchNode(n)"
+            @prefetch-edit="prefetchNode(n)"
             @remove="remove(n)"
             @toggle-select="toggleSelect(n.id)"
           />
@@ -596,8 +626,8 @@ async function exportLinks() {
                 <td class="whitespace-nowrap text-xs opacity-70" :title="n.updated_at">{{ formatDateTime(n.updated_at) }}</td>
                 <td class="text-right">
                   <div class="flex justify-end gap-1">
-                    <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('复制节点')" @click.stop="openCopy(n)"><DocumentDuplicateIcon class="h-4 w-4" /></button>
-                    <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('编辑节点')" @click.stop="openEdit(n)"><PencilSquareIcon class="h-4 w-4" /></button>
+                    <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('复制节点')" @pointerenter="prefetchNode(n)" @focus="prefetchNode(n)" @click.stop="openCopy(n)"><DocumentDuplicateIcon class="h-4 w-4" /></button>
+                    <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('编辑节点')" @pointerenter="prefetchNode(n)" @focus="prefetchNode(n)" @click.stop="openEdit(n)"><PencilSquareIcon class="h-4 w-4" /></button>
                     <button type="button" class="btn btn-xs btn-ghost text-error" :title="i18n.t('删除')" @click.stop="remove(n)"><TrashIcon class="h-4 w-4" /></button>
                   </div>
                 </td>
@@ -728,7 +758,15 @@ async function exportLinks() {
     </template>
 
     <ImportDialog v-if="showImport" @close="showImport = false" />
-    <NodeEditForm v-if="showEdit" :node="editing" :copy-from="copyingNodeFrom" @close="closeNodeForm" />
+    <NodeEditForm
+      v-if="showEdit"
+      :mode="nodeFormMode"
+      :node="editing"
+      :copy-from="copyingNodeFrom"
+      :summary="editingSummary || copyingSummaryFrom"
+      :loading="nodeFormLoading"
+      @close="closeNodeForm"
+    />
 
     <div v-if="showGroupForm" class="modal modal-open">
       <div class="modal-box max-w-2xl">

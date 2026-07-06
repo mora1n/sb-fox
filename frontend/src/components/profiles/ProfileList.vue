@@ -30,6 +30,9 @@ const emit = defineEmits<{
   create: []
   edit: [Profile]
   copy: [Profile]
+  'prefetch-create': []
+  'prefetch-edit': [Profile]
+  'prefetch-copy': [Profile]
   'view-config': [Profile]
 }>()
 
@@ -190,7 +193,12 @@ function onProfileSubscriptionEnabledChange(profile: Profile, event: Event) {
             <ListBulletIcon class="h-4 w-4" /> {{ i18n.t('列表') }}
           </button>
         </div>
-        <button class="btn btn-sm btn-primary" @click="emit('create')">
+        <button
+          class="btn btn-sm btn-primary"
+          @pointerenter="emit('prefetch-create')"
+          @focus="emit('prefetch-create')"
+          @click="emit('create')"
+        >
           <PlusIcon class="h-4 w-4" /> {{ i18n.t('新建订阅') }}
         </button>
       </div>
@@ -268,8 +276,8 @@ function onProfileSubscriptionEnabledChange(profile: Profile, event: Event) {
               >
                 <EyeIcon class="h-4 w-4" />
               </button>
-              <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('复制订阅')" @click.stop="emit('copy', p)"><DocumentDuplicateIcon class="h-4 w-4" /></button>
-              <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('编辑订阅')" @click.stop="emit('edit', p)"><PencilSquareIcon class="h-4 w-4" /></button>
+              <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('复制订阅')" @pointerenter="emit('prefetch-copy', p)" @focus="emit('prefetch-copy', p)" @click.stop="emit('copy', p)"><DocumentDuplicateIcon class="h-4 w-4" /></button>
+              <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('编辑订阅')" @pointerenter="emit('prefetch-edit', p)" @focus="emit('prefetch-edit', p)" @click.stop="emit('edit', p)"><PencilSquareIcon class="h-4 w-4" /></button>
               <button type="button" class="btn btn-xs btn-ghost text-error" :title="i18n.t('删除')" @click.stop="remove(p)"><TrashIcon class="h-4 w-4" /></button>
             </div>
           </div>
@@ -358,8 +366,8 @@ function onProfileSubscriptionEnabledChange(profile: Profile, event: Event) {
                 >
                   <EyeIcon class="h-4 w-4" />
                 </button>
-                <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('复制订阅')" @click.stop="emit('copy', p)"><DocumentDuplicateIcon class="h-4 w-4" /></button>
-                <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('编辑订阅')" @click.stop="emit('edit', p)"><PencilSquareIcon class="h-4 w-4" /></button>
+                <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('复制订阅')" @pointerenter="emit('prefetch-copy', p)" @focus="emit('prefetch-copy', p)" @click.stop="emit('copy', p)"><DocumentDuplicateIcon class="h-4 w-4" /></button>
+                <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('编辑订阅')" @pointerenter="emit('prefetch-edit', p)" @focus="emit('prefetch-edit', p)" @click.stop="emit('edit', p)"><PencilSquareIcon class="h-4 w-4" /></button>
                 <button type="button" class="btn btn-xs btn-ghost text-error" :title="i18n.t('删除')" @click.stop="remove(p)"><TrashIcon class="h-4 w-4" /></button>
               </div>
             </td>

@@ -34,7 +34,9 @@ export const useNodesStore = defineStore('nodes', () => {
   const queryCache = new Map<string, NodeSummary[]>()
   const queryInFlight = new Map<string, Promise<NodeSummary[]>>()
   const fullNodes = new Map<number, Node>()
+  const fullNodeInFlight = new Map<number, Promise<Node>>()
   let cacheVersion = 0
+  let detailVersion = 0
   let loadingToken = 0
 
   function buildQuery(): string {
@@ -114,9 +116,20 @@ export const useNodesStore = defineStore('nodes', () => {
 
   async function getOne(id: number, force = false): Promise<Node> {
     if (!force && fullNodes.has(id)) return fullNodes.get(id) as Node
-    const node = await get<Node>('/nodes/' + id)
-    fullNodes.set(id, node)
-    return node
+    if (!force && fullNodeInFlight.has(id)) return fullNodeInFlight.get(id) as Promise<Node>
+    const version = detailVersion
+    const req = get<Node>('/nodes/' + id).then((node) => {
+      if (version === detailVersion) fullNodes.set(id, node)
+      return node
+    }).finally(() => {
+      fullNodeInFlight.delete(id)
+    })
+    fullNodeInFlight.set(id, req)
+    return req
+  }
+
+  async function prefetchOne(id: number): Promise<void> {
+    await getOne(id)
   }
 
   function invalidateListCache(): void {
@@ -132,6 +145,8 @@ export const useNodesStore = defineStore('nodes', () => {
     unfilteredNodes.value = unfilteredNodes.value.filter((n) => n.id !== id)
     summaryNodes.value = summaryNodes.value.filter((n) => n.id !== id)
     fullNodes.delete(id)
+    fullNodeInFlight.delete(id)
+    detailVersion++
     for (const [key, items] of queryCache) {
       queryCache.set(key, items.filter((n) => n.id !== id))
     }
@@ -149,6 +164,7 @@ export const useNodesStore = defineStore('nodes', () => {
 
   async function create(input: NodeInput): Promise<Node> {
     const n = await post<Node>('/nodes', input)
+    detailVersion++
     fullNodes.set(n.id, n)
     await refreshAfterMutation()
     return n
@@ -156,7 +172,9 @@ export const useNodesStore = defineStore('nodes', () => {
 
   async function update(id: number, input: NodeInput): Promise<Node> {
     const n = await put<Node>('/nodes/' + id, input)
+    detailVersion++
     fullNodes.set(n.id, n)
+    fullNodeInFlight.delete(id)
     await refreshAfterMutation()
     return n
   }
@@ -222,10 +240,12 @@ export const useNodesStore = defineStore('nodes', () => {
     unfilteredLoaded.value = false
     summaryLoaded.value = false
     cacheVersion++
+    detailVersion++
     loadingToken++
     queryCache.clear()
     queryInFlight.clear()
     fullNodes.clear()
+    fullNodeInFlight.clear()
   }
 
   return {
@@ -240,6 +260,7 @@ export const useNodesStore = defineStore('nodes', () => {
     fetchUnfiltered,
     fetchSummary,
     getOne,
+    prefetchOne,
     create,
     update,
     remove,

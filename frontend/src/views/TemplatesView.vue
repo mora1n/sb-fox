@@ -46,11 +46,15 @@ const copyingFrom = ref<TemplateSummary | null>(null)
 const formName = ref('')
 const formDesc = ref('')
 const formContent = ref('')
+const formLoading = ref(false)
+const structureLoading = ref(false)
 const busy = ref(false)
 const templateViewMode = ref<ViewMode>(readViewPref('sb-fox-view:templates', 'card', VIEW_MODES))
 const selectedTemplates = ref<Set<number>>(new Set())
 const templateSortKey = ref<TemplateSortKey | ''>('')
 const templateSortDir = ref<SortDir>('asc')
+let formSeq = 0
+let structureSeq = 0
 
 const selectableTemplates = computed(() => store.templates.filter((t) => t.kind === 'user'))
 const allTemplatesSelected = computed(
@@ -136,12 +140,29 @@ async function view(t: TemplateSummary) {
 }
 
 async function editStructure(t: TemplateSummary) {
+  const seq = ++structureSeq
+  structure.value = null
+  structureFor.value = t
+  structureLoading.value = true
   try {
-    structure.value = await store.structure(t.id)
-    structureFor.value = t
+    const next = await store.structure(t.id)
+    if (seq !== structureSeq || structureFor.value?.id !== t.id) return
+    structure.value = next
   } catch (e) {
+    if (seq !== structureSeq) return
     ui.error(errMsg(e))
+    closeStructure()
+  } finally {
+    if (seq === structureSeq) structureLoading.value = false
   }
+}
+
+function prefetchTemplate(t: TemplateSummary) {
+  void store.prefetchOne(t.id).catch(() => undefined)
+}
+
+function prefetchStructure(t: TemplateSummary) {
+  void store.prefetchStructure(t.id).catch(() => undefined)
 }
 
 async function exportTemplate(t: TemplateSummary) {
@@ -154,47 +175,81 @@ async function exportTemplate(t: TemplateSummary) {
 }
 
 function openImport() {
+  formSeq++
   editing.value = null
   copyingFrom.value = null
   formName.value = ''
   formDesc.value = ''
   formContent.value = ''
+  formLoading.value = false
   showForm.value = true
 }
 
 async function openEdit(t: TemplateSummary) {
+  const seq = ++formSeq
   editing.value = t
   copyingFrom.value = null
+  formName.value = t.name
+  formDesc.value = t.description
+  formContent.value = ''
+  formLoading.value = true
+  showForm.value = true
   try {
     const full = await store.getOne(t.id)
+    if (seq !== formSeq || !showForm.value) return
     formName.value = full.name
     formDesc.value = full.description
     formContent.value = full.content
-    showForm.value = true
   } catch (e) {
+    if (seq !== formSeq) return
     ui.error(errMsg(e))
+    closeForm()
+  } finally {
+    if (seq === formSeq) formLoading.value = false
   }
 }
 
 async function openCopy(t: TemplateSummary) {
+  const seq = ++formSeq
   editing.value = null
   copyingFrom.value = t
+  formName.value = t.name
+  formDesc.value = t.description
+  formContent.value = ''
+  formLoading.value = true
+  showForm.value = true
   try {
     const full = await store.getOne(t.id)
+    if (seq !== formSeq || !showForm.value) return
     copyingFrom.value = full
     formName.value = full.name
     formDesc.value = full.description
     formContent.value = full.content
-    showForm.value = true
   } catch (e) {
+    if (seq !== formSeq) return
     ui.error(errMsg(e))
+    closeForm()
+  } finally {
+    if (seq === formSeq) formLoading.value = false
   }
 }
 
 function closeForm() {
+  formSeq++
   showForm.value = false
   editing.value = null
   copyingFrom.value = null
+  formLoading.value = false
+}
+
+function closeStructure() {
+  structureSeq++
+  structure.value = null
+  structureFor.value = null
+  structureLoading.value = false
+  dragIndex.value = null
+  groupPressedIndex.value = null
+  groupInsertIndex.value = null
 }
 
 function onFile(e: Event) {
@@ -216,6 +271,7 @@ function templateImportMessage(action: string, imported: number, deduped = 0) {
 }
 
 async function submitForm() {
+  if (formLoading.value) return ui.info(i18n.t('正在加载模板...'))
   busy.value = true
   try {
     JSON.parse(formContent.value)
@@ -253,11 +309,7 @@ async function saveStructure() {
   busy.value = true
   try {
     await store.saveStructure(structureFor.value.id, structure.value)
-    structure.value = null
-    structureFor.value = null
-    dragIndex.value = null
-    groupPressedIndex.value = null
-    groupInsertIndex.value = null
+    closeStructure()
     ui.success('分组管理已保存')
   } catch (e) {
     ui.error(errMsg(e))
@@ -551,11 +603,11 @@ async function remove(t: TemplateSummary) {
             <div class="truncate" :title="formatDateTime(t.updated_at)">{{ i18n.t('修改时间') }}: {{ formatDateTime(t.updated_at) }}</div>
           </div>
           <div class="flex gap-1 justify-end">
-            <button type="button" class="btn btn-xs btn-ghost" @click.stop="view(t)" :title="i18n.t('查看')"><EyeIcon class="h-4 w-4" /></button>
-            <button type="button" class="btn btn-xs btn-ghost" @click.stop="editStructure(t)" :title="i18n.t('分组管理')"><RectangleGroupIcon class="h-4 w-4" /></button>
+            <button type="button" class="btn btn-xs btn-ghost" @pointerenter="prefetchTemplate(t)" @focus="prefetchTemplate(t)" @click.stop="view(t)" :title="i18n.t('查看')"><EyeIcon class="h-4 w-4" /></button>
+            <button type="button" class="btn btn-xs btn-ghost" @pointerenter="prefetchStructure(t)" @focus="prefetchStructure(t)" @click.stop="editStructure(t)" :title="i18n.t('分组管理')"><RectangleGroupIcon class="h-4 w-4" /></button>
             <button type="button" class="btn btn-xs btn-ghost" @click.stop="exportTemplate(t)" :title="i18n.t('导出')"><ArrowDownTrayIcon class="h-4 w-4" /></button>
-            <button type="button" class="btn btn-xs btn-ghost" @click.stop="openCopy(t)" :title="i18n.t('复制模板')"><DocumentDuplicateIcon class="h-4 w-4" /></button>
-            <button v-if="t.kind === 'user'" type="button" class="btn btn-xs btn-ghost" @click.stop="openEdit(t)" :title="i18n.t('编辑模板')"><PencilSquareIcon class="h-4 w-4" /></button>
+            <button type="button" class="btn btn-xs btn-ghost" @pointerenter="prefetchTemplate(t)" @focus="prefetchTemplate(t)" @click.stop="openCopy(t)" :title="i18n.t('复制模板')"><DocumentDuplicateIcon class="h-4 w-4" /></button>
+            <button v-if="t.kind === 'user'" type="button" class="btn btn-xs btn-ghost" @pointerenter="prefetchTemplate(t)" @focus="prefetchTemplate(t)" @click.stop="openEdit(t)" :title="i18n.t('编辑模板')"><PencilSquareIcon class="h-4 w-4" /></button>
             <button v-if="t.kind === 'user'" type="button" class="btn btn-xs btn-ghost text-error" @click.stop="remove(t)" :title="i18n.t('删除')"><TrashIcon class="h-4 w-4" /></button>
           </div>
         </div>
@@ -600,11 +652,11 @@ async function remove(t: TemplateSummary) {
             <td class="whitespace-nowrap text-xs opacity-70" :title="t.updated_at">{{ formatDateTime(t.updated_at) }}</td>
             <td>
               <div class="flex gap-1 justify-end">
-                <button type="button" class="btn btn-xs btn-ghost" @click.stop="view(t)" :title="i18n.t('查看')"><EyeIcon class="h-4 w-4" /></button>
-                <button type="button" class="btn btn-xs btn-ghost" @click.stop="editStructure(t)" :title="i18n.t('分组管理')"><RectangleGroupIcon class="h-4 w-4" /></button>
+                <button type="button" class="btn btn-xs btn-ghost" @pointerenter="prefetchTemplate(t)" @focus="prefetchTemplate(t)" @click.stop="view(t)" :title="i18n.t('查看')"><EyeIcon class="h-4 w-4" /></button>
+                <button type="button" class="btn btn-xs btn-ghost" @pointerenter="prefetchStructure(t)" @focus="prefetchStructure(t)" @click.stop="editStructure(t)" :title="i18n.t('分组管理')"><RectangleGroupIcon class="h-4 w-4" /></button>
                 <button type="button" class="btn btn-xs btn-ghost" @click.stop="exportTemplate(t)" :title="i18n.t('导出')"><ArrowDownTrayIcon class="h-4 w-4" /></button>
-                <button type="button" class="btn btn-xs btn-ghost" @click.stop="openCopy(t)" :title="i18n.t('复制模板')"><DocumentDuplicateIcon class="h-4 w-4" /></button>
-                <button v-if="t.kind === 'user'" type="button" class="btn btn-xs btn-ghost" @click.stop="openEdit(t)" :title="i18n.t('编辑模板')"><PencilSquareIcon class="h-4 w-4" /></button>
+                <button type="button" class="btn btn-xs btn-ghost" @pointerenter="prefetchTemplate(t)" @focus="prefetchTemplate(t)" @click.stop="openCopy(t)" :title="i18n.t('复制模板')"><DocumentDuplicateIcon class="h-4 w-4" /></button>
+                <button v-if="t.kind === 'user'" type="button" class="btn btn-xs btn-ghost" @pointerenter="prefetchTemplate(t)" @focus="prefetchTemplate(t)" @click.stop="openEdit(t)" :title="i18n.t('编辑模板')"><PencilSquareIcon class="h-4 w-4" /></button>
                 <button v-if="t.kind === 'user'" type="button" class="btn btn-xs btn-ghost text-error" @click.stop="remove(t)" :title="i18n.t('删除')"><TrashIcon class="h-4 w-4" /></button>
               </div>
             </td>
@@ -622,150 +674,160 @@ async function remove(t: TemplateSummary) {
       <div class="modal-backdrop" @click="viewing = null"></div>
     </div>
 
-    <div v-if="structure" class="modal modal-open">
+    <div v-if="structureFor" class="modal modal-open">
       <div class="modal-box max-w-5xl">
         <div class="flex items-center justify-between gap-2 mb-3">
           <h3 class="font-bold text-lg">{{ i18n.t('分组管理') }} · {{ structureFor?.name }}</h3>
         </div>
-        <label class="form-control max-w-sm mb-4">
-          <span class="label-text mb-1">{{ i18n.t('最终出口') }}</span>
-          <select v-model="structure.final" class="select select-bordered select-sm">
-            <option value="">{{ i18n.t('使用 sing-box 默认') }}</option>
-            <option v-for="tag in finalOutboundOptions" :key="tag" :value="tag">{{ tag }}</option>
-          </select>
-        </label>
-        <div v-if="!structure.groups.length" class="opacity-60 text-sm">{{ i18n.t('未检测到 selector/urltest 分组。') }}</div>
-        <div
-          v-else
-          class="sort-list flex flex-col gap-3 max-h-[62vh] overflow-y-auto pr-1"
-          @dragover.prevent="onDragOver"
-          @drop.prevent="onDrop"
-          @dragleave="leaveGroupList"
-        >
+        <div v-if="structureLoading && !structure" class="alert py-2 mb-3">
+          <span class="loading loading-spinner loading-sm"></span>
+          <span class="text-sm">{{ i18n.t('正在加载模板分组...') }}</span>
+        </div>
+        <template v-if="structure">
+          <label class="form-control max-w-sm mb-4">
+            <span class="label-text mb-1">{{ i18n.t('最终出口') }}</span>
+            <select v-model="structure.final" class="select select-bordered select-sm">
+              <option value="">{{ i18n.t('使用 sing-box 默认') }}</option>
+              <option v-for="tag in finalOutboundOptions" :key="tag" :value="tag">{{ tag }}</option>
+            </select>
+          </label>
+          <div v-if="!structure.groups.length" class="opacity-60 text-sm">{{ i18n.t('未检测到 selector/urltest 分组。') }}</div>
           <div
-            v-for="(g, i) in structure.groups"
-            :key="g.tag + ':' + i"
-            class="sort-item border border-base-300 border-y-2 rounded-box bg-base-100 p-3 hover:bg-base-200/50"
-            :class="{
-              'is-pressed': groupPressedIndex === i && dragIndex === null,
-              'is-dragging ring-1 ring-base-content/30': dragIndex === i,
-              'is-insert-before': groupInsertIndex === i,
-              'is-insert-after': groupInsertIndex === i + 1,
-            }"
-            :data-group-index="i"
-            draggable="true"
-            @pointerdown="pressGroup(i, $event)"
-            @pointerup="clearGroupPress"
-            @pointercancel="clearGroupPress"
-            @pointerleave="clearGroupPress"
-            @dragstart="onDragStart(i, $event)"
-            @dragend="clearGroupDrag"
+            v-else
+            class="sort-list flex flex-col gap-3 max-h-[62vh] overflow-y-auto pr-1"
+            @dragover.prevent="onDragOver"
+            @drop.prevent="onDrop"
+            @dragleave="leaveGroupList"
           >
-            <div class="grid grid-cols-1 lg:grid-cols-[32px_minmax(160px,1fr)_120px_minmax(180px,1fr)_160px_64px] gap-2 items-start">
-              <div class="flex items-center gap-1">
-                <span
-                  class="grid h-7 w-7 place-items-center text-base-content/60"
-                  :title="i18n.t('拖拽排序')"
-                >
-                  <Bars3Icon class="h-4 w-4" />
-                </span>
-              </div>
-              <label class="form-control">
-                <span class="label-text mb-1">{{ i18n.t('标签') }}</span>
-                <input v-model="g.tag" class="input input-bordered input-sm" disabled />
-              </label>
-              <label class="form-control">
-                <span class="label-text mb-1">{{ i18n.t('类型') }}</span>
-                <select v-model="g.type" class="select select-bordered select-sm">
-                  <option value="selector">selector</option>
-                  <option value="urltest">urltest</option>
-                </select>
-              </label>
-              <div class="form-control">
-                <span class="label-text mb-1 flex items-center justify-between gap-2">
-                  <span>{{ i18n.t('出口') }}</span>
-                  <span class="flex gap-1">
-                    <button
-                      class="btn btn-xs min-h-0 h-5 px-1.5 text-[10px]"
-                      type="button"
-                      :disabled="!outboundOptions(g).length || allOutboundsSelected(g)"
-                      @click="selectAllOutbounds(g)"
-                    >
-                      {{ i18n.t('全选') }}
-                    </button>
-                    <button
-                      class="btn btn-xs min-h-0 h-5 px-1.5 text-[10px]"
-                      type="button"
-                      :disabled="!g.outbounds.length"
-                      @click="clearOutbounds(g)"
-                    >
-                      {{ i18n.t('全不选') }}
-                    </button>
-                  </span>
-                </span>
-                <div class="border border-base-300 rounded-box max-h-28 overflow-y-auto divide-y divide-base-200 bg-base-100">
-                  <label
-                    v-for="tag in outboundOptions(g)"
-                    :key="tag"
-                    class="flex items-center gap-2 px-2 py-1.5 cursor-pointer hover:bg-base-200"
+            <div
+              v-for="(g, i) in structure.groups"
+              :key="g.tag + ':' + i"
+              class="sort-item border border-base-300 border-y-2 rounded-box bg-base-100 p-3 hover:bg-base-200/50"
+              :class="{
+                'is-pressed': groupPressedIndex === i && dragIndex === null,
+                'is-dragging ring-1 ring-base-content/30': dragIndex === i,
+                'is-insert-before': groupInsertIndex === i,
+                'is-insert-after': groupInsertIndex === i + 1,
+              }"
+              :data-group-index="i"
+              draggable="true"
+              @pointerdown="pressGroup(i, $event)"
+              @pointerup="clearGroupPress"
+              @pointercancel="clearGroupPress"
+              @pointerleave="clearGroupPress"
+              @dragstart="onDragStart(i, $event)"
+              @dragend="clearGroupDrag"
+            >
+              <div class="grid grid-cols-1 lg:grid-cols-[32px_minmax(160px,1fr)_120px_minmax(180px,1fr)_160px_64px] gap-2 items-start">
+                <div class="flex items-center gap-1">
+                  <span
+                    class="grid h-7 w-7 place-items-center text-base-content/60"
+                    :title="i18n.t('拖拽排序')"
                   >
-                    <input
-                      type="checkbox"
-                      class="checkbox checkbox-xs"
-                      :checked="g.outbounds.includes(tag)"
-                      @change="toggleOutbound(g, tag)"
-                    />
-                    <span class="truncate text-xs" :title="tag">{{ tag }}</span>
-                  </label>
-                  <div v-if="!outboundOptions(g).length" class="px-2 py-3 text-xs opacity-60 text-center">
-                    {{ i18n.t('无可选出口') }}
+                    <Bars3Icon class="h-4 w-4" />
+                  </span>
+                </div>
+                <label class="form-control">
+                  <span class="label-text mb-1">{{ i18n.t('标签') }}</span>
+                  <input v-model="g.tag" class="input input-bordered input-sm" disabled />
+                </label>
+                <label class="form-control">
+                  <span class="label-text mb-1">{{ i18n.t('类型') }}</span>
+                  <select v-model="g.type" class="select select-bordered select-sm">
+                    <option value="selector">selector</option>
+                    <option value="urltest">urltest</option>
+                  </select>
+                </label>
+                <div class="form-control">
+                  <span class="label-text mb-1 flex items-center justify-between gap-2">
+                    <span>{{ i18n.t('出口') }}</span>
+                    <span class="flex gap-1">
+                      <button
+                        class="btn btn-xs min-h-0 h-5 px-1.5 text-[10px]"
+                        type="button"
+                        :disabled="!outboundOptions(g).length || allOutboundsSelected(g)"
+                        @click="selectAllOutbounds(g)"
+                      >
+                        {{ i18n.t('全选') }}
+                      </button>
+                      <button
+                        class="btn btn-xs min-h-0 h-5 px-1.5 text-[10px]"
+                        type="button"
+                        :disabled="!g.outbounds.length"
+                        @click="clearOutbounds(g)"
+                      >
+                        {{ i18n.t('全不选') }}
+                      </button>
+                    </span>
+                  </span>
+                  <div class="border border-base-300 rounded-box max-h-28 overflow-y-auto divide-y divide-base-200 bg-base-100">
+                    <label
+                      v-for="tag in outboundOptions(g)"
+                      :key="tag"
+                      class="flex items-center gap-2 px-2 py-1.5 cursor-pointer hover:bg-base-200"
+                    >
+                      <input
+                        type="checkbox"
+                        class="checkbox checkbox-xs"
+                        :checked="g.outbounds.includes(tag)"
+                        @change="toggleOutbound(g, tag)"
+                      />
+                      <span class="truncate text-xs" :title="tag">{{ tag }}</span>
+                    </label>
+                    <div v-if="!outboundOptions(g).length" class="px-2 py-3 text-xs opacity-60 text-center">
+                      {{ i18n.t('无可选出口') }}
+                    </div>
                   </div>
                 </div>
-              </div>
-              <label class="form-control">
-                <span class="label-text mb-1">{{ i18n.t('默认出口') }}</span>
-                <select v-model="g.default" class="select select-bordered select-sm" :disabled="g.outbounds.length <= 1">
-                  <option value="">{{ i18n.t('未指定') }}</option>
-                  <option v-for="tag in g.outbounds" :key="tag" :value="tag">{{ tag }}</option>
-                </select>
-              </label>
-              <div class="join pt-6">
-                <button
-                  class="btn btn-xs btn-square join-item"
-                  type="button"
-                  :title="i18n.t('上移')"
-                  :disabled="i === 0"
-                  @click="moveGroup(i, -1)"
-                >
-                  <ChevronUpIcon class="h-3 w-3" />
-                </button>
-                <button
-                  class="btn btn-xs btn-square join-item"
-                  type="button"
-                  :title="i18n.t('下移')"
-                  :disabled="i === structure.groups.length - 1"
-                  @click="moveGroup(i, 1)"
-                >
-                  <ChevronDownIcon class="h-3 w-3" />
-                </button>
+                <label class="form-control">
+                  <span class="label-text mb-1">{{ i18n.t('默认出口') }}</span>
+                  <select v-model="g.default" class="select select-bordered select-sm" :disabled="g.outbounds.length <= 1">
+                    <option value="">{{ i18n.t('未指定') }}</option>
+                    <option v-for="tag in g.outbounds" :key="tag" :value="tag">{{ tag }}</option>
+                  </select>
+                </label>
+                <div class="join pt-6">
+                  <button
+                    class="btn btn-xs btn-square join-item"
+                    type="button"
+                    :title="i18n.t('上移')"
+                    :disabled="i === 0"
+                    @click="moveGroup(i, -1)"
+                  >
+                    <ChevronUpIcon class="h-3 w-3" />
+                  </button>
+                  <button
+                    class="btn btn-xs btn-square join-item"
+                    type="button"
+                    :title="i18n.t('下移')"
+                    :disabled="i === structure.groups.length - 1"
+                    @click="moveGroup(i, 1)"
+                  >
+                    <ChevronDownIcon class="h-3 w-3" />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        </template>
         <div class="modal-action">
-          <button class="btn" @click="structure = null" :disabled="busy">{{ i18n.t('取消') }}</button>
-          <button class="btn btn-primary" @click="saveStructure" :disabled="busy">
-            <span v-if="busy" class="loading loading-spinner loading-sm"></span> {{ i18n.t('保存') }}
+          <button class="btn" @click="closeStructure" :disabled="busy">{{ i18n.t('取消') }}</button>
+          <button class="btn btn-primary" @click="saveStructure" :disabled="busy || structureLoading || !structure">
+            <span v-if="busy || structureLoading" class="loading loading-spinner loading-sm"></span> {{ i18n.t('保存') }}
           </button>
         </div>
       </div>
-      <div class="modal-backdrop" @click="structure = null"></div>
+      <div class="modal-backdrop" @click="closeStructure"></div>
     </div>
 
     <div v-if="showForm" class="modal modal-open">
       <div class="modal-box max-w-2xl">
         <h3 class="font-bold text-lg mb-3">{{ formTitle }}</h3>
-        <div class="flex flex-col gap-3">
+        <div v-if="formLoading" class="alert py-2 mb-3">
+          <span class="loading loading-spinner loading-sm"></span>
+          <span class="text-sm">{{ i18n.t('正在加载模板...') }}</span>
+        </div>
+        <fieldset class="flex flex-col gap-3" :disabled="formLoading" :class="{ 'opacity-60': formLoading }">
           <label v-if="!editing" class="form-control">
             <span class="label-text mb-1">{{ i18n.t('名称') }}</span>
             <input v-model="formName" class="input input-bordered input-sm" />
@@ -782,11 +844,11 @@ async function remove(t: TemplateSummary) {
             <span class="label-text mb-1">{{ i18n.t('模板内容') }}</span>
             <textarea v-model="formContent" class="textarea textarea-bordered h-56 mono text-xs" placeholder='{ "outbounds": [ ... ] }'></textarea>
           </label>
-        </div>
+        </fieldset>
         <div class="modal-action">
           <button class="btn" @click="closeForm" :disabled="busy">{{ i18n.t('取消') }}</button>
-          <button class="btn btn-primary" @click="submitForm" :disabled="busy">
-            <span v-if="busy" class="loading loading-spinner loading-sm"></span> {{ i18n.t('保存') }}
+          <button class="btn btn-primary" @click="submitForm" :disabled="busy || formLoading">
+            <span v-if="busy || formLoading" class="loading loading-spinner loading-sm"></span> {{ i18n.t('保存') }}
           </button>
         </div>
       </div>
