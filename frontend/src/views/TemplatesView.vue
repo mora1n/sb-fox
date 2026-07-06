@@ -55,6 +55,7 @@ const selectedTemplates = ref<Set<number>>(new Set())
 const bulkDeleteDialog = ref({
   open: false,
   ids: [] as number[],
+  itemName: '',
   busy: false,
 })
 const templateSortKey = ref<TemplateSortKey | ''>('')
@@ -493,12 +494,12 @@ function selectAllTemplates() {
 async function removeSelectedTemplates() {
   const ids = selectableTemplates.value.filter((t) => selectedTemplates.value.has(t.id)).map((t) => t.id)
   if (!ids.length) return ui.info('请先选择模板')
-  bulkDeleteDialog.value = { open: true, ids, busy: false }
+  bulkDeleteDialog.value = { open: true, ids, itemName: '', busy: false }
 }
 
 function closeBulkDeleteDialog() {
   if (bulkDeleteDialog.value.busy) return
-  bulkDeleteDialog.value = { ...bulkDeleteDialog.value, open: false }
+  bulkDeleteDialog.value = { ...bulkDeleteDialog.value, open: false, itemName: '' }
 }
 
 async function confirmBulkDelete() {
@@ -508,9 +509,9 @@ async function confirmBulkDelete() {
   busy.value = true
   try {
     const deleted = await store.bulkDelete(ids)
-    selectedTemplates.value = new Set()
+    selectedTemplates.value = removeSelectedIDs(selectedTemplates.value, ids)
     ui.success(`已删除 ${deleted} 个模板`)
-    bulkDeleteDialog.value = { ...bulkDeleteDialog.value, open: false, busy: false }
+    bulkDeleteDialog.value = { ...bulkDeleteDialog.value, open: false, itemName: '', busy: false }
   } catch (e) {
     ui.error(errMsg(e))
     bulkDeleteDialog.value = { ...bulkDeleteDialog.value, busy: false }
@@ -519,16 +520,14 @@ async function confirmBulkDelete() {
   }
 }
 
-async function remove(t: TemplateSummary) {
-  if (!confirm(`删除模板 "${t.name}"？`)) return
-  try {
-    await store.remove(t.id)
-    selectedTemplates.value.delete(t.id)
-    selectedTemplates.value = new Set(selectedTemplates.value)
-    ui.success('模板已删除')
-  } catch (e) {
-    ui.error(errMsg(e))
-  }
+function remove(t: TemplateSummary) {
+  bulkDeleteDialog.value = { open: true, ids: [t.id], itemName: t.name, busy: false }
+}
+
+function removeSelectedIDs(current: Set<number>, ids: number[]) {
+  const next = new Set(current)
+  for (const id of ids) next.delete(id)
+  return next
 }
 </script>
 
@@ -689,6 +688,7 @@ async function remove(t: TemplateSummary) {
       :title="i18n.t('删除模板')"
       :item-label="i18n.t('个模板')"
       :count="bulkDeleteDialog.ids.length"
+      :item-name="bulkDeleteDialog.itemName"
       :busy="bulkDeleteDialog.busy"
       @close="closeBulkDeleteDialog"
       @confirm="confirmBulkDelete"

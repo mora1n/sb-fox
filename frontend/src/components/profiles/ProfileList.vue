@@ -49,6 +49,7 @@ const selectedProfiles = ref<Set<number>>(new Set())
 const bulkDeleteDialog = ref({
   open: false,
   ids: [] as number[],
+  itemName: '',
   busy: false,
 })
 const profileSortKey = ref<ProfileSortKey | ''>('')
@@ -128,12 +129,12 @@ function selectAllProfiles() {
 async function removeSelectedProfiles() {
   const ids = store.profiles.filter((p) => selectedProfiles.value.has(p.id)).map((p) => p.id)
   if (!ids.length) return ui.info('请先选择订阅')
-  bulkDeleteDialog.value = { open: true, ids, busy: false }
+  bulkDeleteDialog.value = { open: true, ids, itemName: '', busy: false }
 }
 
 function closeBulkDeleteDialog() {
   if (bulkDeleteDialog.value.busy) return
-  bulkDeleteDialog.value = { ...bulkDeleteDialog.value, open: false }
+  bulkDeleteDialog.value = { ...bulkDeleteDialog.value, open: false, itemName: '' }
 }
 
 async function confirmBulkDelete() {
@@ -143,9 +144,9 @@ async function confirmBulkDelete() {
   busy.value = true
   try {
     const deleted = await store.bulkDelete(ids)
-    selectedProfiles.value = new Set()
+    selectedProfiles.value = removeSelectedIDs(selectedProfiles.value, ids)
     ui.success(`已删除 ${deleted} 个订阅`)
-    bulkDeleteDialog.value = { ...bulkDeleteDialog.value, open: false, busy: false }
+    bulkDeleteDialog.value = { ...bulkDeleteDialog.value, open: false, itemName: '', busy: false }
   } catch (e) {
     ui.error(errMsg(e))
     bulkDeleteDialog.value = { ...bulkDeleteDialog.value, busy: false }
@@ -154,16 +155,14 @@ async function confirmBulkDelete() {
   }
 }
 
-async function remove(p: Profile) {
-  if (!confirm(`删除订阅 "${p.name}"？`)) return
-  try {
-    await store.remove(p.id)
-    selectedProfiles.value.delete(p.id)
-    selectedProfiles.value = new Set(selectedProfiles.value)
-    ui.success('订阅已删除')
-  } catch (e) {
-    ui.error(errMsg(e))
-  }
+function remove(p: Profile) {
+  bulkDeleteDialog.value = { open: true, ids: [p.id], itemName: p.name, busy: false }
+}
+
+function removeSelectedIDs(current: Set<number>, ids: number[]) {
+  const next = new Set(current)
+  for (const id of ids) next.delete(id)
+  return next
 }
 
 async function setProfileSubscriptionEnabled(profile: Profile, enabled: boolean) {
@@ -399,6 +398,7 @@ function onProfileSubscriptionEnabledChange(profile: Profile, event: Event) {
       :title="i18n.t('删除订阅')"
       :item-label="i18n.t('个订阅')"
       :count="bulkDeleteDialog.ids.length"
+      :item-name="bulkDeleteDialog.itemName"
       :busy="bulkDeleteDialog.busy"
       @close="closeBulkDeleteDialog"
       @confirm="confirmBulkDelete"

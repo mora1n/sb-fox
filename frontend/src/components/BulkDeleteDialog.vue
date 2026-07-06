@@ -7,6 +7,7 @@ const props = defineProps<{
   title: string
   itemLabel: string
   count: number
+  itemName?: string
   loadingPreview?: boolean
   previewError?: string
   affectedNames?: string[]
@@ -28,7 +29,12 @@ const confirmDisabled = computed(() => props.busy || props.loadingPreview || !!p
     <div class="modal-box max-w-lg">
       <h3 class="font-bold text-lg">{{ title }}</h3>
       <p class="py-3 text-sm opacity-80">
-        {{ i18n.t('确认删除') }} <span class="font-semibold">{{ count }}</span> {{ itemLabel }}？
+        <template v-if="itemName">
+          {{ i18n.t('确认删除') }} <span class="font-semibold break-all">「{{ itemName }}」</span>？
+        </template>
+        <template v-else>
+          {{ i18n.t('确认删除') }} <span class="font-semibold">{{ count }}</span> {{ itemLabel }}？
+        </template>
       </p>
 
       <div v-if="loadingPreview" class="alert bg-base-200 border border-base-300">
