@@ -76,22 +76,41 @@ func clashProxyOutbound(p map[string]any) (*merge.OrderedMap, error) {
 		return clashVLESS(p)
 	case "trojan":
 		return clashTrojan(p)
-	case "hysteria2", "hy2", "hysteria":
+	case "hysteria":
+		return clashHysteria(p)
+	case "hysteria2", "hy2":
 		return clashHysteria2(p)
 	case "tuic":
 		return clashTUIC(p)
+	case "anytls":
+		return clashAnyTLS(p)
+	case "shadowtls":
+		return clashShadowTLS(p)
+	case "http", "https":
+		return clashHTTP(p, typ == "https")
+	case "socks", "socks5", "socks4", "socks4a":
+		return clashSOCKS(p, typ)
 	case "naive":
 		return clashNaive(p)
 	case "ssr":
 		return nil, fmt.Errorf("ssr is recognized but not converted to sing-box")
+	case "wireguard", "wg":
+		return nil, fmt.Errorf("wireguard is recognized but not converted because sing-box 1.13 uses endpoints instead of outbounds")
 	default:
 		return nil, fmt.Errorf("unsupported proxy type %q", typ)
 	}
 }
 
 func clashBase(p map[string]any, typ string) (*merge.OrderedMap, error) {
+	return clashBaseWithDefault(p, typ, 0)
+}
+
+func clashBaseWithDefault(p map[string]any, typ string, defaultPort int) (*merge.OrderedMap, error) {
 	server := cleanServer(clashString(p, "server"))
 	port := clashString(p, "port")
+	if port == "" && defaultPort > 0 {
+		port = strconv.Itoa(defaultPort)
+	}
 	pn, err := portNumber(port)
 	if err != nil {
 		return nil, err
@@ -170,12 +189,57 @@ func clashTrojan(p map[string]any) (*merge.OrderedMap, error) {
 	return out, nil
 }
 
+func clashHysteria(p map[string]any) (*merge.OrderedMap, error) {
+	out, err := clashBaseWithDefault(p, "hysteria", 443)
+	if err != nil {
+		return nil, err
+	}
+	if ports := clashStringAny(p, "ports", "mport", "server_ports", "server-ports"); ports != "" {
+		out.Set("server_ports", []any{ports})
+	}
+	setStringIfPresent(out, "hop_interval", clashStringAny(p, "hop-interval", "hop_interval"))
+	setStringIfPresent(out, "up", clashString(p, "up"))
+	setStringIfPresent(out, "down", clashString(p, "down"))
+	if up := clashIntAny(p, 0, "up-mbps", "up_mbps", "upmbps"); up > 0 {
+		out.Set("up_mbps", intNumber(up))
+	}
+	if down := clashIntAny(p, 0, "down-mbps", "down_mbps", "downmbps"); down > 0 {
+		out.Set("down_mbps", intNumber(down))
+	}
+	setStringIfPresent(out, "obfs", clashStringAny(p, "obfs", "obfs-param", "obfsParam"))
+	setStringIfPresent(out, "auth_str", clashStringAny(p, "auth-str", "auth_str", "auth", "password"))
+	setStringIfPresent(out, "network", clashStringAny(p, "network", "protocol"))
+	if recv := clashIntAny(p, 0, "recv-window-conn", "recv_window_conn"); recv > 0 {
+		out.Set("recv_window_conn", intNumber(recv))
+	}
+	if recv := clashIntAny(p, 0, "recv-window", "recv_window"); recv > 0 {
+		out.Set("recv_window", intNumber(recv))
+	}
+	if clashBoolAny(p, false, "disable-mtu-discovery", "disable_mtu_discovery") {
+		out.Set("disable_mtu_discovery", true)
+	}
+	if tls := clashTLS(p, true); tls != nil {
+		out.Set("tls", tls)
+	}
+	return out, nil
+}
+
 func clashHysteria2(p map[string]any) (*merge.OrderedMap, error) {
-	out, err := clashBase(p, "hysteria2")
+	out, err := clashBaseWithDefault(p, "hysteria2", 443)
 	if err != nil {
 		return nil, err
 	}
 	out.Set("password", clashString(p, "password"))
+	if ports := clashStringAny(p, "ports", "mport", "server_ports", "server-ports"); ports != "" {
+		out.Set("server_ports", []any{ports})
+	}
+	setStringIfPresent(out, "hop_interval", clashStringAny(p, "hop-interval", "hop_interval"))
+	if up := clashIntAny(p, 0, "up-mbps", "up_mbps", "upmbps"); up > 0 {
+		out.Set("up_mbps", intNumber(up))
+	}
+	if down := clashIntAny(p, 0, "down-mbps", "down_mbps", "downmbps"); down > 0 {
+		out.Set("down_mbps", intNumber(down))
+	}
 	if obfs := clashString(p, "obfs"); obfs != "" {
 		o := merge.NewOrderedMap()
 		o.Set("type", obfs)
@@ -191,20 +255,104 @@ func clashHysteria2(p map[string]any) (*merge.OrderedMap, error) {
 }
 
 func clashTUIC(p map[string]any) (*merge.OrderedMap, error) {
-	out, err := clashBase(p, "tuic")
+	out, err := clashBaseWithDefault(p, "tuic", 443)
 	if err != nil {
 		return nil, err
 	}
 	out.Set("uuid", clashString(p, "uuid"))
 	out.Set("password", clashString(p, "password"))
-	if cc := clashString(p, "congestion-control"); cc != "" {
+	if cc := clashStringAny(p, "congestion-control", "congestion_control", "congestion-controller"); cc != "" {
 		out.Set("congestion_control", cc)
 	}
-	if mode := clashString(p, "udp-relay-mode"); mode != "" {
+	if mode := clashStringAny(p, "udp-relay-mode", "udp_relay_mode"); mode != "" {
 		out.Set("udp_relay_mode", mode)
+	}
+	setStringIfPresent(out, "heartbeat", clashStringAny(p, "heartbeat", "heartbeat-interval", "heartbeat_interval"))
+	setStringIfPresent(out, "network", clashString(p, "network"))
+	if tls := clashTLS(p, true); tls != nil {
+		out.Set("tls", tls)
+	}
+	return out, nil
+}
+
+func clashAnyTLS(p map[string]any) (*merge.OrderedMap, error) {
+	out, err := clashBaseWithDefault(p, "anytls", 443)
+	if err != nil {
+		return nil, err
+	}
+	password := clashString(p, "password")
+	if password == "" {
+		password = clashString(p, "auth")
+	}
+	if password == "" {
+		return nil, fmt.Errorf("anytls missing password")
+	}
+	out.Set("password", password)
+	setStringIfPresent(out, "idle_session_check_interval", clashStringAny(p, "idle-session-check-interval", "idle_session_check_interval"))
+	setStringIfPresent(out, "idle_session_timeout", clashStringAny(p, "idle-session-timeout", "idle_session_timeout"))
+	if minIdle := clashIntAny(p, -1, "min-idle-session", "min_idle_session"); minIdle >= 0 {
+		out.Set("min_idle_session", intNumber(minIdle))
 	}
 	if tls := clashTLS(p, true); tls != nil {
 		out.Set("tls", tls)
+	}
+	return out, nil
+}
+
+func clashShadowTLS(p map[string]any) (*merge.OrderedMap, error) {
+	out, err := clashBaseWithDefault(p, "shadowtls", 443)
+	if err != nil {
+		return nil, err
+	}
+	if version := clashInt(p, "version", 0); version > 0 {
+		out.Set("version", intNumber(version))
+	}
+	setStringIfPresent(out, "password", clashString(p, "password"))
+	if tls := clashTLS(p, true); tls != nil {
+		out.Set("tls", tls)
+	}
+	return out, nil
+}
+
+func clashHTTP(p map[string]any, forceTLS bool) (*merge.OrderedMap, error) {
+	defaultPort := 80
+	if forceTLS || clashBool(p, "tls", false) {
+		defaultPort = 443
+	}
+	out, err := clashBaseWithDefault(p, "http", defaultPort)
+	if err != nil {
+		return nil, err
+	}
+	setStringIfPresent(out, "username", clashString(p, "username"))
+	setStringIfPresent(out, "password", clashString(p, "password"))
+	setStringIfPresent(out, "path", clashString(p, "path"))
+	if headers := orderedFromMap(clashMap(p, "headers")); headers != nil {
+		out.Set("headers", headers)
+	}
+	if tls := clashTLS(p, forceTLS || clashBool(p, "tls", false)); tls != nil {
+		out.Set("tls", tls)
+	}
+	return out, nil
+}
+
+func clashSOCKS(p map[string]any, typ string) (*merge.OrderedMap, error) {
+	out, err := clashBaseWithDefault(p, "socks", 1080)
+	if err != nil {
+		return nil, err
+	}
+	version := "5"
+	switch typ {
+	case "socks4":
+		version = "4"
+	case "socks4a":
+		version = "4a"
+	}
+	out.Set("version", version)
+	setStringIfPresent(out, "username", clashString(p, "username"))
+	setStringIfPresent(out, "password", clashString(p, "password"))
+	setStringIfPresent(out, "network", clashString(p, "network"))
+	if clashBoolAny(p, false, "udp-over-tcp", "udp_over_tcp", "uot") {
+		out.Set("udp_over_tcp", true)
 	}
 	return out, nil
 }
@@ -292,8 +440,26 @@ func clashString(m map[string]any, key string) string {
 	return anyToString(m[key])
 }
 
+func clashStringAny(m map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value := clashString(m, key); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 func clashInt(m map[string]any, key string, def int) int {
 	return atoiDefault(clashString(m, key), def)
+}
+
+func clashIntAny(m map[string]any, def int, keys ...string) int {
+	for _, key := range keys {
+		if value := clashString(m, key); value != "" {
+			return atoiDefault(value, def)
+		}
+	}
+	return def
 }
 
 func clashBool(m map[string]any, key string, def bool) bool {
@@ -312,6 +478,17 @@ func clashBool(m map[string]any, key string, def bool) bool {
 	default:
 		return boolParam(anyToString(val))
 	}
+}
+
+func clashBoolAny(m map[string]any, def bool, keys ...string) bool {
+	for _, key := range keys {
+		if m != nil {
+			if _, ok := m[key]; ok {
+				return clashBool(m, key, def)
+			}
+		}
+	}
+	return def
 }
 
 func clashMap(m map[string]any, key string) map[string]any {

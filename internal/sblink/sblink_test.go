@@ -198,16 +198,95 @@ func TestParseNaive(t *testing.T) {
 	}
 }
 
+func TestParseAdditionalProtocols(t *testing.T) {
+	tests := []struct {
+		name string
+		uri  string
+		typ  string
+		port string
+	}{
+		{
+			name: "anytls",
+			uri:  "anytls://secret@any.example.com?security=tls&sni=any.example.com&fp=chrome&idle_session_check_interval=20s&idle_session_timeout=40s&min_idle_session=2#Any",
+			typ:  "anytls",
+			port: "443",
+		},
+		{
+			name: "shadowtls",
+			uri:  "shadowtls://secret@st.example.com?version=3&security=tls&sni=st.example.com#ST",
+			typ:  "shadowtls",
+			port: "443",
+		},
+		{
+			name: "hysteria",
+			uri:  "hysteria://hy.example.com?auth=secret&upmbps=20&downmbps=30&sni=hy.example.com#HY1",
+			typ:  "hysteria",
+			port: "443",
+		},
+		{
+			name: "https",
+			uri:  "https://user:pass@http.example.com/proxy?headers=%7B%22Host%22%3A%22edge.example.com%22%7D#HTTP",
+			typ:  "http",
+			port: "443",
+		},
+		{
+			name: "socks5",
+			uri:  "socks5://user:pass@socks.example.com#Socks",
+			typ:  "socks",
+			port: "1080",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := Parse(tt.uri)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if field(t, out, "type") != tt.typ {
+				t.Fatalf("type = %s, want %s", field(t, out, "type"), tt.typ)
+			}
+			if scalarField(t, out, "server_port") != tt.port {
+				t.Fatalf("server_port = %s, want %s", scalarField(t, out, "server_port"), tt.port)
+			}
+		})
+	}
+}
+
+func TestDefaultPortsForCompatibleLinks(t *testing.T) {
+	tests := map[string]string{
+		"trojan://pw@tr.example.com#TR":             "443",
+		"hysteria2://pw@hy.example.com#HY":          "443",
+		"hy2://pw@hy.example.com#HY":                "443",
+		"hy://hy1.example.com?auth=secret#HY1":      "443",
+		"tuic://uuid-9:password9@tu.example.com#TU": "443",
+		"naive://user:pass@naive.example.com#Naive": "443",
+		"naive+http://user:pass@naive.example.com":  "80",
+	}
+	for uri, wantPort := range tests {
+		t.Run(uri, func(t *testing.T) {
+			out, err := Parse(uri)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := scalarField(t, out, "server_port"); got != wantPort {
+				t.Fatalf("server_port = %s, want %s", got, wantPort)
+			}
+		})
+	}
+}
+
 func TestParseManyBase64Blob(t *testing.T) {
 	links := "ss://" + base64.StdEncoding.EncodeToString([]byte("aes-256-gcm:pw")) + "@1.1.1.1:8388#A\n" +
-		"trojan://pw@2.2.2.2:443?security=tls#B"
+		"trojan://pw@2.2.2.2:443?security=tls#B\n" +
+		"anytls://pw@3.3.3.3?security=tls#C"
 	blob := base64.StdEncoding.EncodeToString([]byte(links))
 	out, err := ParseMany(blob)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(out) != 2 {
-		t.Fatalf("parsed %d links, want 2", len(out))
+	if len(out) != 3 {
+		t.Fatalf("parsed %d links, want 3", len(out))
 	}
 }
 
@@ -251,6 +330,24 @@ proxies:
     password: pass
     quic: true
     sni: naive.example.com
+  - name: AnyTLS
+    type: anytls
+    server: any.example.com
+    password: anypass
+    sni: any.example.com
+    idle-session-check-interval: 20s
+  - name: HTTP
+    type: http
+    server: http.example.com
+    username: user
+    password: pass
+    headers:
+      Host: edge.example.com
+  - name: Socks
+    type: socks5
+    server: socks.example.com
+    username: user
+    password: pass
   - name: OldSSR
     type: ssr
     server: ssr.example.com
@@ -260,8 +357,8 @@ proxies:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(out) != 2 {
-		t.Fatalf("parsed %d outbounds, want 2", len(out))
+	if len(out) != 5 {
+		t.Fatalf("parsed %d outbounds, want 5", len(out))
 	}
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "ssr") {
 		t.Fatalf("warnings = %+v", warnings)
@@ -278,12 +375,31 @@ proxies:
 	if field(t, out[1], "type") != "naive" || field(t, out[1], "username") != "user" {
 		t.Fatalf("naive outbound = %+v", out[1])
 	}
+	if field(t, out[2], "type") != "anytls" || scalarField(t, out[2], "server_port") != "443" {
+		t.Fatalf("anytls outbound = %+v", out[2])
+	}
+	if field(t, out[3], "type") != "http" || scalarField(t, out[3], "server_port") != "80" {
+		t.Fatalf("http outbound = %+v", out[3])
+	}
+	if field(t, out[4], "type") != "socks" || scalarField(t, out[4], "server_port") != "1080" {
+		t.Fatalf("socks outbound = %+v", out[4])
+	}
 }
 
 func TestParseManyRejectsHTML(t *testing.T) {
 	_, _, err := ParseManyWithWarnings(`<!DOCTYPE html><html><body>login</body></html>`)
 	if err == nil || !strings.Contains(err.Error(), "html") {
 		t.Fatalf("html parse err = %v", err)
+	}
+}
+
+func TestParseManyDoesNotTreatPlainHTTPSURLAsProxyLink(t *testing.T) {
+	out, warnings, err := ParseManyWithWarnings(`https://example.com/subscription`)
+	if err == nil {
+		t.Fatalf("expected plain https URL to fail, got out=%d warnings=%v", len(out), warnings)
+	}
+	if len(out) != 0 {
+		t.Fatalf("parsed %d links from plain https URL", len(out))
 	}
 }
 
@@ -338,9 +454,14 @@ func TestEncodeRoundTripLinks(t *testing.T) {
 		"vmess://" + base64.StdEncoding.EncodeToString(vmessJSON),
 		"vless://uuid-1234@vless.example.com:443?encryption=none&security=reality&sni=www.microsoft.com&fp=chrome&pbk=publickeyxyz&sid=abcd&flow=xtls-rprx-vision&type=tcp#Reality",
 		"trojan://mypassword@trojan.example.com:443?security=tls&sni=trojan.example.com&type=ws&path=%2Fws#Trojan",
+		"anytls://anypass@any.example.com?security=tls&sni=any.example.com&idle_session_check_interval=30s&idle_session_timeout=40s&min_idle_session=1#AnyTLS",
+		"shadowtls://stpass@st.example.com?version=3&security=tls&sni=st.example.com#ShadowTLS",
+		"hysteria://hy1.example.com?auth=secret&upmbps=20&downmbps=30&sni=hy1.example.com#HY1",
 		"hysteria2://pass123@hy2.example.com:8443?sni=hy2.example.com&obfs=salamander&obfs-password=obfspw#HY2",
 		"tuic://uuid-9:password9@tuic.example.com:443?congestion_control=bbr&sni=tuic.example.com#TUIC",
 		"naive+https://user:pass@naive.example.com:443?quic=true&sni=naive.example.com#Naive",
+		"https://user:pass@http.example.com:443/proxy?sni=http.example.com#HTTP",
+		"socks5://user:pass@socks.example.com:1080?network=tcp#Socks",
 	}
 
 	for _, uri := range uris {
@@ -422,6 +543,24 @@ func assertProtocolRoundTrip(t *testing.T, want, got *merge.OrderedMap) {
 		if field(t, got, "password") != field(t, want, "password") {
 			t.Fatalf("password = %q, want %q", field(t, got, "password"), field(t, want, "password"))
 		}
+	case "anytls":
+		for _, key := range []string{"password", "idle_session_check_interval", "idle_session_timeout", "min_idle_session"} {
+			if scalarField(t, got, key) != scalarField(t, want, key) {
+				t.Fatalf("%s = %q, want %q", key, scalarField(t, got, key), scalarField(t, want, key))
+			}
+		}
+	case "shadowtls":
+		for _, key := range []string{"password", "version"} {
+			if scalarField(t, got, key) != scalarField(t, want, key) {
+				t.Fatalf("%s = %q, want %q", key, scalarField(t, got, key), scalarField(t, want, key))
+			}
+		}
+	case "hysteria":
+		for _, key := range []string{"auth_str", "up_mbps", "down_mbps"} {
+			if scalarField(t, got, key) != scalarField(t, want, key) {
+				t.Fatalf("%s = %q, want %q", key, scalarField(t, got, key), scalarField(t, want, key))
+			}
+		}
 	case "tuic":
 		for _, key := range []string{"uuid", "password", "congestion_control"} {
 			if field(t, got, key) != field(t, want, key) {
@@ -436,6 +575,18 @@ func assertProtocolRoundTrip(t *testing.T, want, got *merge.OrderedMap) {
 		}
 		if gotQuic, _ := got.Get("quic"); gotQuic != true {
 			t.Fatalf("quic = %v", gotQuic)
+		}
+	case "http":
+		for _, key := range []string{"username", "password", "path"} {
+			if field(t, got, key) != field(t, want, key) {
+				t.Fatalf("%s = %q, want %q", key, field(t, got, key), field(t, want, key))
+			}
+		}
+	case "socks":
+		for _, key := range []string{"version", "username", "password", "network"} {
+			if field(t, got, key) != field(t, want, key) {
+				t.Fatalf("%s = %q, want %q", key, field(t, got, key), field(t, want, key))
+			}
 		}
 	}
 }
@@ -459,6 +610,9 @@ func TestParsedOutboundsValidateWithKernel(t *testing.T) {
 		"vmess://" + base64.StdEncoding.EncodeToString(vmessJSON),
 		"vless://b831381d-6324-4d53-ad4f-8cda48b30811@vl.example.com:443?security=tls&sni=vl.example.com&type=ws&path=/w#VL",
 		"trojan://pw@tr.example.com:443?security=tls&sni=tr.example.com#TR",
+		"anytls://pw@any.example.com?security=tls&sni=any.example.com#ANY",
+		"shadowtls://pw@st.example.com?version=3&security=tls&sni=st.example.com#ST",
+		"hysteria://hy1.example.com?auth=secret&sni=hy1.example.com&upmbps=20&downmbps=30#HY1",
 		"hysteria2://pw@hy.example.com:8443?sni=hy.example.com#HY",
 		"tuic://b831381d-6324-4d53-ad4f-8cda48b30811:p@tu.example.com:443?sni=tu.example.com&congestion_control=bbr#TU",
 	}

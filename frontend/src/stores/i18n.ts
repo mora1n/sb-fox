@@ -120,8 +120,8 @@ const en: Record<string, string> = {
   '导入节点': 'Import Nodes',
   '分享链接': 'Share Links',
   '订阅 URL': 'Subscription URL',
-  '每行一个 ss/vmess/vless/trojan/hysteria2/tuic/naive 链接，或粘贴 base64、SIP008、Clash/Mihomo 订阅内容。':
-    'One ss/vmess/vless/trojan/hysteria2/tuic/naive link per line, or paste base64, SIP008, Clash/Mihomo subscription content.',
+  '每行一个 ss/vmess/vless/trojan/hysteria/hysteria2/tuic/anytls/shadowtls/naive/socks/http 链接，或粘贴 base64、SIP008、Clash/Mihomo 订阅内容。':
+    'One ss/vmess/vless/trojan/hysteria/hysteria2/tuic/anytls/shadowtls/naive/socks/http link per line, or paste base64, SIP008, Clash/Mihomo subscription content.',
   '名称': 'Name',
   '我的订阅': 'My Subscription',
   '每行一个订阅 URL，可使用 #noCache、#insecure、#ua=...、#headers=...、#cacheTtl=秒 参数。':

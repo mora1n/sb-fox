@@ -7,7 +7,7 @@ import (
 // parseTrojan maps a trojan:// URI to a sing-box trojan outbound. Trojan
 // implies TLS, so the tls block is always enabled.
 func parseTrojan(uri string) (*merge.OrderedMap, error) {
-	p, err := parseURILink(uri)
+	p, err := parseURILinkWithDefault(uri, 443)
 	if err != nil {
 		return nil, err
 	}
@@ -25,10 +25,10 @@ func parseTrojan(uri string) (*merge.OrderedMap, error) {
 
 	tls := buildTLS(tlsParams{
 		enabled:     true,
-		serverName:  p.query.Get("sni"),
-		insecure:    boolParam(p.query.Get("insecure")),
+		serverName:  queryFirst(p.query, "sni", "peer"),
+		insecure:    boolQuery(p.query, "insecure", "allowInsecure", "allow-insecure", "skip-cert-verify"),
 		alpn:        splitALPN(p.query.Get("alpn")),
-		fingerprint: p.query.Get("fp"),
+		fingerprint: queryFirst(p.query, "fp", "fingerprint", "client-fingerprint"),
 	})
 	if tls != nil {
 		out.Set("tls", tls)

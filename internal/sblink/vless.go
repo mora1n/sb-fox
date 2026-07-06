@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
 
 	"github.com/mora1n/sb-fox/internal/merge"
 )
@@ -22,12 +23,21 @@ type uriParts struct {
 // returns its components with server cleaned and port validated. The tag is
 // derived from the fragment (URL-decoded) or synthesized from server:port.
 func parseURILink(uri string) (*uriParts, error) {
+	return parseURILinkWithDefault(uri, 0)
+}
+
+// parseURILinkWithDefault behaves like parseURILink, but fills defaultPort when
+// the URI omits an explicit port. A zero defaultPort keeps the port required.
+func parseURILinkWithDefault(uri string, defaultPort int) (*uriParts, error) {
 	u, err := url.Parse(uri)
 	if err != nil {
 		return nil, fmt.Errorf("sblink: bad URI %q: %w", uri, err)
 	}
 	host := cleanServer(u.Hostname())
 	port := u.Port()
+	if port == "" && defaultPort > 0 {
+		port = strconv.Itoa(defaultPort)
+	}
 	pn, err := portNumber(port)
 	if err != nil {
 		return nil, err
@@ -83,17 +93,17 @@ func vlessTLS(q url.Values) *merge.OrderedMap {
 	case "tls":
 		return buildTLS(tlsParams{
 			enabled:     true,
-			serverName:  q.Get("sni"),
-			insecure:    boolParam(q.Get("insecure")),
+			serverName:  queryFirst(q, "sni", "peer"),
+			insecure:    boolQuery(q, "insecure", "allowInsecure", "allow-insecure", "skip-cert-verify"),
 			alpn:        splitALPN(q.Get("alpn")),
-			fingerprint: q.Get("fp"),
+			fingerprint: queryFirst(q, "fp", "fingerprint", "client-fingerprint"),
 		})
 	case "reality":
 		return buildTLS(tlsParams{
 			enabled:     true,
-			serverName:  q.Get("sni"),
+			serverName:  queryFirst(q, "sni", "peer"),
 			alpn:        splitALPN(q.Get("alpn")),
-			fingerprint: q.Get("fp"),
+			fingerprint: queryFirst(q, "fp", "fingerprint", "client-fingerprint"),
 			realityPbk:  q.Get("pbk"),
 			realitySid:  q.Get("sid"),
 		})

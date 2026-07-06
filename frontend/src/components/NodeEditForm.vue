@@ -26,7 +26,20 @@ const i18n = useI18nStore()
 const busy = ref(false)
 const parseError = ref('')
 
-const PROTOCOLS = ['shadowsocks', 'vmess', 'vless', 'trojan', 'hysteria2', 'tuic', 'naive']
+const PROTOCOLS = [
+  'shadowsocks',
+  'vmess',
+  'vless',
+  'trojan',
+  'hysteria',
+  'hysteria2',
+  'tuic',
+  'anytls',
+  'shadowtls',
+  'naive',
+  'http',
+  'socks',
+]
 
 // raw is the authoritative parsed outbound; unknown keys are preserved on save.
 const raw = reactive<Record<string, any>>({})
@@ -81,6 +94,30 @@ const alpnText = computed({
     else if (raw.tls) delete raw.tls.alpn
   },
 })
+const headersText = computed({
+  get: () => {
+    if (!raw.headers || typeof raw.headers !== 'object') return ''
+    try {
+      return JSON.stringify(raw.headers, null, 2)
+    } catch {
+      return ''
+    }
+  },
+  set: (v: string) => {
+    const trimmed = v.trim()
+    if (!trimmed) {
+      delete raw.headers
+      parseError.value = ''
+      return
+    }
+    try {
+      raw.headers = JSON.parse(trimmed)
+      parseError.value = ''
+    } catch (e) {
+      parseError.value = 'headers JSON 解析失败: ' + errMsg(e)
+    }
+  },
+})
 
 const countryOptions = computed(() => sortCountryOptions(COUNTRY_CODES, settings.countryHeatOrder))
 const currentMode = computed<NodeFormMode>(() => props.mode ?? (props.node ? 'edit' : props.copyFrom ? 'copy' : 'create'))
@@ -100,6 +137,17 @@ function resetPending() {
   for (const k of Object.keys(raw)) delete raw[k]
   manualCountry.value = false
   countryCode.value = ''
+}
+
+function defaultPortFor(type: string) {
+  if (['trojan', 'hysteria', 'hysteria2', 'tuic', 'anytls', 'shadowtls', 'naive'].includes(type)) return 443
+  if (type === 'socks') return 1080
+  if (type === 'http') return 80
+  return 443
+}
+
+function defaultTLSEnabled(type: string) {
+  return ['trojan', 'hysteria', 'hysteria2', 'tuic', 'anytls', 'shadowtls', 'naive'].includes(type)
 }
 
 async function save() {
@@ -141,6 +189,16 @@ watch(
     else resetPending()
   },
   { immediate: true },
+)
+watch(
+  () => raw.type,
+  (next, prev) => {
+    if (!next || next === prev) return
+    if (!raw.server_port || raw.server_port === defaultPortFor(prev || '')) {
+      raw.server_port = defaultPortFor(next)
+    }
+    if (defaultTLSEnabled(next)) tls().enabled = true
+  },
 )
 </script>
 
@@ -239,6 +297,30 @@ watch(
           </label>
         </div>
 
+        <!-- hysteria -->
+        <div v-else-if="raw.type === 'hysteria'" class="grid grid-cols-2 gap-3">
+          <label class="form-control">
+            <span class="label-text mb-1">auth_str</span>
+            <input v-model="raw.auth_str" class="input input-bordered input-sm" />
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">{{ i18n.t('obfs 类型') }}</span>
+            <input v-model="raw.obfs" class="input input-bordered input-sm" />
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">up_mbps</span>
+            <input v-model.number="raw.up_mbps" type="number" class="input input-bordered input-sm" />
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">down_mbps</span>
+            <input v-model.number="raw.down_mbps" type="number" class="input input-bordered input-sm" />
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">network</span>
+            <input v-model="raw.network" class="input input-bordered input-sm" placeholder="tcp,udp" />
+          </label>
+        </div>
+
         <!-- hysteria2 -->
         <div v-else-if="raw.type === 'hysteria2'" class="grid grid-cols-2 gap-3">
           <label class="form-control">
@@ -252,6 +334,14 @@ watch(
               class="input input-bordered input-sm"
               @input="(raw.obfs ||= {}).type = ($event.target as HTMLInputElement).value"
             />
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">up_mbps</span>
+            <input v-model.number="raw.up_mbps" type="number" class="input input-bordered input-sm" />
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">down_mbps</span>
+            <input v-model.number="raw.down_mbps" type="number" class="input input-bordered input-sm" />
           </label>
         </div>
 
@@ -268,6 +358,46 @@ watch(
           <label class="form-control">
             <span class="label-text mb-1">congestion_control</span>
             <input v-model="raw.congestion_control" class="input input-bordered input-sm" placeholder="bbr" />
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">udp_relay_mode</span>
+            <input v-model="raw.udp_relay_mode" class="input input-bordered input-sm" placeholder="native" />
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">heartbeat</span>
+            <input v-model="raw.heartbeat" class="input input-bordered input-sm" placeholder="10s" />
+          </label>
+        </div>
+
+        <!-- anytls -->
+        <div v-else-if="raw.type === 'anytls'" class="grid grid-cols-2 gap-3">
+          <label class="form-control">
+            <span class="label-text mb-1">{{ i18n.t('密码') }}</span>
+            <input v-model="raw.password" class="input input-bordered input-sm" />
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">idle_session_check_interval</span>
+            <input v-model="raw.idle_session_check_interval" class="input input-bordered input-sm" placeholder="30s" />
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">idle_session_timeout</span>
+            <input v-model="raw.idle_session_timeout" class="input input-bordered input-sm" placeholder="30s" />
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">min_idle_session</span>
+            <input v-model.number="raw.min_idle_session" type="number" class="input input-bordered input-sm" />
+          </label>
+        </div>
+
+        <!-- shadowtls -->
+        <div v-else-if="raw.type === 'shadowtls'" class="grid grid-cols-2 gap-3">
+          <label class="form-control">
+            <span class="label-text mb-1">{{ i18n.t('密码') }}</span>
+            <input v-model="raw.password" class="input input-bordered input-sm" />
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">version</span>
+            <input v-model.number="raw.version" type="number" class="input input-bordered input-sm" placeholder="3" />
           </label>
         </div>
 
@@ -288,6 +418,50 @@ watch(
           <label class="form-control">
             <span class="label-text mb-1">quic_congestion_control</span>
             <input v-model="raw.quic_congestion_control" class="input input-bordered input-sm" placeholder="bbr" />
+          </label>
+        </div>
+
+        <!-- http -->
+        <div v-else-if="raw.type === 'http'" class="grid grid-cols-2 gap-3">
+          <label class="form-control">
+            <span class="label-text mb-1">{{ i18n.t('用户名') }}</span>
+            <input v-model="raw.username" class="input input-bordered input-sm" />
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">{{ i18n.t('密码') }}</span>
+            <input v-model="raw.password" class="input input-bordered input-sm" />
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">path</span>
+            <input v-model="raw.path" class="input input-bordered input-sm" />
+          </label>
+          <label class="form-control col-span-2">
+            <span class="label-text mb-1">headers JSON</span>
+            <textarea v-model="headersText" class="textarea textarea-bordered textarea-sm font-mono text-xs min-h-20" placeholder='{ "Host": "example.com" }'></textarea>
+          </label>
+        </div>
+
+        <!-- socks -->
+        <div v-else-if="raw.type === 'socks'" class="grid grid-cols-2 gap-3">
+          <label class="form-control">
+            <span class="label-text mb-1">version</span>
+            <select v-model="raw.version" class="select select-bordered select-sm">
+              <option value="5">5</option>
+              <option value="4">4</option>
+              <option value="4a">4a</option>
+            </select>
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">network</span>
+            <input v-model="raw.network" class="input input-bordered input-sm" placeholder="tcp,udp" />
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">{{ i18n.t('用户名') }}</span>
+            <input v-model="raw.username" class="input input-bordered input-sm" />
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">{{ i18n.t('密码') }}</span>
+            <input v-model="raw.password" class="input input-bordered input-sm" />
           </label>
         </div>
 

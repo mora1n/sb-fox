@@ -171,7 +171,7 @@ function failedFetchCount() {
       </div>
 
       <div v-show="tab === 'links'">
-        <p class="text-sm opacity-70 mb-2">{{ i18n.t('每行一个 ss/vmess/vless/trojan/hysteria2/tuic/naive 链接，或粘贴 base64、SIP008、Clash/Mihomo 订阅内容。') }}</p>
+        <p class="text-sm opacity-70 mb-2">{{ i18n.t('每行一个 ss/vmess/vless/trojan/hysteria/hysteria2/tuic/anytls/shadowtls/naive/socks/http 链接，或粘贴 base64、SIP008、Clash/Mihomo 订阅内容。') }}</p>
         <textarea v-model="links" class="textarea textarea-bordered w-full h-48 mono text-xs" placeholder="vmess://...&#10;ss://..." :disabled="!!preview || busy"></textarea>
       </div>
 

@@ -3,6 +3,7 @@ package sblink
 import (
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/mora1n/sb-fox/internal/merge"
@@ -20,6 +21,14 @@ func parseNaive(uri string) (*merge.OrderedMap, error) {
 	}
 	server := cleanServer(u.Hostname())
 	port := u.Port()
+	if port == "" {
+		switch u.Scheme {
+		case "http":
+			port = "80"
+		default:
+			port = strconv.Itoa(443)
+		}
+	}
 	pn, err := portNumber(port)
 	if err != nil {
 		return nil, err
@@ -51,8 +60,8 @@ func parseNaive(uri string) (*merge.OrderedMap, error) {
 	}
 	tls := buildTLS(tlsParams{
 		enabled:    u.Scheme == "https" || u.Scheme == "quic" || q.Get("security") == "tls",
-		serverName: q.Get("sni"),
-		insecure:   boolParam(q.Get("insecure")),
+		serverName: queryFirst(q, "sni", "peer"),
+		insecure:   boolQuery(q, "insecure", "allowInsecure", "allow-insecure", "skip-cert-verify"),
 		alpn:       splitALPN(q.Get("alpn")),
 	})
 	if tls != nil {

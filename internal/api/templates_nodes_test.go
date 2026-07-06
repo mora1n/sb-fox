@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/base64"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -415,6 +416,44 @@ func TestExportLinksRejectsUnsupportedNode(t *testing.T) {
 	}))
 	if status != http.StatusUnprocessableEntity || code != "unsupported_node" || !strings.Contains(msg, "unsupported outbound type") {
 		t.Fatalf("export unsupported status=%d code=%q msg=%q", status, code, msg)
+	}
+}
+
+func TestImportAndExportAnyTLSLink(t *testing.T) {
+	_, ts := testServer(t)
+	c := newClient(t, ts.URL)
+	c.http.Jar = login(t, ts.URL)
+
+	var imported struct {
+		Imported int `json:"imported"`
+		Nodes    []struct {
+			ID         int64  `json:"id"`
+			Type       string `json:"type"`
+			ServerPort int    `json:"server_port"`
+			Raw        string `json:"raw"`
+		} `json:"nodes"`
+	}
+	link := "anytls://secret@any.example.com?security=tls&sni=any.example.com&idle_session_check_interval=20s#Any"
+	decodeData(t, c.do(http.MethodPost, "/api/nodes/import/links", map[string]string{"links": link}), &imported)
+	if imported.Imported != 1 || len(imported.Nodes) != 1 {
+		t.Fatalf("imported = %+v, want one anytls node", imported)
+	}
+	if imported.Nodes[0].Type != "anytls" || imported.Nodes[0].ServerPort != 443 || !strings.Contains(imported.Nodes[0].Raw, `"type":"anytls"`) {
+		t.Fatalf("imported node = %+v", imported.Nodes[0])
+	}
+
+	resp := c.do(http.MethodPost, "/api/nodes/export/links", map[string]any{"node_ids": []int64{imported.Nodes[0].ID}})
+	if resp.StatusCode != http.StatusOK {
+		status, code, msg := decodeError(t, resp)
+		t.Fatalf("export status=%d code=%q msg=%q", status, code, msg)
+	}
+	body, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := string(body); !strings.Contains(text, "anytls://secret@any.example.com:443") || !strings.Contains(text, "idle_session_check_interval=20s") {
+		t.Fatalf("export text = %q", text)
 	}
 }
 

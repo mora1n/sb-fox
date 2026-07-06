@@ -1,5 +1,5 @@
-// Package sblink parses proxy share-link URIs (ss, vmess, vless, trojan,
-// hysteria2, tuic) into sing-box outbound JSON objects, represented as
+// Package sblink parses proxy share-link URIs into sing-box outbound JSON
+// objects, represented as
 // *merge.OrderedMap so that field ordering stays deterministic.
 package sblink
 
@@ -26,16 +26,26 @@ func Parse(uri string) (*merge.OrderedMap, error) {
 		return parseVLESS(uri)
 	case strings.HasPrefix(uri, "trojan://"):
 		return parseTrojan(uri)
+	case strings.HasPrefix(uri, "anytls://"):
+		return parseAnyTLS(uri)
+	case strings.HasPrefix(uri, "shadowtls://"):
+		return parseShadowTLS(uri)
 	case strings.HasPrefix(uri, "hysteria2://"):
 		return parseHysteria2(strings.TrimPrefix(uri, "hysteria2://"))
 	case strings.HasPrefix(uri, "hy2://"):
 		return parseHysteria2(strings.TrimPrefix(uri, "hy2://"))
-	case strings.HasPrefix(uri, "hysteria://"):
-		return nil, fmt.Errorf("sblink: hysteria v1 is recognized but not converted to sing-box")
+	case strings.HasPrefix(uri, "hysteria://"), strings.HasPrefix(uri, "hy://"):
+		return parseHysteria(uri)
 	case strings.HasPrefix(uri, "tuic://"):
 		return parseTUIC(uri)
 	case strings.HasPrefix(uri, "naive://"), strings.HasPrefix(uri, "naive+"):
 		return parseNaive(uri)
+	case strings.HasPrefix(uri, "socks://"), strings.HasPrefix(uri, "socks5://"), strings.HasPrefix(uri, "socks4://"), strings.HasPrefix(uri, "socks4a://"):
+		return parseSOCKS(uri)
+	case strings.HasPrefix(uri, "http://"), strings.HasPrefix(uri, "https://"):
+		return parseHTTPProxy(uri)
+	case strings.HasPrefix(uri, "wireguard://"), strings.HasPrefix(uri, "wg://"):
+		return nil, fmt.Errorf("sblink: wireguard is recognized but not converted because sing-box 1.13 uses endpoints instead of outbounds")
 	case strings.HasPrefix(uri, "ssr://"):
 		return nil, fmt.Errorf("sblink: ssr is recognized but not converted to sing-box")
 	default:
@@ -137,10 +147,13 @@ func anyLooksLikeLink(lines []string) bool {
 }
 
 func looksLikeLink(ln string) bool {
-	for _, p := range []string{"ss://", "ssr://", "vmess://", "vless://", "trojan://", "hysteria://", "hysteria2://", "hy2://", "tuic://", "naive://", "naive+"} {
+	for _, p := range []string{"ss://", "ssr://", "vmess://", "vless://", "trojan://", "anytls://", "shadowtls://", "hysteria://", "hy://", "hysteria2://", "hy2://", "tuic://", "naive://", "naive+", "socks://", "socks5://", "socks4://", "socks4a://", "wireguard://", "wg://"} {
 		if strings.HasPrefix(ln, p) {
 			return true
 		}
+	}
+	if strings.HasPrefix(ln, "http://") || strings.HasPrefix(ln, "https://") {
+		return looksLikeHTTPProxyLink(ln)
 	}
 	return false
 }

@@ -23,12 +23,22 @@ func Encode(out *merge.OrderedMap) (string, error) {
 		return encodeVLESS(out)
 	case "trojan":
 		return encodeTrojan(out)
+	case "anytls":
+		return encodeAnyTLS(out)
+	case "shadowtls":
+		return encodeShadowTLS(out)
+	case "hysteria":
+		return encodeHysteria(out)
 	case "hysteria2":
 		return encodeHysteria2(out)
 	case "tuic":
 		return encodeTUIC(out)
 	case "naive":
 		return encodeNaive(out)
+	case "http":
+		return encodeHTTPProxy(out)
+	case "socks":
+		return encodeSOCKS(out)
 	default:
 		return "", fmt.Errorf("sblink: unsupported outbound type %q", out.GetString("type"))
 	}
@@ -155,6 +165,21 @@ func encodeHysteria2(out *merge.OrderedMap) (string, error) {
 		return "", err
 	}
 	q := url.Values{}
+	if ports := firstStringField(out, "server_ports"); ports != "" {
+		q.Set("mport", ports)
+	}
+	for _, item := range []struct {
+		field string
+		query string
+	}{
+		{"hop_interval", "hop_interval"},
+		{"up_mbps", "up_mbps"},
+		{"down_mbps", "down_mbps"},
+	} {
+		if value, ok := out.Get(item.field); ok {
+			q.Set(item.query, scalarString(value))
+		}
+	}
 	if obfs, ok := orderedField(out, "obfs"); ok {
 		if typ := obfs.GetString("type"); typ != "" {
 			q.Set("obfs", typ)
@@ -188,6 +213,12 @@ func encodeTUIC(out *merge.OrderedMap) (string, error) {
 	}
 	if mode := out.GetString("udp_relay_mode"); mode != "" {
 		q.Set("udp_relay_mode", mode)
+	}
+	if heartbeat := out.GetString("heartbeat"); heartbeat != "" {
+		q.Set("heartbeat", heartbeat)
+	}
+	if network := out.GetString("network"); network != "" {
+		q.Set("network", network)
 	}
 	if err := addTLSQuery(q, out, false, false); err != nil {
 		return "", err

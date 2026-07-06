@@ -149,10 +149,15 @@ func requiredPort(m *merge.OrderedMap) (string, error) {
 }
 
 func linkURL(scheme string, user *url.Userinfo, server, port string, q url.Values, tag string) string {
+	return linkURLWithPath(scheme, user, server, port, "", q, tag)
+}
+
+func linkURLWithPath(scheme string, user *url.Userinfo, server, port, path string, q url.Values, tag string) string {
 	u := &url.URL{
 		Scheme:   scheme,
 		User:     user,
 		Host:     net.JoinHostPort(server, port),
+		Path:     path,
 		RawQuery: q.Encode(),
 		Fragment: tag,
 	}

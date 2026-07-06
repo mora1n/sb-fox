@@ -8,7 +8,7 @@ import (
 // already stripped — to a sing-box hysteria2 outbound. A normalized scheme is
 // re-added so url.Parse handles userinfo/host/port/query uniformly.
 func parseHysteria2(body string) (*merge.OrderedMap, error) {
-	p, err := parseURILink("hysteria2://" + body)
+	p, err := parseURILinkWithDefault("hysteria2://"+body, 443)
 	if err != nil {
 		return nil, err
 	}
@@ -27,6 +27,16 @@ func parseHysteria2(body string) (*merge.OrderedMap, error) {
 	out.Set("server", p.server)
 	out.Set("server_port", p.portN)
 	out.Set("password", password)
+	if ports := queryFirst(p.query, "mport", "server_ports", "server-ports"); ports != "" {
+		out.Set("server_ports", []any{ports})
+	}
+	setStringIfPresent(out, "hop_interval", queryFirst(p.query, "hop_interval", "hop-interval"))
+	if err := setIntIfPresent(out, "up_mbps", queryFirst(p.query, "up_mbps", "up-mbps", "upmbps")); err != nil {
+		return nil, err
+	}
+	if err := setIntIfPresent(out, "down_mbps", queryFirst(p.query, "down_mbps", "down-mbps", "downmbps")); err != nil {
+		return nil, err
+	}
 
 	if obfs := p.query.Get("obfs"); obfs != "" {
 		o := merge.NewOrderedMap()
@@ -39,8 +49,8 @@ func parseHysteria2(body string) (*merge.OrderedMap, error) {
 
 	tls := buildTLS(tlsParams{
 		enabled:    true,
-		serverName: p.query.Get("sni"),
-		insecure:   boolParam(p.query.Get("insecure")),
+		serverName: queryFirst(p.query, "sni", "peer"),
+		insecure:   boolQuery(p.query, "insecure", "allowInsecure", "allow-insecure", "skip-cert-verify"),
 		alpn:       splitALPN(p.query.Get("alpn")),
 	})
 	if tls != nil {
