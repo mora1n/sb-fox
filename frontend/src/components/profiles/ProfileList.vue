@@ -220,7 +220,7 @@ function onProfileSubscriptionEnabledChange(profile: Profile, event: Event) {
         <button class="btn btn-sm btn-soft-action" :class="{ 'is-active': allProfilesSelected }" @click="selectAllProfiles" :disabled="!store.profiles.length">
           {{ allProfilesSelected ? i18n.t('取消全选') : i18n.t('全选') }}
         </button>
-        <button class="btn btn-sm btn-error btn-outline" @click="removeSelectedProfiles" :disabled="busy || !selectedProfiles.size">
+        <button class="btn btn-sm btn-soft-danger" @click="removeSelectedProfiles" :disabled="busy || !selectedProfiles.size">
           <TrashIcon class="h-4 w-4" /> {{ i18n.t('删除') }}
         </button>
       </div>

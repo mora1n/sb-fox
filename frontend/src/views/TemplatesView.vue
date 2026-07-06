@@ -502,7 +502,7 @@ async function remove(t: TemplateSummary) {
         >
           {{ allTemplatesSelected ? i18n.t('取消全选') : i18n.t('全选') }}
         </button>
-        <button class="btn btn-sm btn-error btn-outline" @click="removeSelectedTemplates" :disabled="busy || !selectedTemplates.size">
+        <button class="btn btn-sm btn-soft-danger" @click="removeSelectedTemplates" :disabled="busy || !selectedTemplates.size">
           <TrashIcon class="h-4 w-4" /> {{ i18n.t('删除') }}
         </button>
       </div>
@@ -753,7 +753,7 @@ async function remove(t: TemplateSummary) {
           </div>
         </div>
         <div class="modal-action">
-          <button class="btn btn-ghost" @click="structure = null" :disabled="busy">{{ i18n.t('取消') }}</button>
+          <button class="btn btn-modal-cancel" @click="structure = null" :disabled="busy">{{ i18n.t('取消') }}</button>
           <button class="btn btn-primary" @click="saveStructure" :disabled="busy">
             <span v-if="busy" class="loading loading-spinner loading-sm"></span> {{ i18n.t('保存') }}
           </button>
@@ -784,7 +784,7 @@ async function remove(t: TemplateSummary) {
           </label>
         </div>
         <div class="modal-action">
-          <button class="btn btn-ghost" @click="closeForm" :disabled="busy">{{ i18n.t('取消') }}</button>
+          <button class="btn btn-modal-cancel" @click="closeForm" :disabled="busy">{{ i18n.t('取消') }}</button>
           <button class="btn btn-primary" @click="submitForm" :disabled="busy">
             <span v-if="busy" class="loading loading-spinner loading-sm"></span> {{ i18n.t('保存') }}
           </button>

@@ -193,7 +193,7 @@ async function copyResetPassword() {
           </label>
         </div>
         <div class="modal-action">
-          <button class="btn btn-ghost" :disabled="busy" @click="showEdit = false">{{ i18n.t('取消') }}</button>
+          <button class="btn btn-modal-cancel" :disabled="busy" @click="showEdit = false">{{ i18n.t('取消') }}</button>
           <button class="btn btn-primary" :disabled="busy" @click="save">
             <span v-if="busy" class="loading loading-spinner loading-sm"></span>
             {{ i18n.t('保存') }}

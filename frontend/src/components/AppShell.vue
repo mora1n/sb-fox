@@ -67,7 +67,11 @@ async function logout() {
         </div>
       </div>
       <main class="p-4 md:p-6 flex-1 bg-base-200 min-h-0">
-        <RouterView />
+        <RouterView v-slot="{ Component }">
+          <KeepAlive>
+            <component :is="Component" />
+          </KeepAlive>
+        </RouterView>
       </main>
     </div>
     <div class="drawer-side z-40">

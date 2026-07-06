@@ -515,7 +515,7 @@ async function exportLinks() {
             >
               {{ allFilteredSelected ? i18n.t('取消全选') : i18n.t('全选') }}
             </button>
-            <button class="btn btn-sm btn-error btn-outline" @click="removeSelectedNodes" :disabled="busy || !selected.size">
+            <button class="btn btn-sm btn-soft-danger" @click="removeSelectedNodes" :disabled="busy || !selected.size">
               <TrashIcon class="h-4 w-4" /> {{ i18n.t('删除') }}
             </button>
             <button class="btn btn-sm" @click="refreshCountry" :disabled="busy || !selected.size">
@@ -620,7 +620,7 @@ async function exportLinks() {
             >
               {{ allGroupsSelected ? i18n.t('取消全选') : i18n.t('全选') }}
             </button>
-            <button class="btn btn-sm btn-error btn-outline" @click="removeSelectedGroups" :disabled="busy || !selectedGroups.size">
+            <button class="btn btn-sm btn-soft-danger" @click="removeSelectedGroups" :disabled="busy || !selectedGroups.size">
               <TrashIcon class="h-4 w-4" /> {{ i18n.t('删除') }}
             </button>
             <button class="btn btn-sm btn-primary" @click="openCreateGroup">
@@ -745,7 +745,7 @@ async function exportLinks() {
           </div>
         </div>
         <div class="modal-action">
-          <button class="btn btn-ghost" @click="closeGroupForm" :disabled="busy">{{ i18n.t('取消') }}</button>
+          <button class="btn btn-modal-cancel" @click="closeGroupForm" :disabled="busy">{{ i18n.t('取消') }}</button>
           <button class="btn btn-primary" @click="submitGroup" :disabled="busy">
             <span v-if="busy" class="loading loading-spinner loading-sm"></span> {{ i18n.t('保存') }}
           </button>
