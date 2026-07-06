@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useNodesStore } from '../stores/nodes'
+import { useNodeGroupsStore } from '../stores/nodeGroups'
 import { useUiStore } from '../stores/ui'
 import { useI18nStore } from '../stores/i18n'
 import { errMsg } from '../utils/error'
-import type { ImportPreviewResult } from '../api/types'
+import type { ImportPreviewResult, ImportResult } from '../api/types'
 import { nodeSourceLabel } from '../utils/nodeSource'
 import CountryFlag from './CountryFlag.vue'
 
 const emit = defineEmits<{ close: []; imported: [] }>()
 const nodesStore = useNodesStore()
+const nodeGroupsStore = useNodeGroupsStore()
 const ui = useUiStore()
 const i18n = useI18nStore()
 
@@ -22,9 +24,12 @@ const subName = ref('')
 const subUrl = ref('')
 const configText = ref('')
 const preview = ref<ImportPreviewResult | null>(null)
+const createGroup = ref(false)
+const groupName = ref('')
+const groupNameTouched = ref(false)
 
 watch(tab, () => {
-  preview.value = null
+  resetPreviewState()
 })
 
 function setTab(next: Tab) {
@@ -33,7 +38,56 @@ function setTab(next: Tab) {
 }
 
 function clearPreview() {
+  resetPreviewState()
+}
+
+function resetPreviewState() {
   preview.value = null
+  createGroup.value = false
+  groupName.value = ''
+  groupNameTouched.value = false
+}
+
+function defaultGroupName() {
+  if (tab.value === 'subscription' && subName.value.trim()) return subName.value.trim()
+  return `${i18n.t('导入节点')} ${timestampLabel()}`
+}
+
+function timestampLabel() {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function groupDescription(count: number) {
+  return `${i18n.t('导入节点')} · ${count} ${i18n.t('个节点')}`
+}
+
+function syncGroupName() {
+  if (preview.value && !groupNameTouched.value) groupName.value = defaultGroupName()
+}
+
+function onGroupNameInput(value: string) {
+  groupNameTouched.value = true
+  groupName.value = value
+}
+
+watch(preview, syncGroupName)
+watch([subName, tab], () => {
+  if (!groupNameTouched.value) groupName.value = defaultGroupName()
+})
+
+async function runImport(): Promise<ImportResult> {
+  if (tab.value === 'links') {
+    if (!links.value.trim()) throw new Error('请粘贴分享链接')
+    return nodesStore.importLinks(links.value)
+  }
+  if (tab.value === 'subscription') {
+    if (!subUrl.value.trim()) throw new Error('请填写订阅 URL')
+    return nodesStore.importSubscription(subName.value, subUrl.value)
+  }
+  if (!configText.value.trim()) throw new Error('请粘贴 config JSON')
+  return nodesStore.importConfig(configText.value)
 }
 
 async function previewImport() {
@@ -59,28 +113,28 @@ async function previewImport() {
 async function confirmImport() {
   busy.value = true
   try {
-    let count = 0
-    let deduped = 0
-    let warnings: string[] = []
-    if (tab.value === 'links') {
-      if (!links.value.trim()) throw new Error('请粘贴分享链接')
-      const result = await nodesStore.importLinks(links.value)
-      count = result.imported
-      deduped = result.deduped ?? 0
-      warnings = result.warnings ?? []
-    } else if (tab.value === 'subscription') {
-      if (!subUrl.value.trim()) throw new Error('请填写订阅 URL')
-      const result = await nodesStore.importSubscription(subName.value, subUrl.value)
-      count = result.imported
-      deduped = result.deduped ?? 0
-      warnings = result.warnings ?? []
-    } else {
-      if (!configText.value.trim()) throw new Error('请粘贴 config JSON')
-      const result = await nodesStore.importConfig(configText.value)
-      count = result.imported
-      deduped = result.deduped ?? 0
+    if (createGroup.value && !groupName.value.trim()) throw new Error('请填写组合名称')
+    const result = await runImport()
+    const count = result.imported
+    const deduped = result.deduped ?? 0
+    const warnings = result.warnings ?? []
+    let createdGroupName = ''
+    let groupError = ''
+    if (createGroup.value && result.nodes.length) {
+      try {
+        const group = await nodeGroupsStore.create({
+          name: groupName.value.trim(),
+          description: groupDescription(result.nodes.length),
+          node_ids: result.nodes.map((node) => node.id),
+        })
+        createdGroupName = group.name
+      } catch (e) {
+        groupError = errMsg(e)
+      }
     }
-    ui.success(`成功导入 ${count} 个节点`)
+    if (createdGroupName) ui.success(`成功导入 ${count} 个节点，并创建组合节点「${createdGroupName}」`)
+    else ui.success(`成功导入 ${count} 个节点`)
+    if (groupError) ui.error(`${i18n.t('节点已导入，但组合节点创建失败')}：${groupError}`)
     if (deduped) ui.info(`已跳过 ${deduped} 个重复节点`)
     warnings.slice(0, 3).forEach((warning) => ui.info(warning))
     emit('imported')
@@ -154,6 +208,25 @@ function failedFetchCount() {
         </div>
         <div v-if="preview.warnings?.length" class="text-xs text-warning flex flex-col gap-1">
           <div v-for="warning in preview.warnings.slice(0, 3)" :key="warning" class="truncate" :title="warning">{{ warning }}</div>
+        </div>
+        <div v-if="preview.importable > 0" class="rounded-box border border-base-300 bg-base-100 p-3 flex flex-col gap-3">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <div class="font-semibold text-sm">{{ i18n.t('新建组合') }}</div>
+              <div class="text-xs opacity-60">{{ i18n.t('使用本次新增节点创建组合节点') }}</div>
+            </div>
+            <input v-model="createGroup" type="checkbox" class="toggle toggle-sm" :disabled="busy" />
+          </div>
+          <label v-if="createGroup" class="form-control">
+            <span class="label-text mb-1">{{ i18n.t('组合名称') }}</span>
+            <input
+              :value="groupName"
+              class="input input-bordered input-sm"
+              :placeholder="defaultGroupName()"
+              :disabled="busy"
+              @input="onGroupNameInput(($event.target as HTMLInputElement).value)"
+            />
+          </label>
         </div>
         <div v-if="preview.fetches?.length" class="rounded-box border border-base-300 bg-base-100">
           <div class="flex items-center justify-between gap-2 px-3 py-2 border-b border-base-200 text-xs">
