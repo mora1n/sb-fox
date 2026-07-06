@@ -3,6 +3,8 @@ import { onMounted, ref } from 'vue'
 import { post } from '../api/client'
 import { useProfilesStore } from '../stores/profiles'
 import { useTemplatesStore } from '../stores/templates'
+import { useNodesStore } from '../stores/nodes'
+import { useNodeGroupsStore } from '../stores/nodeGroups'
 import { useSettingsStore } from '../stores/settings'
 import { useUiStore } from '../stores/ui'
 import { errMsg } from '../utils/error'
@@ -15,6 +17,8 @@ type EditorLaunchMode = 'create' | 'edit' | 'copy'
 
 const store = useProfilesStore()
 const templates = useTemplatesStore()
+const nodes = useNodesStore()
+const nodeGroups = useNodeGroupsStore()
 const settings = useSettingsStore()
 const ui = useUiStore()
 
@@ -25,12 +29,13 @@ const viewingConfig = ref('')
 
 onMounted(async () => {
   try {
-    await Promise.all([
-      store.fetchAll(),
-      store.fetchSubscriptionToken(),
-      templates.fetchAll(),
-      settings.fetchAppInfo(),
-    ])
+    await Promise.all([store.fetchAll(), templates.fetchAll()])
+    void store.fetchSubscriptionToken().catch((e) => ui.error(errMsg(e)))
+    void settings.fetchAppInfo().catch((e) => ui.error(errMsg(e)))
+    window.setTimeout(() => {
+      void nodes.fetchSummary().catch((e) => ui.error(errMsg(e)))
+      void nodeGroups.fetchAll().catch((e) => ui.error(errMsg(e)))
+    }, 0)
   } catch (e) {
     ui.error(errMsg(e))
   }

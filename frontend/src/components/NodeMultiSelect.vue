@@ -23,13 +23,14 @@ const countryOptions = computed(() => nodeCountries(props.nodes, settings.countr
 const typeOptions = computed(() => nodeTypes(props.nodes))
 const filtered = computed(() => filterNodes(props.nodes, filters.value))
 const nodesByID = computed(() => new Map(props.nodes.map((node) => [node.id, node])))
+const selectedSet = computed(() => new Set(props.modelValue))
 const selectedItems = computed(() => {
   return props.modelValue.map((id) => ({ id, node: nodesByID.value.get(id) }))
 })
 
 function toggle(id: number) {
   if (props.disabled) return
-  if (props.modelValue.includes(id)) emit('update:modelValue', props.modelValue.filter((item) => item !== id))
+  if (selectedSet.value.has(id)) emit('update:modelValue', props.modelValue.filter((item) => item !== id))
   else emit('update:modelValue', uniqueIDs([...props.modelValue, id]))
 }
 function selectAllFiltered() {

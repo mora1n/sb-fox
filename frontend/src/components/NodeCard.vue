@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import type { Node } from '../api/types'
+import type { NodeSummary } from '../api/types'
 import CountryFlag from './CountryFlag.vue'
 import { useI18nStore } from '../stores/i18n'
 import { nodeSourceLabel } from '../utils/nodeSource'
 import { formatDateTime } from '../utils/time'
 import { PencilSquareIcon, TrashIcon, ArrowsRightLeftIcon, DocumentDuplicateIcon } from '@heroicons/vue/24/outline'
 
-defineProps<{ node: Node; selected: boolean }>()
+defineProps<{ node: NodeSummary; selected: boolean }>()
 defineEmits<{ copy: []; edit: []; remove: []; 'toggle-select': [] }>()
 const i18n = useI18nStore()
 

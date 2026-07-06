@@ -45,6 +45,7 @@ const selectedProfiles = ref<Set<number>>(new Set())
 const profileSortKey = ref<ProfileSortKey | ''>('')
 const profileSortDir = ref<SortDir>('asc')
 const tokenHost = computed(() => settings.subscriptionHostPrefix || '')
+const templateNameMap = computed(() => new Map(templates.templates.map((t) => [t.id, t.name])))
 const allProfilesSelected = computed(
   () => store.profiles.length > 0 && store.profiles.every((p) => selectedProfiles.value.has(p.id)),
 )
@@ -57,7 +58,7 @@ const sortedProfiles = computed(() => {
 watch(profileViewMode, (value) => writeViewPref('sb-fox-view:subscriptions', value))
 
 function templateName(id: number) {
-  return templates.templates.find((t) => t.id === id)?.name || `#${id}`
+  return templateNameMap.value.get(id) || `#${id}`
 }
 
 function profileLinkText(p: Profile) {
@@ -231,6 +232,7 @@ function onProfileSubscriptionEnabledChange(profile: Profile, event: Event) {
       <div
         v-for="p in store.profiles"
         :key="p.id"
+        v-memo="[p.id, p.name, p.template_id, p.subscription_enabled, p.updated_at, selectedProfiles.has(p.id), store.subscriptionToken, tokenHost, i18n.locale]"
         class="card bg-base-100 shadow-sm border border-base-300 cursor-pointer transition-colors hover:bg-base-200/60"
         :class="{ 'ring-2 ring-primary': selectedProfiles.has(p.id) }"
         role="button"
@@ -309,6 +311,7 @@ function onProfileSubscriptionEnabledChange(profile: Profile, event: Event) {
           <tr
             v-for="p in sortedProfiles"
             :key="p.id"
+            v-memo="[p.id, p.name, p.template_id, p.subscription_enabled, p.updated_at, selectedProfiles.has(p.id), store.subscriptionToken, tokenHost, i18n.locale]"
             class="cursor-pointer hover:bg-base-200/70"
             :class="{ 'bg-base-200': selectedProfiles.has(p.id) }"
             @click="toggleProfileSelect(p.id)"

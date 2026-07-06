@@ -24,15 +24,18 @@ function defaultFilters(): NodeFilters {
 
 export const useNodesStore = defineStore('nodes', () => {
   const settings = useSettingsStore()
-  const nodes = ref<Node[]>([])
-  const unfilteredNodes = ref<Node[]>([])
+  const nodes = ref<NodeSummary[]>([])
+  const unfilteredNodes = ref<NodeSummary[]>([])
   const summaryNodes = ref<NodeSummary[]>([])
   const loading = ref(false)
   const filters = ref<NodeFilters>(defaultFilters())
   const unfilteredLoaded = ref(false)
   const summaryLoaded = ref(false)
-  let unfilteredInFlight: Promise<Node[]> | null = null
-  let summaryInFlight: Promise<NodeSummary[]> | null = null
+  const queryCache = new Map<string, NodeSummary[]>()
+  const queryInFlight = new Map<string, Promise<NodeSummary[]>>()
+  const fullNodes = new Map<number, Node>()
+  let cacheVersion = 0
+  let loadingToken = 0
 
   function buildQuery(): string {
     const p = new URLSearchParams()
@@ -44,77 +47,123 @@ export const useNodesStore = defineStore('nodes', () => {
     return q ? '?' + q : ''
   }
 
-  async function fetchAll(): Promise<void> {
-    loading.value = true
-    try {
-      const query = buildQuery()
-      if (!query && unfilteredLoaded.value) {
-        nodes.value = unfilteredNodes.value
-        return
-      }
-      nodes.value = (await get<Node[]>('/nodes' + query)) ?? []
+  function endpointForQuery(query: string): string {
+    return '/nodes?summary=1' + (query ? '&' + query.slice(1) : '')
+  }
+
+  async function fetchQuery(query: string, force = false): Promise<NodeSummary[]> {
+    if (!force && queryCache.has(query)) return queryCache.get(query) ?? []
+    if (!force && queryInFlight.has(query)) return queryInFlight.get(query) ?? Promise.resolve([])
+    const version = cacheVersion
+    const req = get<NodeSummary[]>(endpointForQuery(query)).then((items) => {
+      const next = items ?? []
+      if (version !== cacheVersion) return next
+      queryCache.set(query, next)
       if (!query) {
-        unfilteredNodes.value = nodes.value
+        unfilteredNodes.value = next
+        summaryNodes.value = next
         unfilteredLoaded.value = true
+        summaryLoaded.value = true
       }
+      return next
+    }).finally(() => {
+      queryInFlight.delete(query)
+    })
+    queryInFlight.set(query, req)
+    return req
+  }
+
+  async function fetchAll(force = false): Promise<void> {
+    const query = buildQuery()
+    const version = cacheVersion
+    const showLoading = force || !queryCache.has(query)
+    const token = showLoading ? ++loadingToken : 0
+    if (showLoading) loading.value = true
+    try {
+      const items = await fetchQuery(query, force)
+      if (version === cacheVersion) nodes.value = items
     } finally {
-      loading.value = false
+      if (showLoading && token === loadingToken) loading.value = false
     }
   }
 
-  async function fetchUnfiltered(force = false): Promise<Node[]> {
+  async function fetchUnfiltered(force = false): Promise<NodeSummary[]> {
     if (!force && unfilteredLoaded.value) return unfilteredNodes.value
-    if (!force && unfilteredInFlight) return unfilteredInFlight
-    unfilteredInFlight = get<Node[]>('/nodes').then((items) => {
-      unfilteredNodes.value = items ?? []
-      unfilteredLoaded.value = true
-      if (!buildQuery()) nodes.value = unfilteredNodes.value
-      return unfilteredNodes.value
-    }).finally(() => {
-      unfilteredInFlight = null
-    })
-    return unfilteredInFlight
+    const version = cacheVersion
+    const items = await fetchQuery('', force)
+    if (version !== cacheVersion) return items
+    unfilteredNodes.value = items
+    summaryNodes.value = items
+    unfilteredLoaded.value = true
+    summaryLoaded.value = true
+    if (!buildQuery()) nodes.value = items
+    return items
   }
 
   async function fetchSummary(force = false): Promise<NodeSummary[]> {
     if (!force && summaryLoaded.value) return summaryNodes.value
-    if (!force && summaryInFlight) return summaryInFlight
-    summaryInFlight = get<NodeSummary[]>('/nodes?summary=1').then((items) => {
-      summaryNodes.value = items ?? []
-      summaryLoaded.value = true
-      return summaryNodes.value
-    }).finally(() => {
-      summaryInFlight = null
-    })
-    return summaryInFlight
+    const version = cacheVersion
+    const items = await fetchQuery('', force)
+    if (version !== cacheVersion) return items
+    summaryNodes.value = items
+    unfilteredNodes.value = items
+    summaryLoaded.value = true
+    unfilteredLoaded.value = true
+    return items
+  }
+
+  async function getOne(id: number, force = false): Promise<Node> {
+    if (!force && fullNodes.has(id)) return fullNodes.get(id) as Node
+    const node = await get<Node>('/nodes/' + id)
+    fullNodes.set(id, node)
+    return node
+  }
+
+  function invalidateListCache(): void {
+    cacheVersion++
+    queryCache.clear()
+    queryInFlight.clear()
+    unfilteredLoaded.value = false
+    summaryLoaded.value = false
+  }
+
+  function removeFromLoadedState(id: number): void {
+    nodes.value = nodes.value.filter((n) => n.id !== id)
+    unfilteredNodes.value = unfilteredNodes.value.filter((n) => n.id !== id)
+    summaryNodes.value = summaryNodes.value.filter((n) => n.id !== id)
+    fullNodes.delete(id)
+    for (const [key, items] of queryCache) {
+      queryCache.set(key, items.filter((n) => n.id !== id))
+    }
   }
 
   async function refreshAfterMutation(): Promise<void> {
     const refreshSummary = summaryLoaded.value
     const refreshUnfiltered = unfilteredLoaded.value
-    unfilteredLoaded.value = false
-    await fetchAll()
-    if (refreshUnfiltered && buildQuery()) await fetchUnfiltered(true)
+    const query = buildQuery()
+    invalidateListCache()
+    await fetchAll(true)
+    if (refreshUnfiltered && query) await fetchUnfiltered(true)
     if (refreshSummary) await fetchSummary(true)
   }
 
   async function create(input: NodeInput): Promise<Node> {
     const n = await post<Node>('/nodes', input)
+    fullNodes.set(n.id, n)
     await refreshAfterMutation()
     return n
   }
 
   async function update(id: number, input: NodeInput): Promise<Node> {
     const n = await put<Node>('/nodes/' + id, input)
+    fullNodes.set(n.id, n)
     await refreshAfterMutation()
     return n
   }
 
   async function remove(id: number): Promise<void> {
     await del('/nodes/' + id)
-    nodes.value = nodes.value.filter((n) => n.id !== id)
-    unfilteredNodes.value = unfilteredNodes.value.filter((n) => n.id !== id)
-    summaryNodes.value = summaryNodes.value.filter((n) => n.id !== id)
+    removeFromLoadedState(id)
   }
 
   async function usage(id: number): Promise<NodeUsage[]> {
@@ -172,8 +221,11 @@ export const useNodesStore = defineStore('nodes', () => {
     filters.value = defaultFilters()
     unfilteredLoaded.value = false
     summaryLoaded.value = false
-    unfilteredInFlight = null
-    summaryInFlight = null
+    cacheVersion++
+    loadingToken++
+    queryCache.clear()
+    queryInFlight.clear()
+    fullNodes.clear()
   }
 
   return {
@@ -187,6 +239,7 @@ export const useNodesStore = defineStore('nodes', () => {
     fetchAll,
     fetchUnfiltered,
     fetchSummary,
+    getOne,
     create,
     update,
     remove,

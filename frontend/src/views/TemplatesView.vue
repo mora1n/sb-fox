@@ -516,6 +516,7 @@ async function remove(t: TemplateSummary) {
       <div
         v-for="t in sortedTemplates"
         :key="t.id"
+        v-memo="[t.id, t.name, t.description, t.kind, t.updated_at, selectedTemplates.has(t.id), i18n.locale]"
         class="card bg-base-100 border border-base-300 shadow-sm transition-colors"
         :class="[
           t.kind === 'user' ? 'cursor-pointer hover:bg-base-200/60' : '',
@@ -576,6 +577,7 @@ async function remove(t: TemplateSummary) {
           <tr
             v-for="t in sortedTemplates"
             :key="t.id"
+            v-memo="[t.id, t.name, t.description, t.kind, t.updated_at, selectedTemplates.has(t.id), i18n.locale]"
             :class="[
               t.kind === 'user' ? 'cursor-pointer hover:bg-base-200/70' : '',
               selectedTemplates.has(t.id) ? 'bg-base-200' : '',

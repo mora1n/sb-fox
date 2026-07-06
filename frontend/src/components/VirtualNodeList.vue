@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import type { NodeSummary } from '../api/types'
 import CountryFlag from './CountryFlag.vue'
 import { useI18nStore } from '../stores/i18n'
@@ -25,6 +25,7 @@ const i18n = useI18nStore()
 
 const scrollTop = ref(0)
 const scroller = ref<HTMLElement | null>(null)
+let scrollFrame = 0
 
 const selectedSet = computed(() => new Set(props.selectedIds))
 const totalHeight = computed(() => props.nodes.length * props.rowHeight)
@@ -42,8 +43,17 @@ watch(
   },
 )
 
+onBeforeUnmount(() => {
+  if (scrollFrame) cancelAnimationFrame(scrollFrame)
+})
+
 function onScroll(event: Event) {
-  scrollTop.value = (event.currentTarget as HTMLElement).scrollTop
+  const target = event.currentTarget as HTMLElement
+  if (scrollFrame) cancelAnimationFrame(scrollFrame)
+  scrollFrame = requestAnimationFrame(() => {
+    scrollTop.value = target.scrollTop
+    scrollFrame = 0
+  })
 }
 </script>
 
@@ -53,7 +63,7 @@ function onScroll(event: Event) {
     ref="scroller"
     class="border border-base-300 rounded-box overflow-y-auto"
     :style="{ height: `${viewportHeight}px` }"
-    @scroll="onScroll"
+    @scroll.passive="onScroll"
   >
     <div class="relative" :style="{ height: `${totalHeight}px` }">
       <label

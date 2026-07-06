@@ -11,14 +11,15 @@ const i18n = useI18nStore()
 const dragIndex = ref<number | null>(null)
 const pressedIndex = ref<number | null>(null)
 const insertIndex = ref<number | null>(null)
+const groupsByID = computed(() => new Map(props.groups.map((group) => [group.id, group])))
+const selectedSet = computed(() => new Set(props.modelValue))
 const selectedItems = computed(() => {
-  const byID = new Map(props.groups.map((group) => [group.id, group]))
-  return props.modelValue.map((id) => ({ id, group: byID.get(id) }))
+  return props.modelValue.map((id) => ({ id, group: groupsByID.value.get(id) }))
 })
 
 function toggle(id: number) {
   if (props.disabled) return
-  if (props.modelValue.includes(id)) emit('update:modelValue', props.modelValue.filter((item) => item !== id))
+  if (selectedSet.value.has(id)) emit('update:modelValue', props.modelValue.filter((item) => item !== id))
   else emit('update:modelValue', uniqueIDs([...props.modelValue, id]))
 }
 
@@ -199,7 +200,7 @@ function dropSelected(event: DragEvent) {
         <input
           type="checkbox"
           class="checkbox checkbox-sm"
-          :checked="modelValue.includes(g.id)"
+          :checked="selectedSet.has(g.id)"
           :disabled="disabled"
           @change="toggle(g.id)"
         />

@@ -6,7 +6,7 @@ import { useUiStore } from '../stores/ui'
 import { useI18nStore } from '../stores/i18n'
 import { errMsg } from '../utils/error'
 import { downloadPost } from '../api/client'
-import type { Node, NodeGroup } from '../api/types'
+import type { Node, NodeGroup, NodeSummary } from '../api/types'
 import { nodeSourceLabel } from '../utils/nodeSource'
 import { NODE_SOURCES } from '../utils/nodeFilters'
 import { readViewPref, writeViewPref } from '../utils/viewPrefs'
@@ -65,6 +65,7 @@ const groupForm = ref({ name: '', description: '', node_ids: [] as number[] })
 
 const loading = computed(() => nodesStore.loading || nodeGroups.loading)
 const allNodeOptions = computed(() => (nodesStore.unfilteredNodes.length ? nodesStore.unfilteredNodes : nodesStore.nodes))
+const nodeLabelMap = computed(() => new Map(allNodeOptions.value.map((n) => [n.id, n.tag])))
 const allFilteredSelected = computed(
   () => nodesStore.nodes.length > 0 && nodesStore.nodes.every((n) => selected.value.has(n.id)),
 )
@@ -80,6 +81,9 @@ const sortedNodes = computed(() => {
 const sortedGroups = computed(() => {
   if (!groupSortKey.value) return nodeGroups.groups
   return [...nodeGroups.groups].sort((a, b) => compareGroup(a, b, groupSortKey.value as GroupSortKey, groupSortDir.value))
+})
+const groupNodeSortTextMap = computed(() => {
+  return new Map(nodeGroups.groups.map((g) => [g.id, g.node_ids.map((id) => nodeLabel(id)).join(' ')]))
 })
 
 onMounted(load)
@@ -146,16 +150,41 @@ function openCreate() {
   copyingNodeFrom.value = null
   showEdit.value = true
 }
-function openEdit(n: Node) {
-  editing.value = n
-  copyingNodeFrom.value = null
-  showEdit.value = true
+async function loadFullNode(n: NodeSummary): Promise<Node | null> {
+  try {
+    return await nodesStore.getOne(n.id)
+  } catch (e) {
+    ui.error(errMsg(e))
+    return null
+  }
 }
 
-function openCopy(n: Node) {
-  editing.value = null
-  copyingNodeFrom.value = n
-  showEdit.value = true
+async function openEdit(n: NodeSummary) {
+  if (busy.value) return
+  busy.value = true
+  try {
+    const full = await loadFullNode(n)
+    if (!full) return
+    editing.value = full
+    copyingNodeFrom.value = null
+    showEdit.value = true
+  } finally {
+    busy.value = false
+  }
+}
+
+async function openCopy(n: NodeSummary) {
+  if (busy.value) return
+  busy.value = true
+  try {
+    const full = await loadFullNode(n)
+    if (!full) return
+    editing.value = null
+    copyingNodeFrom.value = full
+    showEdit.value = true
+  } finally {
+    busy.value = false
+  }
 }
 
 function closeNodeForm() {
@@ -165,7 +194,7 @@ function closeNodeForm() {
 }
 
 function nodeLabel(id: number) {
-  return allNodeOptions.value.find((n) => n.id === id)?.tag || `#${id}`
+  return nodeLabelMap.value.get(id) || `#${id}`
 }
 
 function clearSearch() {
@@ -195,7 +224,7 @@ function compareTime(a: string, b: string, dir: SortDir) {
   return compareNumber(timeSortValue(a), timeSortValue(b), dir)
 }
 
-function compareNode(a: Node, b: Node, key: NodeSortKey, dir: SortDir) {
+function compareNode(a: NodeSummary, b: NodeSummary, key: NodeSortKey, dir: SortDir) {
   if (key === 'server') return compareText(`${a.server}:${a.server_port}`, `${b.server}:${b.server_port}`, dir)
   if (key === 'country') return compareText(a.country_code, b.country_code, dir)
   if (key === 'created_at' || key === 'updated_at') return compareTime(a[key], b[key], dir)
@@ -213,7 +242,7 @@ function compareGroup(a: NodeGroup, b: NodeGroup, key: GroupSortKey, dir: SortDi
 }
 
 function groupNodeSortText(group: NodeGroup) {
-  return group.node_ids.map((id) => nodeLabel(id)).join(' ')
+  return groupNodeSortTextMap.value.get(group.id) || ''
 }
 
 function toggleNodeSort(key: NodeSortKey) {
@@ -287,7 +316,7 @@ async function submitGroup() {
   }
 }
 
-async function remove(n: Node) {
+async function remove(n: NodeSummary) {
   let message = `删除节点 "${n.tag}"？`
   try {
     const usage = await nodesStore.usage(n.id)
@@ -516,6 +545,7 @@ async function exportLinks() {
           <NodeCard
             v-for="n in sortedNodes"
             :key="n.id"
+            v-memo="[n.id, n.tag, n.server, n.server_port, n.type, n.country_code, n.source, n.has_detour, n.updated_at, selected.has(n.id), i18n.locale]"
             :node="n"
             :selected="selected.has(n.id)"
             @copy="openCopy(n)"
@@ -543,6 +573,7 @@ async function exportLinks() {
               <tr
                 v-for="n in sortedNodes"
                 :key="n.id"
+                v-memo="[n.id, n.tag, n.server, n.server_port, n.type, n.country_code, n.source, n.has_detour, n.updated_at, selected.has(n.id), i18n.locale]"
                 class="cursor-pointer hover:bg-base-200/70"
                 :class="{ 'bg-base-200': selected.has(n.id) }"
                 @click="toggleSelect(n.id)"
@@ -693,8 +724,8 @@ async function exportLinks() {
       </section>
     </template>
 
-    <ImportDialog v-if="showImport" @close="showImport = false" @imported="load" />
-    <NodeEditForm v-if="showEdit" :node="editing" :copy-from="copyingNodeFrom" @close="closeNodeForm" @saved="load" />
+    <ImportDialog v-if="showImport" @close="showImport = false" />
+    <NodeEditForm v-if="showEdit" :node="editing" :copy-from="copyingNodeFrom" @close="closeNodeForm" />
 
     <div v-if="showGroupForm" class="modal modal-open">
       <div class="modal-box max-w-2xl">
