@@ -20,6 +20,7 @@ import {
   UsersIcon,
   Cog6ToothIcon,
   ArrowRightOnRectangleIcon,
+  ComputerDesktopIcon,
   MoonIcon,
   SunIcon,
 } from '@heroicons/vue/24/outline'
@@ -104,10 +105,39 @@ function reportBackgroundError(e: unknown): void {
             <span aria-hidden="true">🌐</span>
             <span>{{ i18n.isEnglish ? '中' : 'EN' }}</span>
           </button>
-          <button class="btn btn-ghost btn-sm" @click="ui.toggleTheme()">
-            <MoonIcon v-if="ui.theme === 'light-neutral'" class="h-5 w-5" />
-            <SunIcon v-else class="h-5 w-5" />
-          </button>
+          <div class="dropdown dropdown-end">
+            <button
+              tabindex="0"
+              type="button"
+              class="btn btn-ghost btn-sm"
+              :title="i18n.t('切换主题')"
+              :aria-label="i18n.t('切换主题')"
+            >
+              <ComputerDesktopIcon v-if="ui.themeMode === 'system'" class="h-5 w-5" />
+              <SunIcon v-else-if="ui.effectiveTheme === 'light-neutral'" class="h-5 w-5" />
+              <MoonIcon v-else class="h-5 w-5" />
+            </button>
+            <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-[1] w-40 p-2 shadow border border-base-300">
+              <li>
+                <button type="button" :class="{ active: ui.themeMode === 'system' }" @click="ui.setThemeMode('system')">
+                  <ComputerDesktopIcon class="h-4 w-4" />
+                  {{ i18n.t('跟随系统') }}
+                </button>
+              </li>
+              <li>
+                <button type="button" :class="{ active: ui.themeMode === 'light-neutral' }" @click="ui.setThemeMode('light-neutral')">
+                  <SunIcon class="h-4 w-4" />
+                  {{ i18n.t('浅色') }}
+                </button>
+              </li>
+              <li>
+                <button type="button" :class="{ active: ui.themeMode === 'dark-neutral' }" @click="ui.setThemeMode('dark-neutral')">
+                  <MoonIcon class="h-4 w-4" />
+                  {{ i18n.t('深色') }}
+                </button>
+              </li>
+            </ul>
+          </div>
           <span class="text-sm opacity-70 hidden sm:inline">{{ auth.username }}</span>
           <button class="btn btn-ghost btn-sm" @click="logout">
             <ArrowRightOnRectangleIcon class="h-5 w-5" />

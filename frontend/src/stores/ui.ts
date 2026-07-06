@@ -11,7 +11,9 @@ export interface Toast {
 
 const THEME_KEY = 'sb-fox-theme'
 export type UiTheme = 'light-neutral' | 'dark-neutral'
+export type UiThemeMode = 'system' | UiTheme
 
+const SYSTEM_THEME = 'system'
 const DEFAULT_THEME: UiTheme = 'light-neutral'
 const DARK_THEME: UiTheme = 'dark-neutral'
 const THEME_COLORS: Record<UiTheme, { bg: string; fg: string; scheme: 'light' | 'dark'; themeColor: string }> = {
@@ -19,11 +21,11 @@ const THEME_COLORS: Record<UiTheme, { bg: string; fg: string; scheme: 'light' | 
   'dark-neutral': { bg: '#1a1a1a', fg: '#e5e5e5', scheme: 'dark', themeColor: '#1a1a1a' },
 }
 
-function isUiTheme(value: string | null): value is UiTheme {
-  return value === DEFAULT_THEME || value === DARK_THEME
+function isUiThemeMode(value: string | null): value is UiThemeMode {
+  return value === SYSTEM_THEME || value === DEFAULT_THEME || value === DARK_THEME
 }
 
-function saveTheme(next: UiTheme): void {
+function saveThemeMode(next: UiThemeMode): void {
   try {
     localStorage.setItem(THEME_KEY, next)
   } catch (e) {
@@ -31,17 +33,25 @@ function saveTheme(next: UiTheme): void {
   }
 }
 
-function readTheme(): UiTheme {
+function readThemeMode(): UiThemeMode {
   try {
     const stored = localStorage.getItem(THEME_KEY)
-    if (isUiTheme(stored)) return stored
-    if (stored) console.warn(`sb-fox: unsupported theme "${stored}", reset to ${DEFAULT_THEME}`)
+    if (isUiThemeMode(stored)) return stored
+    if (stored) console.warn(`sb-fox: unsupported theme "${stored}", reset to ${SYSTEM_THEME}`)
   } catch (e) {
     console.warn('sb-fox: unable to read theme preference', e)
-    return DEFAULT_THEME
+    return SYSTEM_THEME
   }
-  saveTheme(DEFAULT_THEME)
-  return DEFAULT_THEME
+  saveThemeMode(SYSTEM_THEME)
+  return SYSTEM_THEME
+}
+
+function systemTheme(): UiTheme {
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? DARK_THEME : DEFAULT_THEME
+}
+
+function resolveTheme(mode: UiThemeMode): UiTheme {
+  return mode === SYSTEM_THEME ? systemTheme() : mode
 }
 
 function applyTheme(next: UiTheme): void {
@@ -79,13 +89,41 @@ export const useUiStore = defineStore('ui', () => {
   const error = (m: string) => push('error', m)
   const info = (m: string) => push('info', m)
 
-  const theme = ref<UiTheme>(readTheme())
-  function toggleTheme() {
-    theme.value = theme.value === DEFAULT_THEME ? DARK_THEME : DEFAULT_THEME
-    saveTheme(theme.value)
-    applyTheme(theme.value)
-  }
-  applyTheme(theme.value)
+  const themeMode = ref<UiThemeMode>(readThemeMode())
+  const effectiveTheme = ref<UiTheme>(resolveTheme(themeMode.value))
 
-  return { toasts, push, dismiss, success, error, info, theme, toggleTheme }
+  function applyEffectiveTheme(): void {
+    const next = resolveTheme(themeMode.value)
+    effectiveTheme.value = next
+    applyTheme(next)
+  }
+
+  function setThemeMode(next: UiThemeMode): void {
+    themeMode.value = next
+    saveThemeMode(next)
+    applyEffectiveTheme()
+  }
+
+  function toggleTheme(): void {
+    setThemeMode(effectiveTheme.value === DEFAULT_THEME ? DARK_THEME : DEFAULT_THEME)
+  }
+
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (themeMode.value === SYSTEM_THEME) applyEffectiveTheme()
+  })
+  applyTheme(effectiveTheme.value)
+
+  return {
+    toasts,
+    push,
+    dismiss,
+    success,
+    error,
+    info,
+    themeMode,
+    effectiveTheme,
+    theme: effectiveTheme,
+    setThemeMode,
+    toggleTheme,
+  }
 })
