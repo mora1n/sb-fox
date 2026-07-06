@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { del, get, post, put } from '../api/client'
-import type { ImportPreviewResult, ImportResult, Node, NodeSummary, NodeUsage } from '../api/types'
+import type { BulkDeleteResult, BulkNodeUsageResult, ImportPreviewResult, ImportResult, Node, NodeSummary, NodeUsage } from '../api/types'
 import { useSettingsStore } from './settings'
 import { nodeCountries, nodeTypes } from '../utils/nodeFilters'
 
@@ -141,15 +141,32 @@ export const useNodesStore = defineStore('nodes', () => {
   }
 
   function removeFromLoadedState(id: number): void {
-    nodes.value = nodes.value.filter((n) => n.id !== id)
-    unfilteredNodes.value = unfilteredNodes.value.filter((n) => n.id !== id)
-    summaryNodes.value = summaryNodes.value.filter((n) => n.id !== id)
-    fullNodes.delete(id)
-    fullNodeInFlight.delete(id)
+    removeManyFromLoadedState([id])
+  }
+
+  function removeManyFromLoadedState(ids: number[]): void {
+    const idSet = new Set(ids)
+    nodes.value = nodes.value.filter((n) => !idSet.has(n.id))
+    unfilteredNodes.value = unfilteredNodes.value.filter((n) => !idSet.has(n.id))
+    summaryNodes.value = summaryNodes.value.filter((n) => !idSet.has(n.id))
+    for (const id of idSet) {
+      fullNodes.delete(id)
+      fullNodeInFlight.delete(id)
+    }
     detailVersion++
     for (const [key, items] of queryCache) {
-      queryCache.set(key, items.filter((n) => n.id !== id))
+      queryCache.set(key, items.filter((n) => !idSet.has(n.id)))
     }
+  }
+
+  async function previewBulkDelete(ids: number[]): Promise<BulkNodeUsageResult> {
+    return post<BulkNodeUsageResult>('/nodes/bulk-delete/preview', { ids })
+  }
+
+  async function bulkDelete(ids: number[]): Promise<number> {
+    const r = await post<BulkDeleteResult>('/nodes/bulk-delete', { ids })
+    removeManyFromLoadedState(ids)
+    return r.deleted
   }
 
   async function refreshAfterMutation(): Promise<void> {
@@ -264,6 +281,8 @@ export const useNodesStore = defineStore('nodes', () => {
     create,
     update,
     remove,
+    previewBulkDelete,
+    bulkDelete,
     usage,
     importLinks,
     previewImportLinks,

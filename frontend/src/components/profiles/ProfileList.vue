@@ -9,6 +9,7 @@ import { errMsg } from '../../utils/error'
 import { readViewPref, writeViewPref } from '../../utils/viewPrefs'
 import type { Profile } from '../../api/types'
 import TokenLinkField from '../TokenLinkField.vue'
+import BulkDeleteDialog from '../BulkDeleteDialog.vue'
 import {
   PlusIcon,
   PencilSquareIcon,
@@ -45,6 +46,11 @@ const i18n = useI18nStore()
 const busy = ref(false)
 const profileViewMode = ref<ViewMode>(readViewPref('sb-fox-view:subscriptions', 'card', VIEW_MODES))
 const selectedProfiles = ref<Set<number>>(new Set())
+const bulkDeleteDialog = ref({
+  open: false,
+  ids: [] as number[],
+  busy: false,
+})
 const profileSortKey = ref<ProfileSortKey | ''>('')
 const profileSortDir = ref<SortDir>('asc')
 const tokenHost = computed(() => settings.subscriptionHostPrefix || '')
@@ -122,14 +128,27 @@ function selectAllProfiles() {
 async function removeSelectedProfiles() {
   const ids = store.profiles.filter((p) => selectedProfiles.value.has(p.id)).map((p) => p.id)
   if (!ids.length) return ui.info('请先选择订阅')
-  if (!confirm(`删除选中的 ${ids.length} 个订阅？`)) return
+  bulkDeleteDialog.value = { open: true, ids, busy: false }
+}
+
+function closeBulkDeleteDialog() {
+  if (bulkDeleteDialog.value.busy) return
+  bulkDeleteDialog.value = { ...bulkDeleteDialog.value, open: false }
+}
+
+async function confirmBulkDelete() {
+  const ids = bulkDeleteDialog.value.ids
+  if (!bulkDeleteDialog.value.open || bulkDeleteDialog.value.busy || !ids.length) return
+  bulkDeleteDialog.value = { ...bulkDeleteDialog.value, busy: true }
   busy.value = true
   try {
-    for (const id of ids) await store.remove(id)
+    const deleted = await store.bulkDelete(ids)
     selectedProfiles.value = new Set()
-    ui.success(`已删除 ${ids.length} 个订阅`)
+    ui.success(`已删除 ${deleted} 个订阅`)
+    bulkDeleteDialog.value = { ...bulkDeleteDialog.value, open: false, busy: false }
   } catch (e) {
     ui.error(errMsg(e))
+    bulkDeleteDialog.value = { ...bulkDeleteDialog.value, busy: false }
   } finally {
     busy.value = false
   }
@@ -375,5 +394,14 @@ function onProfileSubscriptionEnabledChange(profile: Profile, event: Event) {
         </tbody>
       </table>
     </div>
+    <BulkDeleteDialog
+      :open="bulkDeleteDialog.open"
+      :title="i18n.t('删除订阅')"
+      :item-label="i18n.t('个订阅')"
+      :count="bulkDeleteDialog.ids.length"
+      :busy="bulkDeleteDialog.busy"
+      @close="closeBulkDeleteDialog"
+      @confirm="confirmBulkDelete"
+    />
   </div>
 </template>

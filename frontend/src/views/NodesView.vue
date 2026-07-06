@@ -16,6 +16,7 @@ import NodeEditForm from '../components/NodeEditForm.vue'
 import NodeMultiSelect from '../components/NodeMultiSelect.vue'
 import ImportDialog from '../components/ImportDialog.vue'
 import CountryFlag from '../components/CountryFlag.vue'
+import BulkDeleteDialog from '../components/BulkDeleteDialog.vue'
 import {
   PlusIcon,
   ArrowDownTrayIcon,
@@ -34,6 +35,7 @@ type NodeTab = 'single' | 'groups'
 type ViewMode = 'card' | 'list'
 type SortDir = 'asc' | 'desc'
 type NodeFormMode = 'create' | 'edit' | 'copy'
+type BulkDeleteTarget = 'nodes' | 'groups'
 type NodeSortKey = 'tag' | 'server' | 'type' | 'country' | 'source' | 'created_at' | 'updated_at'
 type GroupSortKey = 'name' | 'description' | 'nodes' | 'created_at' | 'updated_at'
 
@@ -66,7 +68,17 @@ const nodeSortDir = ref<SortDir>('asc')
 const groupSortKey = ref<GroupSortKey | ''>('')
 const groupSortDir = ref<SortDir>('asc')
 const groupForm = ref({ name: '', description: '', node_ids: [] as number[] })
+const bulkDeleteDialog = ref({
+  open: false,
+  target: 'nodes' as BulkDeleteTarget,
+  ids: [] as number[],
+  loadingPreview: false,
+  previewError: '',
+  affectedNames: [] as string[],
+  busy: false,
+})
 let nodeFormSeq = 0
+let bulkDeleteSeq = 0
 
 const loading = computed(() => {
   if (activeTab.value === 'single') return nodesStore.loading && !nodesStore.nodes.length
@@ -97,6 +109,12 @@ const sortedGroups = computed(() => {
 })
 const groupNodeSortTextMap = computed(() => {
   return new Map(nodeGroups.groups.map((g) => [g.id, g.node_ids.map((id) => nodeLabel(id)).join(' ')]))
+})
+const bulkDeleteTitle = computed(() => {
+  return bulkDeleteDialog.value.target === 'nodes' ? i18n.t('删除节点') : i18n.t('删除组合节点')
+})
+const bulkDeleteItemLabel = computed(() => {
+  return bulkDeleteDialog.value.target === 'nodes' ? i18n.t('个节点') : i18n.t('个组合节点')
 })
 
 onMounted(load)
@@ -372,33 +390,7 @@ async function remove(n: NodeSummary) {
 async function removeSelectedNodes() {
   const ids = [...selected.value]
   if (!ids.length) return ui.info('请先选择节点')
-  const affectedProfiles = new Set<string>()
-  try {
-    for (const id of ids) {
-      const usage = await nodesStore.usage(id)
-      for (const item of usage) affectedProfiles.add(item.profile_name)
-    }
-  } catch (e) {
-    ui.error(errMsg(e))
-    return
-  }
-
-  let message = `删除选中的 ${ids.length} 个节点？`
-  if (affectedProfiles.size) {
-    message += `\n\n这些节点正在被以下订阅使用，删除后可能导致订阅失效：\n${[...affectedProfiles].join('\n')}`
-  }
-  if (!confirm(message)) return
-
-  busy.value = true
-  try {
-    for (const id of ids) await nodesStore.remove(id)
-    selected.value = new Set()
-    ui.success(`已删除 ${ids.length} 个节点`)
-  } catch (e) {
-    ui.error(errMsg(e))
-  } finally {
-    busy.value = false
-  }
+  openBulkDeleteDialog('nodes', ids)
 }
 
 async function removeGroup(g: NodeGroup) {
@@ -416,14 +408,67 @@ async function removeGroup(g: NodeGroup) {
 async function removeSelectedGroups() {
   const ids = nodeGroups.groups.filter((g) => selectedGroups.value.has(g.id)).map((g) => g.id)
   if (!ids.length) return ui.info('请先选择组合节点')
-  if (!confirm(`删除选中的 ${ids.length} 个组合节点？`)) return
+  openBulkDeleteDialog('groups', ids)
+}
+
+function openBulkDeleteDialog(target: BulkDeleteTarget, ids: number[]) {
+  const seq = ++bulkDeleteSeq
+  bulkDeleteDialog.value = {
+    open: true,
+    target,
+    ids,
+    loadingPreview: target === 'nodes',
+    previewError: '',
+    affectedNames: [],
+    busy: false,
+  }
+  if (target !== 'nodes') return
+  nodesStore.previewBulkDelete(ids)
+    .then((result) => {
+      if (seq !== bulkDeleteSeq || !bulkDeleteDialog.value.open) return
+      const names = [...new Set((result.usage ?? []).map((item) => item.profile_name).filter(Boolean))]
+      bulkDeleteDialog.value = {
+        ...bulkDeleteDialog.value,
+        loadingPreview: false,
+        affectedNames: names,
+      }
+    })
+    .catch((e) => {
+      if (seq !== bulkDeleteSeq || !bulkDeleteDialog.value.open) return
+      bulkDeleteDialog.value = {
+        ...bulkDeleteDialog.value,
+        loadingPreview: false,
+        previewError: errMsg(e),
+      }
+    })
+}
+
+function closeBulkDeleteDialog() {
+  if (bulkDeleteDialog.value.busy) return
+  bulkDeleteSeq++
+  bulkDeleteDialog.value = { ...bulkDeleteDialog.value, open: false }
+}
+
+async function confirmBulkDelete() {
+  const current = bulkDeleteDialog.value
+  if (!current.open || current.busy || current.loadingPreview || current.previewError) return
+  bulkDeleteDialog.value = { ...current, busy: true }
   busy.value = true
   try {
-    for (const id of ids) await nodeGroups.remove(id)
-    selectedGroups.value = new Set()
-    ui.success(`已删除 ${ids.length} 个组合节点`)
+    if (current.target === 'nodes') {
+      const deleted = await nodesStore.bulkDelete(current.ids)
+      selected.value = new Set()
+      ui.success(`已删除 ${deleted} 个节点`)
+    } else {
+      const deleted = await nodeGroups.bulkDelete(current.ids)
+      selectedGroups.value = new Set()
+      ui.success(`已删除 ${deleted} 个组合节点`)
+    }
+    bulkDeleteSeq++
+    bulkDeleteDialog.value = { ...bulkDeleteDialog.value, open: false, busy: false }
   } catch (e) {
     ui.error(errMsg(e))
+    bulkDeleteDialog.value = { ...bulkDeleteDialog.value, busy: false }
   } finally {
     busy.value = false
   }
@@ -766,6 +811,18 @@ async function exportLinks() {
       :summary="editingSummary || copyingSummaryFrom"
       :loading="nodeFormLoading"
       @close="closeNodeForm"
+    />
+    <BulkDeleteDialog
+      :open="bulkDeleteDialog.open"
+      :title="bulkDeleteTitle"
+      :item-label="bulkDeleteItemLabel"
+      :count="bulkDeleteDialog.ids.length"
+      :loading-preview="bulkDeleteDialog.loadingPreview"
+      :preview-error="bulkDeleteDialog.previewError"
+      :affected-names="bulkDeleteDialog.affectedNames"
+      :busy="bulkDeleteDialog.busy"
+      @close="closeBulkDeleteDialog"
+      @confirm="confirmBulkDelete"
     />
 
     <div v-if="showGroupForm" class="modal modal-open">

@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { del, get, post, put } from '../api/client'
-import type { NodeGroup, NodeGroupPayload } from '../api/types'
+import type { BulkDeleteResult, NodeGroup, NodeGroupPayload } from '../api/types'
 
 export const useNodeGroupsStore = defineStore('nodeGroups', () => {
   const groups = ref<NodeGroup[]>([])
@@ -41,6 +41,14 @@ export const useNodeGroupsStore = defineStore('nodeGroups', () => {
     loaded.value = true
   }
 
+  async function bulkDelete(ids: number[]): Promise<number> {
+    const r = await post<BulkDeleteResult>('/node-groups/bulk-delete', { ids })
+    const idSet = new Set(ids)
+    groups.value = groups.value.filter((g) => !idSet.has(g.id))
+    loaded.value = true
+    return r.deleted
+  }
+
   function reset(): void {
     groups.value = []
     loading.value = false
@@ -48,5 +56,5 @@ export const useNodeGroupsStore = defineStore('nodeGroups', () => {
     inFlight = null
   }
 
-  return { groups, loading, fetchAll, create, update, remove, reset }
+  return { groups, loading, fetchAll, create, update, remove, bulkDelete, reset }
 })

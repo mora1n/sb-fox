@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { ApiRequestError, del, downloadGet, get, post, put } from '../api/client'
-import type { InspectResult, Template, TemplateSaveResult, TemplateStructure, TemplateSummary } from '../api/types'
+import type { BulkDeleteResult, InspectResult, Template, TemplateSaveResult, TemplateStructure, TemplateSummary } from '../api/types'
 
 export const useTemplatesStore = defineStore('templates', () => {
   const templates = ref<TemplateSummary[]>([])
@@ -79,14 +79,27 @@ export const useTemplatesStore = defineStore('templates', () => {
 
   async function remove(id: number): Promise<void> {
     await del('/templates/' + id)
+    removeManyFromLoadedState([id])
+  }
+
+  function removeManyFromLoadedState(ids: number[]): void {
+    const idSet = new Set(ids)
     detailVersion++
     structureVersion++
-    templateDetails.delete(id)
-    templateInFlight.delete(id)
-    structureInFlight.delete(id)
-    delete structures.value[id]
-    templates.value = templates.value.filter((t) => t.id !== id)
+    for (const id of idSet) {
+      templateDetails.delete(id)
+      templateInFlight.delete(id)
+      structureInFlight.delete(id)
+      delete structures.value[id]
+    }
+    templates.value = templates.value.filter((t) => !idSet.has(t.id))
     loaded.value = true
+  }
+
+  async function bulkDelete(ids: number[]): Promise<number> {
+    const r = await post<BulkDeleteResult>('/templates/bulk-delete', { ids })
+    removeManyFromLoadedState(ids)
+    return r.deleted
   }
 
   async function inspect(id: number): Promise<InspectResult> {
@@ -154,6 +167,7 @@ export const useTemplatesStore = defineStore('templates', () => {
     create,
     update,
     remove,
+    bulkDelete,
     inspect,
     structure,
     prefetchStructure,

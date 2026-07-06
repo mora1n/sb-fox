@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { del, get, post, put } from '../api/client'
-import type { Profile, ProfilePayload } from '../api/types'
+import type { BulkDeleteResult, Profile, ProfilePayload } from '../api/types'
 
 export const useProfilesStore = defineStore('profiles', () => {
   const profiles = ref<Profile[]>([])
@@ -54,6 +54,14 @@ export const useProfilesStore = defineStore('profiles', () => {
     loaded.value = true
   }
 
+  async function bulkDelete(ids: number[]): Promise<number> {
+    const r = await post<BulkDeleteResult>('/profiles/bulk-delete', { ids })
+    const idSet = new Set(ids)
+    profiles.value = profiles.value.filter((p) => !idSet.has(p.id))
+    loaded.value = true
+    return r.deleted
+  }
+
   async function fetchSubscriptionToken(force = false): Promise<string> {
     if (!force && tokenLoaded.value) return subscriptionToken.value
     if (!force && tokenInFlight) return tokenInFlight
@@ -94,6 +102,7 @@ export const useProfilesStore = defineStore('profiles', () => {
     update,
     setSubscriptionEnabled,
     remove,
+    bulkDelete,
     fetchSubscriptionToken,
     rotateSubscriptionToken,
     reset,

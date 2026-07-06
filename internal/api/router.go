@@ -78,6 +78,7 @@ func (s *Server) mountAuthed(r chi.Router) {
 	r.Get("/templates", s.handleListTemplates)
 	r.Post("/templates", s.handleCreateTemplate)
 	r.Get("/templates/by-name", s.handleGetTemplateByName)
+	r.Post("/templates/bulk-delete", s.handleBulkDeleteTemplates)
 	r.Get("/templates/{id}", s.handleGetTemplate)
 	r.Put("/templates/{id}", s.handleUpdateTemplate)
 	r.Delete("/templates/{id}", s.handleDeleteTemplate)
@@ -88,6 +89,8 @@ func (s *Server) mountAuthed(r chi.Router) {
 
 	r.Get("/nodes", s.handleListNodes)
 	r.Post("/nodes", s.handleCreateNode)
+	r.Post("/nodes/bulk-delete/preview", s.handlePreviewBulkDeleteNodes)
+	r.Post("/nodes/bulk-delete", s.handleBulkDeleteNodes)
 	r.Get("/nodes/{id}/usage", s.handleNodeUsage)
 	r.Get("/nodes/{id}", s.handleGetNode)
 	r.Put("/nodes/{id}", s.handleUpdateNode)
@@ -104,6 +107,7 @@ func (s *Server) mountAuthed(r chi.Router) {
 
 	r.Get("/node-groups", s.handleListNodeGroups)
 	r.Post("/node-groups", s.handleCreateNodeGroup)
+	r.Post("/node-groups/bulk-delete", s.handleBulkDeleteNodeGroups)
 	r.Get("/node-groups/{id}", s.handleGetNodeGroup)
 	r.Put("/node-groups/{id}", s.handleUpdateNodeGroup)
 	r.Delete("/node-groups/{id}", s.handleDeleteNodeGroup)
@@ -114,6 +118,7 @@ func (s *Server) mountAuthed(r chi.Router) {
 
 	r.Get("/profiles", s.handleListProfiles)
 	r.Post("/profiles", s.handleCreateProfile)
+	r.Post("/profiles/bulk-delete", s.handleBulkDeleteProfiles)
 	r.Get("/profiles/{id}", s.handleGetProfile)
 	r.Put("/profiles/{id}", s.handleUpdateProfile)
 	r.Put("/profiles/{id}/subscription-enabled", s.handleSetProfileSubscriptionEnabled)

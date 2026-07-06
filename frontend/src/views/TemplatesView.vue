@@ -8,6 +8,7 @@ import { readViewPref, writeViewPref } from '../utils/viewPrefs'
 import { formatDateTime, timeSortValue } from '../utils/time'
 import type { Template, TemplateStructure, TemplateStructureGroup, TemplateSummary } from '../api/types'
 import JsonViewer from '../components/JsonViewer.vue'
+import BulkDeleteDialog from '../components/BulkDeleteDialog.vue'
 import {
   PlusIcon,
   EyeIcon,
@@ -51,6 +52,11 @@ const structureLoading = ref(false)
 const busy = ref(false)
 const templateViewMode = ref<ViewMode>(readViewPref('sb-fox-view:templates', 'card', VIEW_MODES))
 const selectedTemplates = ref<Set<number>>(new Set())
+const bulkDeleteDialog = ref({
+  open: false,
+  ids: [] as number[],
+  busy: false,
+})
 const templateSortKey = ref<TemplateSortKey | ''>('')
 const templateSortDir = ref<SortDir>('asc')
 let formSeq = 0
@@ -487,14 +493,27 @@ function selectAllTemplates() {
 async function removeSelectedTemplates() {
   const ids = selectableTemplates.value.filter((t) => selectedTemplates.value.has(t.id)).map((t) => t.id)
   if (!ids.length) return ui.info('请先选择模板')
-  if (!confirm(`删除选中的 ${ids.length} 个模板？`)) return
+  bulkDeleteDialog.value = { open: true, ids, busy: false }
+}
+
+function closeBulkDeleteDialog() {
+  if (bulkDeleteDialog.value.busy) return
+  bulkDeleteDialog.value = { ...bulkDeleteDialog.value, open: false }
+}
+
+async function confirmBulkDelete() {
+  const ids = bulkDeleteDialog.value.ids
+  if (!bulkDeleteDialog.value.open || bulkDeleteDialog.value.busy || !ids.length) return
+  bulkDeleteDialog.value = { ...bulkDeleteDialog.value, busy: true }
   busy.value = true
   try {
-    for (const id of ids) await store.remove(id)
+    const deleted = await store.bulkDelete(ids)
     selectedTemplates.value = new Set()
-    ui.success(`已删除 ${ids.length} 个模板`)
+    ui.success(`已删除 ${deleted} 个模板`)
+    bulkDeleteDialog.value = { ...bulkDeleteDialog.value, open: false, busy: false }
   } catch (e) {
     ui.error(errMsg(e))
+    bulkDeleteDialog.value = { ...bulkDeleteDialog.value, busy: false }
   } finally {
     busy.value = false
   }
@@ -664,6 +683,16 @@ async function remove(t: TemplateSummary) {
         </tbody>
       </table>
     </div>
+
+    <BulkDeleteDialog
+      :open="bulkDeleteDialog.open"
+      :title="i18n.t('删除模板')"
+      :item-label="i18n.t('个模板')"
+      :count="bulkDeleteDialog.ids.length"
+      :busy="bulkDeleteDialog.busy"
+      @close="closeBulkDeleteDialog"
+      @confirm="confirmBulkDelete"
+    />
 
     <div v-if="viewing" class="modal modal-open">
       <div class="modal-box max-w-3xl">

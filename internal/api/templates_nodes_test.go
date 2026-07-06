@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/mora1n/sb-fox/internal/models"
 )
 
 func TestTemplateLookupByNameForOverwriteFlow(t *testing.T) {
@@ -257,6 +259,142 @@ func TestNodeUsageEndpoint(t *testing.T) {
 	}
 	if seen["grouped"] != "g1" {
 		t.Fatalf("missing group usage: %+v", usage)
+	}
+}
+
+func TestBulkDeleteNodesPreviewAndDelete(t *testing.T) {
+	_, ts := testServer(t)
+	c := newClient(t, ts.URL)
+	c.http.Jar = login(t, ts.URL)
+
+	templateID := createTemplate(t, c, "bulk-node-template", `{"outbounds":[{"type":"selector","tag":"Proxy","outbounds":[]}],"route":{"final":"Proxy"}}`)
+	nodeIDs := createPreviewOrderNodes(t, c, []string{"bulk-a", "bulk-b"})
+	groupID := createPreviewOrderGroup(t, c, "bulk-group", []int64{nodeIDs[0]})
+
+	decodeData(t, c.do(http.MethodPost, "/api/profiles", map[string]any{
+		"name":        "bulk-profile",
+		"template_id": templateID,
+		"node_ids":    []int64{nodeIDs[0]},
+		"options": map[string]any{
+			"autoCountryGroups": false,
+			"groupSelections": map[string]any{
+				"Proxy": map[string]any{
+					"nodeIds":      []int64{nodeIDs[1]},
+					"nodeGroupIds": []int64{groupID},
+				},
+			},
+		},
+	}), nil)
+
+	var preview struct {
+		Usage []struct {
+			NodeID       int64  `json:"node_id"`
+			ProfileName  string `json:"profile_name"`
+			ViaGroupName string `json:"via_group_name"`
+		} `json:"usage"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/nodes/bulk-delete/preview", map[string]any{
+		"ids": nodeIDs,
+	}), &preview)
+	seen := map[int64]bool{}
+	for _, item := range preview.Usage {
+		if item.ProfileName == "bulk-profile" {
+			seen[item.NodeID] = true
+		}
+	}
+	if !seen[nodeIDs[0]] || !seen[nodeIDs[1]] {
+		t.Fatalf("bulk preview usage = %+v, want both nodes", preview.Usage)
+	}
+
+	var deleted struct {
+		Deleted int `json:"deleted"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/nodes/bulk-delete", map[string]any{
+		"ids": nodeIDs,
+	}), &deleted)
+	if deleted.Deleted != len(nodeIDs) {
+		t.Fatalf("deleted nodes = %d, want %d", deleted.Deleted, len(nodeIDs))
+	}
+	for _, id := range nodeIDs {
+		status, _, _ := decodeError(t, c.do(http.MethodGet, "/api/nodes/"+itoa(id), nil))
+		if status != http.StatusNotFound {
+			t.Fatalf("node %d still exists, get status=%d", id, status)
+		}
+	}
+}
+
+func TestBulkDeleteRejectsInvalidBatchWithoutPartialDelete(t *testing.T) {
+	srv, ts := testServer(t)
+	c := newClient(t, ts.URL)
+	c.http.Jar = login(t, ts.URL)
+
+	var userTemplate struct {
+		Template struct {
+			ID int64 `json:"id"`
+		} `json:"template"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/templates", map[string]string{
+		"name":    "bulk-user-template",
+		"content": `{"outbounds":[]}`,
+	}), &userTemplate)
+	protectedID, err := srv.Store.CreateTemplate(&models.Template{
+		OwnerUserID: 1,
+		Name:        "bulk-protected",
+		Kind:        "builtin",
+		Content:     `{"outbounds":[]}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, code, _ := decodeError(t, c.do(http.MethodPost, "/api/templates/bulk-delete", map[string]any{
+		"ids": []int64{userTemplate.Template.ID, protectedID},
+	}))
+	if status != http.StatusForbidden || code != "forbidden" {
+		t.Fatalf("mixed template bulk delete status=%d code=%q", status, code)
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/templates/"+itoa(userTemplate.Template.ID), nil), nil)
+
+	nodeIDs := createPreviewOrderNodes(t, c, []string{"bulk-group-node"})
+	groupIDs := []int64{
+		createPreviewOrderGroup(t, c, "bulk-group-a", nodeIDs),
+		createPreviewOrderGroup(t, c, "bulk-group-b", nodeIDs),
+	}
+	var groupDeleted struct {
+		Deleted int `json:"deleted"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/node-groups/bulk-delete", map[string]any{
+		"ids": groupIDs,
+	}), &groupDeleted)
+	if groupDeleted.Deleted != len(groupIDs) {
+		t.Fatalf("deleted groups = %d, want %d", groupDeleted.Deleted, len(groupIDs))
+	}
+
+	templateID := createTemplate(t, c, "bulk-profile-template", `{"outbounds":[{"type":"selector","tag":"Proxy","outbounds":[]}],"route":{"final":"Proxy"}}`)
+	profileIDs := make([]int64, 0, 2)
+	for _, name := range []string{"bulk-profile-a", "bulk-profile-b"} {
+		var profile struct {
+			ID int64 `json:"id"`
+		}
+		decodeData(t, c.do(http.MethodPost, "/api/profiles", map[string]any{
+			"name":        name,
+			"template_id": templateID,
+			"options": map[string]any{
+				"autoCountryGroups": false,
+				"groupSelections": map[string]any{
+					"Proxy": map[string]any{"nodeIds": nodeIDs},
+				},
+			},
+		}), &profile)
+		profileIDs = append(profileIDs, profile.ID)
+	}
+	var profileDeleted struct {
+		Deleted int `json:"deleted"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/profiles/bulk-delete", map[string]any{
+		"ids": profileIDs,
+	}), &profileDeleted)
+	if profileDeleted.Deleted != len(profileIDs) {
+		t.Fatalf("deleted profiles = %d, want %d", profileDeleted.Deleted, len(profileIDs))
 	}
 }
 

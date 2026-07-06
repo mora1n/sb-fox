@@ -245,6 +245,18 @@ export interface NodeUsage {
   via_group_name?: string
 }
 
+export interface BulkDeleteResult {
+  deleted: number
+}
+
+export interface BulkNodeUsage extends NodeUsage {
+  node_id: number
+}
+
+export interface BulkNodeUsageResult {
+  usage: BulkNodeUsage[]
+}
+
 export type Settings = Record<string, string>
 
 export interface AppInfo {
