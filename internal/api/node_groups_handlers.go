@@ -13,6 +13,14 @@ type nodeGroupRequest struct {
 	NodeIDs     []int64 `json:"node_ids"`
 }
 
+func normalizeNodeGroupIDs(ids []int64) []int64 {
+	ids = uniqueInt64s(ids)
+	if ids == nil {
+		return []int64{}
+	}
+	return ids
+}
+
 func (s *Server) handleListNodeGroups(w http.ResponseWriter, r *http.Request) {
 	ownerID, allOwners := ownerScope(r)
 	groups, err := s.Store.ListNodeGroups(ownerID, allOwners)
@@ -50,7 +58,7 @@ func (s *Server) handleCreateNodeGroup(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "bad_request", "name is required")
 		return
 	}
-	req.NodeIDs = uniqueInt64s(req.NodeIDs)
+	req.NodeIDs = normalizeNodeGroupIDs(req.NodeIDs)
 	if !s.validateNodeAccess(w, u, req.NodeIDs) {
 		return
 	}
@@ -86,7 +94,7 @@ func (s *Server) handleUpdateNodeGroup(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "bad_request", "name is required")
 		return
 	}
-	req.NodeIDs = uniqueInt64s(req.NodeIDs)
+	req.NodeIDs = normalizeNodeGroupIDs(req.NodeIDs)
 	refAllOwners := false
 	if !s.validateNodeAccessForOwner(w, existing.OwnerUserID, refAllOwners, req.NodeIDs) {
 		return

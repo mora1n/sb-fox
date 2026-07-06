@@ -196,6 +196,47 @@ func TestUserResourceIsolationAcrossAccounts(t *testing.T) {
 	}
 }
 
+func TestNodeGroupEmptyNodeIDsAreJSONArrays(t *testing.T) {
+	_, ts := testServer(t)
+	c := newClient(t, ts.URL)
+	c.http.Jar = login(t, ts.URL)
+
+	var created struct {
+		ID      int64   `json:"id"`
+		NodeIDs []int64 `json:"node_ids"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/node-groups", map[string]string{
+		"name": "empty-group",
+	}), &created)
+	if created.NodeIDs == nil {
+		t.Fatal("created node_ids decoded as nil; want empty JSON array")
+	}
+
+	var got struct {
+		ID      int64   `json:"id"`
+		NodeIDs []int64 `json:"node_ids"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/node-groups/"+itoa(created.ID), nil), &got)
+	if got.NodeIDs == nil {
+		t.Fatal("get node_ids decoded as nil; want empty JSON array")
+	}
+
+	var groups []struct {
+		ID      int64   `json:"id"`
+		NodeIDs []int64 `json:"node_ids"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/node-groups", nil), &groups)
+	for _, group := range groups {
+		if group.ID == created.ID {
+			if group.NodeIDs == nil {
+				t.Fatal("list node_ids decoded as nil; want empty JSON array")
+			}
+			return
+		}
+	}
+	t.Fatalf("created group %d not found in list", created.ID)
+}
+
 func TestNodeUsageEndpoint(t *testing.T) {
 	_, ts := testServer(t)
 	c := newClient(t, ts.URL)

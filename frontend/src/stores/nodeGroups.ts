@@ -9,12 +9,23 @@ export const useNodeGroupsStore = defineStore('nodeGroups', () => {
   const loaded = ref(false)
   let inFlight: Promise<void> | null = null
 
+  function normalizeGroup(group: NodeGroup): NodeGroup {
+    return {
+      ...group,
+      node_ids: Array.isArray(group.node_ids) ? group.node_ids : [],
+    }
+  }
+
+  function normalizeGroups(items: NodeGroup[] | null | undefined): NodeGroup[] {
+    return (items ?? []).map(normalizeGroup)
+  }
+
   async function fetchAll(force = false): Promise<void> {
     if (!force && loaded.value) return
     if (!force && inFlight) return inFlight
     loading.value = true
     inFlight = get<NodeGroup[]>('/node-groups').then((items) => {
-      groups.value = items ?? []
+      groups.value = normalizeGroups(items)
       loaded.value = true
     }).finally(() => {
       loading.value = false
@@ -24,13 +35,13 @@ export const useNodeGroupsStore = defineStore('nodeGroups', () => {
   }
 
   async function create(payload: NodeGroupPayload): Promise<NodeGroup> {
-    const g = await post<NodeGroup>('/node-groups', payload)
+    const g = normalizeGroup(await post<NodeGroup>('/node-groups', payload))
     await fetchAll(true)
     return g
   }
 
   async function update(id: number, payload: NodeGroupPayload): Promise<NodeGroup> {
-    const g = await put<NodeGroup>('/node-groups/' + id, payload)
+    const g = normalizeGroup(await put<NodeGroup>('/node-groups/' + id, payload))
     await fetchAll(true)
     return g
   }

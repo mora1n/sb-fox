@@ -18,6 +18,7 @@ func scanNodeGroup(sc interface{ Scan(...any) error }) (*models.NodeGroup, error
 	}
 	g.CreatedAt = parseTime(created)
 	g.UpdatedAt = parseTime(updated)
+	g.NodeIDs = []int64{}
 	return &g, nil
 }
 
@@ -64,9 +65,12 @@ func (s *Store) ListNodeGroups(ownerUserID int64, allOwners bool) ([]*models.Nod
 }
 
 func (s *Store) nodeGroupNodeIDsByGroup(groupIDs []int64) (map[int64][]int64, error) {
-	out := map[int64][]int64{}
+	out := make(map[int64][]int64, len(groupIDs))
 	if len(groupIDs) == 0 {
 		return out, nil
+	}
+	for _, id := range groupIDs {
+		out[id] = []int64{}
 	}
 	placeholders := strings.TrimRight(strings.Repeat("?,", len(groupIDs)), ",")
 	q := `SELECT group_id, node_id FROM node_group_nodes WHERE group_id IN (` + placeholders + `) ORDER BY group_id, position`
