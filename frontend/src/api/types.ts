@@ -206,6 +206,15 @@ export interface ImportResult {
   nodes: Node[]
   source_id?: number
   warnings?: string[]
+  fetches?: ImportFetchResult[]
+}
+
+export interface ImportFetchResult {
+  url: string
+  ok: boolean
+  nodes?: number
+  error?: string
+  from_cache?: boolean
 }
 
 export interface ImportPreviewNode {
@@ -226,6 +235,7 @@ export interface ImportPreviewResult {
   deduped: number
   nodes: ImportPreviewNode[]
   warnings?: string[]
+  fetches?: ImportFetchResult[]
 }
 
 export interface NodeUsage {

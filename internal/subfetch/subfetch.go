@@ -6,6 +6,7 @@ package subfetch
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -14,15 +15,21 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
 // maxResponseBytes caps a subscription body (2 MiB is generous for node lists).
 const maxResponseBytes = 2 << 20
+const defaultUserAgent = "clash.meta/v1.19.23"
+const defaultCacheTTL = 5 * time.Minute
 
 // Fetcher retrieves subscription bodies safely.
 type Fetcher struct {
-	client *http.Client
+	client         *http.Client
+	insecureClient *http.Client
+	mu             sync.Mutex
+	cache          map[string]cacheEntry
 	// AllowPrivate disables the SSRF guard (for trusted/self-hosted setups).
 	AllowPrivate bool
 }
@@ -30,7 +37,14 @@ type Fetcher struct {
 // New returns a Fetcher with a guarded dialer and sane timeouts.
 func New() *Fetcher {
 	f := &Fetcher{}
-	f.client = &http.Client{
+	f.client = f.newHTTPClient(false)
+	f.insecureClient = f.newHTTPClient(true)
+	f.cache = map[string]cacheEntry{}
+	return f
+}
+
+func (f *Fetcher) newHTTPClient(insecure bool) *http.Client {
+	return &http.Client{
 		Timeout: 20 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 5 {
@@ -40,39 +54,129 @@ func New() *Fetcher {
 		},
 		Transport: &http.Transport{
 			DialContext:         f.guardedDial,
+			TLSClientConfig:     tlsConfig(insecure),
 			TLSHandshakeTimeout: 10 * time.Second,
 			MaxIdleConns:        10,
 		},
 	}
-	return f
+}
+
+func tlsConfig(insecure bool) *tls.Config {
+	if !insecure {
+		return nil
+	}
+	return &tls.Config{InsecureSkipVerify: true} //nolint:gosec // explicit per-URL opt-in for subscription sources.
 }
 
 // Fetch retrieves url and returns the decoded text body. The body is
 // base64-decoded when it appears to be a base64 blob (common for subscriptions).
 func (f *Fetcher) Fetch(ctx context.Context, rawURL string) (string, error) {
-	if err := validateURL(rawURL); err != nil {
-		return "", err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	result, err := f.FetchWithOptions(ctx, rawURL, Options{})
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("User-Agent", "sb-fox/1.0")
+	return result.Body, nil
+}
 
-	resp, err := f.client.Do(req)
+// FetchWithOptions retrieves a single subscription URL with Sub-Store-style
+// fragment options stripped from the actual request URL.
+func (f *Fetcher) FetchWithOptions(ctx context.Context, rawURL string, opts Options) (Result, error) {
+	spec, err := parseURLSpec(rawURL, opts)
 	if err != nil {
-		return "", err
+		return Result{}, err
+	}
+	if err := validateURL(spec.URL); err != nil {
+		return Result{}, err
+	}
+	if cached, ok := f.getCached(spec.CacheKey, spec.NoCache); ok {
+		return Result{URL: spec.SafeURL, Body: DecodeBody(cached), FromCache: true}, nil
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, spec.URL, nil)
+	if err != nil {
+		return Result{}, err
+	}
+	for key, value := range spec.Headers {
+		req.Header.Set(key, value)
+	}
+
+	client := f.client
+	if spec.Insecure {
+		client = f.insecureClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return Result{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("subfetch: status %d", resp.StatusCode)
+		return Result{}, fmt.Errorf("subfetch: status %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
-		return "", err
+		return Result{}, err
 	}
-	return DecodeBody(string(body)), nil
+	raw := string(body)
+	f.setCached(spec.CacheKey, raw, spec.CacheTTL, spec.NoCache)
+	return Result{URL: spec.SafeURL, Body: DecodeBody(raw)}, nil
+}
+
+// FetchMany retrieves newline-separated subscription URLs. It keeps successful
+// bodies in input order and returns per-URL failures for caller-level warnings.
+func (f *Fetcher) FetchMany(ctx context.Context, rawURLs string, opts Options) (BatchResult, error) {
+	urls := splitInputURLs(rawURLs)
+	if len(urls) == 0 {
+		return BatchResult{}, errors.New("subfetch: empty url")
+	}
+	result := BatchResult{Items: make([]BatchItem, 0, len(urls))}
+	for _, rawURL := range urls {
+		item := BatchItem{URL: SafeURL(rawURL)}
+		fetched, err := f.FetchWithOptions(ctx, rawURL, opts)
+		if err != nil {
+			item.Error = err.Error()
+			result.Items = append(result.Items, item)
+			continue
+		}
+		item.URL = fetched.URL
+		item.OK = true
+		item.FromCache = fetched.FromCache
+		item.Body = fetched.Body
+		result.Items = append(result.Items, item)
+		result.Bodies = append(result.Bodies, fetched.Body)
+	}
+	if len(result.Bodies) == 0 {
+		return result, errors.New("subfetch: all urls failed")
+	}
+	return result, nil
+}
+
+func (f *Fetcher) getCached(key string, noCache bool) (string, bool) {
+	if noCache || key == "" {
+		return "", false
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	entry, ok := f.cache[key]
+	if !ok {
+		return "", false
+	}
+	if time.Now().After(entry.expiresAt) {
+		delete(f.cache, key)
+		return "", false
+	}
+	return entry.body, true
+}
+
+func (f *Fetcher) setCached(key, body string, ttl time.Duration, noCache bool) {
+	if noCache || key == "" || body == "" {
+		return
+	}
+	if ttl <= 0 {
+		ttl = defaultCacheTTL
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cache[key] = cacheEntry{body: body, expiresAt: time.Now().Add(ttl)}
 }
 
 // DecodeBody returns the plausibly-base64-decoded body, else the original.

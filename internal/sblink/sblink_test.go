@@ -280,6 +280,39 @@ proxies:
 	}
 }
 
+func TestParseManyRejectsHTML(t *testing.T) {
+	_, _, err := ParseManyWithWarnings(`<!DOCTYPE html><html><body>login</body></html>`)
+	if err == nil || !strings.Contains(err.Error(), "html") {
+		t.Fatalf("html parse err = %v", err)
+	}
+}
+
+func TestParseClashYAMLKeepsRealityShortIDLeadingZero(t *testing.T) {
+	text := `
+proxies:
+  - name: Reality08
+    type: vless
+    server: reality.example.com
+    port: 443
+    uuid: b831381d-6324-4d53-ad4f-8cda48b30811
+    reality-opts:
+      public-key: publickeyxyz
+      short-id: 08
+    servername: www.microsoft.com
+`
+	out, warnings, err := ParseManyWithWarnings(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 0 || len(out) != 1 {
+		t.Fatalf("warnings=%v out=%d", warnings, len(out))
+	}
+	reality := nested(t, nested(t, out[0], "tls"), "reality")
+	if got := field(t, reality, "short_id"); got != "08" {
+		t.Fatalf("short_id = %q, want 08", got)
+	}
+}
+
 func TestServerHashCCStripped(t *testing.T) {
 	// server carrying a #CC suffix (requirement h) is cleaned
 	userinfo := base64.StdEncoding.EncodeToString([]byte("aes-256-gcm:pw"))

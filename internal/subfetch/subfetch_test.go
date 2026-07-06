@@ -5,6 +5,9 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -81,5 +84,85 @@ func TestFetchAllowPrivate(t *testing.T) {
 	}
 	if body == "" {
 		t.Error("empty body")
+	}
+}
+
+func TestFetchManyUsesOptionsAndShortTTLCache(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		if got := r.UserAgent(); got != "CustomUA" {
+			t.Errorf("User-Agent = %q, want CustomUA", got)
+		}
+		if got := r.Header.Get("X-Test"); got != "yes" {
+			t.Errorf("X-Test = %q, want yes", got)
+		}
+		w.Write([]byte("ss://secret@1.2.3.4:8388#n"))
+	}))
+	defer srv.Close()
+
+	f := New()
+	f.AllowPrivate = true
+	headers := url.QueryEscape(`{"X-Test":"yes"}`)
+	rawURL := srv.URL + "#ua=CustomUA&headers=" + headers + "&cacheTtl=60"
+	first, err := f.FetchMany(context.Background(), rawURL, Options{})
+	if err != nil {
+		t.Fatalf("first fetch: %v", err)
+	}
+	second, err := f.FetchMany(context.Background(), rawURL, Options{})
+	if err != nil {
+		t.Fatalf("second fetch: %v", err)
+	}
+	if atomic.LoadInt32(&calls) != 1 {
+		t.Fatalf("calls = %d, want cached second request", calls)
+	}
+	if !second.Items[0].FromCache {
+		t.Fatalf("second item did not report cache: %+v", second.Items)
+	}
+	if first.Bodies[0] != second.Bodies[0] {
+		t.Fatalf("cached body mismatch")
+	}
+
+	_, err = f.FetchMany(context.Background(), srv.URL+"#ua=CustomUA&headers="+headers+"&noCache", Options{})
+	if err != nil {
+		t.Fatalf("noCache fetch: %v", err)
+	}
+	if atomic.LoadInt32(&calls) != 2 {
+		t.Fatalf("calls = %d, want noCache to bypass cache", calls)
+	}
+}
+
+func TestFetchManyPartialFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "bad") {
+			http.Error(w, "bad", http.StatusBadGateway)
+			return
+		}
+		w.Write([]byte("ss://secret@1.2.3.4:8388#ok"))
+	}))
+	defer srv.Close()
+
+	f := New()
+	f.AllowPrivate = true
+	result, err := f.FetchMany(context.Background(), srv.URL+"/bad\n"+srv.URL+"/ok", Options{})
+	if err != nil {
+		t.Fatalf("partial fetch should succeed: %v", err)
+	}
+	if len(result.Bodies) != 1 || len(result.Items) != 2 {
+		t.Fatalf("result = %+v", result)
+	}
+	if result.Items[0].OK || result.Items[0].Error == "" || !result.Items[1].OK {
+		t.Fatalf("items = %+v", result.Items)
+	}
+}
+
+func TestSafeURLMasksSensitiveParts(t *testing.T) {
+	got := SafeURL("https://user:pass@example.com/sub?token=secret#headers=%7B%7D")
+	if strings.Contains(got, "user") || strings.Contains(got, "pass") ||
+		strings.Contains(got, "secret") || strings.Contains(got, "headers") {
+		t.Fatalf("SafeURL leaked sensitive data: %s", got)
+	}
+	if got != "https://example.com/sub?..." {
+		t.Fatalf("SafeURL = %q", got)
 	}
 }

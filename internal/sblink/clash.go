@@ -2,6 +2,8 @@ package sblink
 
 import (
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/mora1n/sb-fox/internal/merge"
@@ -14,6 +16,7 @@ type clashDocument struct {
 
 func parseClashYAML(text string) ([]*merge.OrderedMap, []string, error) {
 	var doc clashDocument
+	text = normalizeClashYAML(text)
 	if err := yaml.Unmarshal([]byte(text), &doc); err != nil {
 		return nil, nil, err
 	}
@@ -38,6 +41,28 @@ func parseClashYAML(text string) ([]*merge.OrderedMap, []string, error) {
 		return nil, warnings, fmt.Errorf("sblink: no supported clash/mihomo proxies parsed")
 	}
 	return out, warnings, nil
+}
+
+var clashShortIDLine = regexp.MustCompile(`(?m)^(\s*short-id:\s*)([^#\n]*?)(\s*(?:#.*)?)$`)
+
+func normalizeClashYAML(text string) string {
+	if !strings.Contains(text, "short-id:") {
+		return text
+	}
+	return clashShortIDLine.ReplaceAllStringFunc(text, func(line string) string {
+		parts := clashShortIDLine.FindStringSubmatch(line)
+		if len(parts) != 4 {
+			return line
+		}
+		value := strings.TrimSpace(parts[2])
+		if value == "" {
+			return parts[1] + `""` + parts[3]
+		}
+		if strings.HasPrefix(value, `"`) || strings.HasPrefix(value, `'`) || value == "null" {
+			return line
+		}
+		return parts[1] + strconv.Quote(value) + parts[3]
+	})
 }
 
 func clashProxyOutbound(p map[string]any) (*merge.OrderedMap, error) {

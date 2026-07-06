@@ -120,8 +120,14 @@ const en: Record<string, string> = {
     'One ss/vmess/vless/trojan/hysteria2/tuic/naive link per line, or paste base64, SIP008, Clash/Mihomo subscription content.',
   '名称': 'Name',
   '我的订阅': 'My Subscription',
+  '每行一个订阅 URL，可使用 #noCache、#insecure、#ua=...、#headers=...、#cacheTtl=秒 参数。':
+    'One subscription URL per line. Supports #noCache, #insecure, #ua=..., #headers=..., and #cacheTtl=seconds options.',
   '服务端抓取，默认拒绝私网地址。':
     'Fetched by the server. Private network addresses are denied by default.',
+  '拉取结果': 'Fetch Results',
+  '成功': 'Success',
+  '失败': 'Failed',
+  '缓存': 'Cache',
   '粘贴完整 config.json，将从 outbounds 中提取代理节点，跳过 selector/direct 等分组。':
     'Paste a complete config.json. Proxy nodes are extracted from outbounds; selector/direct groups are skipped.',
   '新建分组': 'New Profile',

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -428,6 +429,225 @@ func TestImportPreviewSubscriptionDoesNotCreateSource(t *testing.T) {
 	}
 }
 
+func TestImportPreviewSubscriptionMultiURLPartialSuccess(t *testing.T) {
+	srv, ts := testServer(t)
+	srv.Fetcher.AllowPrivate = true
+	c := newClient(t, ts.URL)
+	c.http.Jar = login(t, ts.URL)
+
+	sub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/bad":
+			http.Error(w, "bad", http.StatusBadGateway)
+		case "/ok":
+			_, _ = w.Write([]byte(testSSLink("partial-ok", "1.1.1.1")))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(sub.Close)
+
+	var preview struct {
+		Parsed     int `json:"parsed"`
+		Importable int `json:"importable"`
+		Deduped    int `json:"deduped"`
+		Fetches    []struct {
+			URL   string `json:"url"`
+			OK    bool   `json:"ok"`
+			Nodes int    `json:"nodes"`
+			Error string `json:"error"`
+		} `json:"fetches"`
+		Warnings []string `json:"warnings"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/nodes/import/subscription/preview", map[string]string{
+		"url": sub.URL + "/bad\n" + sub.URL + "/ok#noCache",
+	}), &preview)
+	if preview.Parsed != 1 || preview.Importable != 1 || preview.Deduped != 0 {
+		t.Fatalf("preview parsed/importable/deduped = %d/%d/%d, want 1/1/0", preview.Parsed, preview.Importable, preview.Deduped)
+	}
+	if len(preview.Fetches) != 2 || preview.Fetches[0].OK || !preview.Fetches[1].OK || preview.Fetches[1].Nodes != 1 {
+		t.Fatalf("fetches = %+v", preview.Fetches)
+	}
+	if len(preview.Warnings) == 0 || !strings.Contains(preview.Warnings[0], "status 502") {
+		t.Fatalf("warnings = %+v", preview.Warnings)
+	}
+	if strings.Contains(preview.Fetches[1].URL, "noCache") {
+		t.Fatalf("fetch URL leaked fragment options: %+v", preview.Fetches)
+	}
+
+	var sources []struct {
+		ID int64 `json:"id"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/sources", nil), &sources)
+	if len(sources) != 0 {
+		t.Fatalf("preview created sources: %+v", sources)
+	}
+}
+
+func TestImportSubscriptionMultiURLStoresSourceAndWarnings(t *testing.T) {
+	srv, ts := testServer(t)
+	srv.Fetcher.AllowPrivate = true
+	c := newClient(t, ts.URL)
+	c.http.Jar = login(t, ts.URL)
+
+	sub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/bad":
+			http.Error(w, "bad", http.StatusBadGateway)
+		case "/ok":
+			_, _ = w.Write([]byte(testSSLink("stored-ok", "2.2.2.2")))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(sub.Close)
+	rawURL := sub.URL + "/bad\n" + sub.URL + "/ok"
+
+	var imported struct {
+		Imported int   `json:"imported"`
+		SourceID int64 `json:"source_id"`
+		Fetches  []struct {
+			OK    bool `json:"ok"`
+			Nodes int  `json:"nodes"`
+		} `json:"fetches"`
+		Warnings []string `json:"warnings"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/nodes/import/subscription", map[string]string{
+		"name": "multi", "url": rawURL,
+	}), &imported)
+	if imported.Imported != 1 || imported.SourceID == 0 {
+		t.Fatalf("imported = %+v, want one node and source id", imported)
+	}
+	if len(imported.Fetches) != 2 || imported.Fetches[0].OK || !imported.Fetches[1].OK || imported.Fetches[1].Nodes != 1 {
+		t.Fatalf("fetches = %+v", imported.Fetches)
+	}
+	if len(imported.Warnings) == 0 {
+		t.Fatalf("warnings = %+v, want partial failure warning", imported.Warnings)
+	}
+
+	var sources []struct {
+		ID         int64  `json:"id"`
+		Name       string `json:"name"`
+		URL        string `json:"url"`
+		LastStatus string `json:"last_status"`
+		NodeCount  int    `json:"node_count"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/sources", nil), &sources)
+	if len(sources) != 1 || sources[0].ID != imported.SourceID || sources[0].URL != rawURL {
+		t.Fatalf("sources = %+v, want stored multi-line URL", sources)
+	}
+	if sources[0].LastStatus != "ok with warnings" || sources[0].NodeCount != 1 {
+		t.Fatalf("source status/count = %q/%d", sources[0].LastStatus, sources[0].NodeCount)
+	}
+
+	var nodes []struct {
+		Tag       string `json:"tag"`
+		SourceRef *int64 `json:"source_ref"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/nodes", nil), &nodes)
+	if len(nodes) != 1 || nodes[0].Tag != "stored-ok" || nodes[0].SourceRef == nil || *nodes[0].SourceRef != imported.SourceID {
+		t.Fatalf("nodes = %+v", nodes)
+	}
+}
+
+func TestRefreshSubscriptionMultiURLReplacesNodesWithPartialSuccess(t *testing.T) {
+	srv, ts := testServer(t)
+	srv.Fetcher.AllowPrivate = true
+	c := newClient(t, ts.URL)
+	c.http.Jar = login(t, ts.URL)
+
+	var phase int32
+	sub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.LoadInt32(&phase) == 0 {
+			if r.URL.Path == "/a" {
+				_, _ = w.Write([]byte(testSSLink("initial-a", "3.3.3.3")))
+				return
+			}
+			_, _ = w.Write([]byte(testSSLink("initial-b", "4.4.4.4")))
+			return
+		}
+		if r.URL.Path == "/a" {
+			http.Error(w, "bad", http.StatusBadGateway)
+			return
+		}
+		_, _ = w.Write([]byte(testSSLink("refreshed-b", "5.5.5.5")))
+	}))
+	t.Cleanup(sub.Close)
+	rawURL := sub.URL + "/a\n" + sub.URL + "/b"
+
+	var imported struct {
+		Imported int   `json:"imported"`
+		SourceID int64 `json:"source_id"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/nodes/import/subscription", map[string]string{
+		"name": "refresh", "url": rawURL,
+	}), &imported)
+	if imported.Imported != 2 || imported.SourceID == 0 {
+		t.Fatalf("initial import = %+v", imported)
+	}
+
+	atomic.StoreInt32(&phase, 1)
+	var refreshed struct {
+		Imported int `json:"imported"`
+		Fetches  []struct {
+			OK    bool `json:"ok"`
+			Nodes int  `json:"nodes"`
+		} `json:"fetches"`
+		Warnings []string `json:"warnings"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/sources/"+itoa(imported.SourceID)+"/refresh", nil), &refreshed)
+	if refreshed.Imported != 1 || len(refreshed.Warnings) == 0 {
+		t.Fatalf("refresh result = %+v", refreshed)
+	}
+	if len(refreshed.Fetches) != 2 || refreshed.Fetches[0].OK || !refreshed.Fetches[1].OK || refreshed.Fetches[1].Nodes != 1 {
+		t.Fatalf("refresh fetches = %+v", refreshed.Fetches)
+	}
+
+	var nodes []struct {
+		Tag string `json:"tag"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/nodes", nil), &nodes)
+	if len(nodes) != 1 || nodes[0].Tag != "refreshed-b" {
+		t.Fatalf("nodes after refresh = %+v", nodes)
+	}
+
+	var sources []struct {
+		ID         int64  `json:"id"`
+		LastStatus string `json:"last_status"`
+		NodeCount  int    `json:"node_count"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/sources", nil), &sources)
+	if len(sources) != 1 || sources[0].ID != imported.SourceID || sources[0].LastStatus != "ok with warnings" || sources[0].NodeCount != 1 {
+		t.Fatalf("sources after refresh = %+v", sources)
+	}
+}
+
+func TestImportPreviewSubscriptionAllURLsFail(t *testing.T) {
+	srv, ts := testServer(t)
+	srv.Fetcher.AllowPrivate = true
+	c := newClient(t, ts.URL)
+	c.http.Jar = login(t, ts.URL)
+
+	sub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/html" {
+			_, _ = w.Write([]byte("<!DOCTYPE html><html><body>login</body></html>"))
+			return
+		}
+		http.Error(w, "bad", http.StatusBadGateway)
+	}))
+	t.Cleanup(sub.Close)
+
+	status, code, msg := decodeError(t, c.do(http.MethodPost, "/api/nodes/import/subscription/preview", map[string]string{
+		"url": sub.URL + "/bad\n" + sub.URL + "/html",
+	}))
+	if status != http.StatusBadGateway || code != "fetch_error" {
+		t.Fatalf("status=%d code=%q msg=%q, want 502 fetch_error", status, code, msg)
+	}
+	if !strings.Contains(msg, "status 502") || !strings.Contains(msg, "html") {
+		t.Fatalf("all-fail message = %q", msg)
+	}
+}
+
 func TestImportPreviewRespectsNodeQuota(t *testing.T) {
 	_, ts := testServer(t)
 	admin := newClient(t, ts.URL)
@@ -449,4 +669,8 @@ func TestImportPreviewRespectsNodeQuota(t *testing.T) {
 	if status != http.StatusForbidden || code != "quota_exceeded" {
 		t.Fatalf("quota preview status=%d code=%q, want 403 quota_exceeded", status, code)
 	}
+}
+
+func testSSLink(tag, host string) string {
+	return "ss://" + base64.StdEncoding.EncodeToString([]byte("aes-256-gcm:pw")) + "@" + host + ":8388#" + tag
 }

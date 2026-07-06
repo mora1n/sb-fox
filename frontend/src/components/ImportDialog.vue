@@ -96,6 +96,14 @@ function previewCountLabel() {
   if (!preview.value) return ''
   return `${i18n.t('预计导入')} ${preview.value.importable} / ${preview.value.parsed}`
 }
+
+function successfulFetchCount() {
+  return preview.value?.fetches?.filter((item) => item.ok).length ?? 0
+}
+
+function failedFetchCount() {
+  return preview.value?.fetches?.filter((item) => !item.ok).length ?? 0
+}
 </script>
 
 <template>
@@ -119,9 +127,15 @@ function previewCountLabel() {
           <input v-model="subName" class="input input-bordered" :placeholder="i18n.t('我的订阅')" :disabled="!!preview || busy" />
         </label>
         <label class="form-control">
-          <span class="label-text mb-1">订阅 URL</span>
-          <input v-model="subUrl" class="input input-bordered" placeholder="https://example.com/sub" :disabled="!!preview || busy" />
+          <span class="label-text mb-1">{{ i18n.t('订阅 URL') }}</span>
+          <textarea
+            v-model="subUrl"
+            class="textarea textarea-bordered w-full h-28 mono text-xs"
+            placeholder="https://example.com/sub&#10;https://example.com/sub2#noCache"
+            :disabled="!!preview || busy"
+          ></textarea>
         </label>
+        <p class="text-xs opacity-60">{{ i18n.t('每行一个订阅 URL，可使用 #noCache、#insecure、#ua=...、#headers=...、#cacheTtl=秒 参数。') }}</p>
         <p class="text-xs opacity-60">{{ i18n.t('服务端抓取，默认拒绝私网地址。') }}</p>
       </div>
 
@@ -140,6 +154,27 @@ function previewCountLabel() {
         </div>
         <div v-if="preview.warnings?.length" class="text-xs text-warning flex flex-col gap-1">
           <div v-for="warning in preview.warnings.slice(0, 3)" :key="warning" class="truncate" :title="warning">{{ warning }}</div>
+        </div>
+        <div v-if="preview.fetches?.length" class="rounded-box border border-base-300 bg-base-100">
+          <div class="flex items-center justify-between gap-2 px-3 py-2 border-b border-base-200 text-xs">
+            <span class="font-semibold">{{ i18n.t('拉取结果') }}</span>
+            <span class="flex items-center gap-2">
+              <span class="badge badge-sm badge-success badge-outline">{{ i18n.t('成功') }} {{ successfulFetchCount() }}</span>
+              <span class="badge badge-sm badge-error badge-outline">{{ i18n.t('失败') }} {{ failedFetchCount() }}</span>
+            </span>
+          </div>
+          <div class="max-h-24 overflow-y-auto">
+            <div
+              v-for="item in preview.fetches"
+              :key="item.url"
+              class="flex items-center gap-2 px-3 py-1.5 border-b border-base-200 last:border-b-0 text-xs"
+            >
+              <span class="badge badge-xs" :class="item.ok ? 'badge-success' : 'badge-error'">{{ item.ok ? i18n.t('成功') : i18n.t('失败') }}</span>
+              <span class="min-w-0 flex-1 truncate" :title="item.error ? `${item.url}: ${item.error}` : item.url">{{ item.url }}</span>
+              <span v-if="item.nodes" class="badge badge-outline badge-xs">{{ item.nodes }} {{ i18n.t('个节点') }}</span>
+              <span v-if="item.from_cache" class="badge badge-outline badge-xs">{{ i18n.t('缓存') }}</span>
+            </div>
+          </div>
         </div>
         <div v-if="preview.nodes.length" class="max-h-48 overflow-y-auto rounded-box border border-base-300 bg-base-100">
           <div

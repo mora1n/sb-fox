@@ -56,6 +56,9 @@ func ParseManyWithWarnings(text string) ([]*merge.OrderedMap, []string, error) {
 }
 
 func parseManyWithWarnings(text string, depth int) ([]*merge.OrderedMap, []string, error) {
+	if looksLikeHTML(text) {
+		return nil, nil, fmt.Errorf("sblink: response is html, not a subscription")
+	}
 	lines := splitLinks(text)
 	if !anyLooksLikeLink(lines) {
 		if decoded, ok := tryBase64(text); ok {
@@ -111,6 +114,11 @@ func parseManyWithWarnings(text string, depth int) ([]*merge.OrderedMap, []strin
 		return nil, warnings, fmt.Errorf("sblink: empty input")
 	}
 	return out, warnings, nil
+}
+
+func looksLikeHTML(text string) bool {
+	trimmed := strings.ToLower(strings.TrimSpace(text))
+	return strings.HasPrefix(trimmed, "<!doctype html") || strings.HasPrefix(trimmed, "<html")
 }
 
 func splitLinks(text string) []string {
