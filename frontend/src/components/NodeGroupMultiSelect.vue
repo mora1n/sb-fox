@@ -137,8 +137,8 @@ function dropSelected(event: DragEvent) {
     <div class="flex items-center justify-between gap-2 flex-wrap">
       <span class="label-text">{{ i18n.t('组合节点') }}</span>
       <span class="flex items-center gap-1 flex-wrap">
-        <button class="btn btn-xs btn-soft-action min-h-7 h-7" type="button" @click="selectAll" :disabled="disabled">{{ i18n.t('全选') }}</button>
-        <button class="btn btn-xs btn-soft-action min-h-7 h-7" type="button" @click="clearAll" :disabled="disabled">{{ i18n.t('全不选') }}</button>
+        <button class="btn btn-xs min-h-7 h-7" type="button" @click="selectAll" :disabled="disabled">{{ i18n.t('全选') }}</button>
+        <button class="btn btn-xs min-h-7 h-7" type="button" @click="clearAll" :disabled="disabled">{{ i18n.t('全不选') }}</button>
         <span class="badge badge-primary shrink-0">{{ modelValue.length }}</span>
       </span>
     </div>

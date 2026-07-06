@@ -197,7 +197,7 @@ function failedFetchCount() {
       </div>
 
       <div class="modal-action">
-        <button class="btn btn-modal-cancel" @click="emit('close')" :disabled="busy">{{ i18n.t('取消') }}</button>
+        <button class="btn" @click="emit('close')" :disabled="busy">{{ i18n.t('取消') }}</button>
         <button v-if="preview" class="btn" @click="clearPreview" :disabled="busy">{{ i18n.t('返回修改') }}</button>
         <button v-if="!preview" class="btn btn-primary" @click="previewImport" :disabled="busy">
           <span v-if="busy" class="loading loading-spinner loading-sm"></span>

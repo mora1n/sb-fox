@@ -172,19 +172,19 @@ function onProfileSubscriptionEnabledChange(profile: Profile, event: Event) {
     <div class="flex items-center justify-between gap-2 flex-wrap">
       <h1 class="text-2xl font-bold">{{ i18n.t('订阅') }}</h1>
       <div class="flex items-center gap-2 flex-wrap justify-end">
-        <div class="ui-segment">
+        <div class="join bg-base-200 p-0.5 rounded-btn shadow-sm">
           <button
             type="button"
-            class="btn btn-sm"
-            :class="{ 'is-active': profileViewMode === 'card' }"
+            class="btn btn-sm join-item"
+            :class="{ 'btn-active': profileViewMode === 'card' }"
             @click="profileViewMode = 'card'"
           >
             <Squares2X2Icon class="h-4 w-4" /> {{ i18n.t('卡片') }}
           </button>
           <button
             type="button"
-            class="btn btn-sm"
-            :class="{ 'is-active': profileViewMode === 'list' }"
+            class="btn btn-sm join-item"
+            :class="{ 'btn-active': profileViewMode === 'list' }"
             @click="profileViewMode = 'list'"
           >
             <ListBulletIcon class="h-4 w-4" /> {{ i18n.t('列表') }}
@@ -217,16 +217,16 @@ function onProfileSubscriptionEnabledChange(profile: Profile, event: Event) {
         <span v-if="selectedProfiles.size" class="badge badge-outline">{{ i18n.t('已选') }} {{ selectedProfiles.size }}</span>
       </div>
       <div class="flex items-center gap-2 flex-wrap">
-        <button class="btn btn-sm btn-soft-action" :class="{ 'is-active': allProfilesSelected }" @click="selectAllProfiles" :disabled="!store.profiles.length">
+        <button class="btn btn-sm" :class="{ 'btn-active': allProfilesSelected }" @click="selectAllProfiles" :disabled="!store.profiles.length">
           {{ allProfilesSelected ? i18n.t('取消全选') : i18n.t('全选') }}
         </button>
-        <button class="btn btn-sm btn-soft-danger" @click="removeSelectedProfiles" :disabled="busy || !selectedProfiles.size">
+        <button class="btn btn-sm text-error bg-error/10 hover:bg-error/20 border-transparent" @click="removeSelectedProfiles" :disabled="busy || !selectedProfiles.size">
           <TrashIcon class="h-4 w-4" /> {{ i18n.t('删除') }}
         </button>
       </div>
     </div>
 
-    <div v-if="store.loading" class="flex justify-center py-10"><span class="loading loading-spinner loading-lg"></span></div>
+    <div v-if="store.loading && !store.profiles.length" class="flex justify-center py-10"><span class="loading loading-spinner loading-lg"></span></div>
     <div v-else-if="!store.profiles.length" class="text-center py-10 opacity-60">{{ i18n.t('暂无订阅。') }}</div>
     <div v-else-if="profileViewMode === 'card'" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
       <div

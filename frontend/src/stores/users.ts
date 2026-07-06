@@ -15,25 +15,32 @@ export interface UserPayload {
 export const useUsersStore = defineStore('users', () => {
   const users = ref<User[]>([])
   const loading = ref(false)
+  const loaded = ref(false)
+  let inFlight: Promise<void> | null = null
 
-  async function fetchAll(): Promise<void> {
+  async function fetchAll(force = false): Promise<void> {
+    if (!force && loaded.value) return
+    if (!force && inFlight) return inFlight
     loading.value = true
-    try {
-      users.value = (await get<User[]>('/users')) ?? []
-    } finally {
+    inFlight = get<User[]>('/users').then((items) => {
+      users.value = items ?? []
+      loaded.value = true
+    }).finally(() => {
       loading.value = false
-    }
+      inFlight = null
+    })
+    return inFlight
   }
 
   async function create(payload: UserPayload): Promise<User> {
     const u = await post<User>('/users', payload)
-    await fetchAll()
+    await fetchAll(true)
     return u
   }
 
   async function update(id: number, payload: UserPayload): Promise<User> {
     const u = await put<User>('/users/' + id, payload)
-    await fetchAll()
+    await fetchAll(true)
     return u
   }
 
@@ -50,6 +57,8 @@ export const useUsersStore = defineStore('users', () => {
   function reset(): void {
     users.value = []
     loading.value = false
+    loaded.value = false
+    inFlight = null
   }
 
   return { users, loading, fetchAll, create, update, remove, resetPassword, reset }

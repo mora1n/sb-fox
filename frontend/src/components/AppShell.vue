@@ -1,10 +1,17 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { RouterView, useRouter } from 'vue-router'
+import { preloadAppRouteViews } from '../router'
 import { useAuthStore } from '../stores/auth'
 import { useUiStore } from '../stores/ui'
 import { useSettingsStore } from '../stores/settings'
 import { useI18nStore } from '../stores/i18n'
+import { useNodesStore } from '../stores/nodes'
+import { useNodeGroupsStore } from '../stores/nodeGroups'
+import { useTemplatesStore } from '../stores/templates'
+import { useProfilesStore } from '../stores/profiles'
+import { useUsersStore } from '../stores/users'
+import { errMsg } from '../utils/error'
 import {
   HomeIcon,
   ServerStackIcon,
@@ -21,6 +28,11 @@ const auth = useAuthStore()
 const ui = useUiStore()
 const settings = useSettingsStore()
 const i18n = useI18nStore()
+const nodes = useNodesStore()
+const nodeGroups = useNodeGroupsStore()
+const templates = useTemplatesStore()
+const profiles = useProfilesStore()
+const users = useUsersStore()
 const router = useRouter()
 
 const nav = computed(() => [
@@ -32,10 +44,46 @@ const nav = computed(() => [
 ])
 const bottomNav = computed(() => (auth.isAdmin ? [{ name: 'users', label: i18n.t('用户'), icon: UsersIcon }] : []))
 
+onMounted(() => {
+  scheduleIdle(() => {
+    void preloadAppRouteViews(auth.isAdmin).catch(reportBackgroundError)
+  })
+  scheduleIdle(warmAppData, 200)
+})
+
 async function logout() {
   await auth.logout()
   ui.success('已退出登录')
   router.push({ name: 'login' })
+}
+
+function scheduleIdle(task: () => void, delay = 0): void {
+  window.setTimeout(() => {
+    const w = window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number
+    }
+    if (typeof w.requestIdleCallback === 'function') {
+      w.requestIdleCallback(task, { timeout: 1500 })
+      return
+    }
+    window.setTimeout(task, 120)
+  }, delay)
+}
+
+function warmAppData(): void {
+  const jobs: Promise<unknown>[] = [
+    nodes.fetchSummary(),
+    nodeGroups.fetchAll(),
+    templates.fetchAll(),
+    profiles.fetchAll(),
+    settings.fetchAll(),
+  ]
+  if (auth.isAdmin) jobs.push(users.fetchAll())
+  for (const job of jobs) void job.catch(reportBackgroundError)
+}
+
+function reportBackgroundError(e: unknown): void {
+  ui.error(errMsg(e))
 }
 </script>
 

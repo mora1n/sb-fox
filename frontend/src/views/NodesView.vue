@@ -63,7 +63,10 @@ const groupSortKey = ref<GroupSortKey | ''>('')
 const groupSortDir = ref<SortDir>('asc')
 const groupForm = ref({ name: '', description: '', node_ids: [] as number[] })
 
-const loading = computed(() => nodesStore.loading || nodeGroups.loading)
+const loading = computed(() => {
+  if (activeTab.value === 'single') return nodesStore.loading && !nodesStore.nodes.length
+  return nodeGroups.loading && !nodeGroups.groups.length
+})
 const allNodeOptions = computed(() => (nodesStore.unfilteredNodes.length ? nodesStore.unfilteredNodes : nodesStore.nodes))
 const nodeLabelMap = computed(() => new Map(allNodeOptions.value.map((n) => [n.id, n.tag])))
 const allFilteredSelected = computed(
@@ -477,19 +480,19 @@ async function exportLinks() {
     </div>
 
     <div class="flex items-center justify-between gap-2 flex-wrap">
-      <div role="tablist" class="ui-segment">
-        <button role="tab" class="btn btn-sm" :class="{ 'is-active': activeTab === 'single' }" @click="setActiveTab('single')">
+      <div role="tablist" class="join bg-base-200 p-0.5 rounded-btn shadow-sm">
+        <button role="tab" class="btn btn-sm join-item" :class="{ 'btn-active': activeTab === 'single' }" @click="setActiveTab('single')">
           {{ i18n.t('单节点') }}
         </button>
-        <button role="tab" class="btn btn-sm" :class="{ 'is-active': activeTab === 'groups' }" @click="setActiveTab('groups')">
+        <button role="tab" class="btn btn-sm join-item" :class="{ 'btn-active': activeTab === 'groups' }" @click="setActiveTab('groups')">
           {{ i18n.t('组合节点') }}
         </button>
       </div>
-      <div class="ui-segment">
-        <button type="button" class="btn btn-sm" :class="{ 'is-active': activeViewMode === 'card' }" @click="setViewMode('card')">
+      <div class="join bg-base-200 p-0.5 rounded-btn shadow-sm">
+        <button type="button" class="btn btn-sm join-item" :class="{ 'btn-active': activeViewMode === 'card' }" @click="setViewMode('card')">
           <Squares2X2Icon class="h-4 w-4" /> {{ i18n.t('卡片') }}
         </button>
-        <button type="button" class="btn btn-sm" :class="{ 'is-active': activeViewMode === 'list' }" @click="setViewMode('list')">
+        <button type="button" class="btn btn-sm join-item" :class="{ 'btn-active': activeViewMode === 'list' }" @click="setViewMode('list')">
           <ListBulletIcon class="h-4 w-4" /> {{ i18n.t('列表') }}
         </button>
       </div>
@@ -508,14 +511,14 @@ async function exportLinks() {
           </div>
           <div class="flex gap-2 flex-wrap">
             <button
-              class="btn btn-sm btn-soft-action"
-              :class="{ 'is-active': allFilteredSelected }"
+              class="btn btn-sm"
+              :class="{ 'btn-active': allFilteredSelected }"
               @click="selectAll"
               :disabled="!nodesStore.nodes.length"
             >
               {{ allFilteredSelected ? i18n.t('取消全选') : i18n.t('全选') }}
             </button>
-            <button class="btn btn-sm btn-soft-danger" @click="removeSelectedNodes" :disabled="busy || !selected.size">
+            <button class="btn btn-sm text-error bg-error/10 hover:bg-error/20 border-transparent" @click="removeSelectedNodes" :disabled="busy || !selected.size">
               <TrashIcon class="h-4 w-4" /> {{ i18n.t('删除') }}
             </button>
             <button class="btn btn-sm" @click="refreshCountry" :disabled="busy || !selected.size">
@@ -613,14 +616,14 @@ async function exportLinks() {
           </div>
           <div class="flex gap-2 flex-wrap">
             <button
-              class="btn btn-sm btn-soft-action"
-              :class="{ 'is-active': allGroupsSelected }"
+              class="btn btn-sm"
+              :class="{ 'btn-active': allGroupsSelected }"
               @click="selectAllNodeGroups"
               :disabled="!nodeGroups.groups.length"
             >
               {{ allGroupsSelected ? i18n.t('取消全选') : i18n.t('全选') }}
             </button>
-            <button class="btn btn-sm btn-soft-danger" @click="removeSelectedGroups" :disabled="busy || !selectedGroups.size">
+            <button class="btn btn-sm text-error bg-error/10 hover:bg-error/20 border-transparent" @click="removeSelectedGroups" :disabled="busy || !selectedGroups.size">
               <TrashIcon class="h-4 w-4" /> {{ i18n.t('删除') }}
             </button>
             <button class="btn btn-sm btn-primary" @click="openCreateGroup">
@@ -745,7 +748,7 @@ async function exportLinks() {
           </div>
         </div>
         <div class="modal-action">
-          <button class="btn btn-modal-cancel" @click="closeGroupForm" :disabled="busy">{{ i18n.t('取消') }}</button>
+          <button class="btn" @click="closeGroupForm" :disabled="busy">{{ i18n.t('取消') }}</button>
           <button class="btn btn-primary" @click="submitGroup" :disabled="busy">
             <span v-if="busy" class="loading loading-spinner loading-sm"></span> {{ i18n.t('保存') }}
           </button>

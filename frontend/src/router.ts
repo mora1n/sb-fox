@@ -1,6 +1,23 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 
+const appRouteLoaders = {
+  dashboard: () => import('./views/DashboardView.vue'),
+  nodes: () => import('./views/NodesView.vue'),
+  templates: () => import('./views/TemplatesView.vue'),
+  profiles: () => import('./views/ProfilesView.vue'),
+  settings: () => import('./views/SettingsView.vue'),
+  users: () => import('./views/UsersView.vue'),
+}
+
+type AppRouteName = keyof typeof appRouteLoaders
+
+export async function preloadAppRouteViews(includeAdmin = false): Promise<void> {
+  const names: AppRouteName[] = ['dashboard', 'nodes', 'templates', 'profiles', 'settings']
+  if (includeAdmin) names.push('users')
+  for (const name of names) await appRouteLoaders[name]()
+}
+
 const router = createRouter({
   history: createWebHistory(),
   routes: [
@@ -14,14 +31,14 @@ const router = createRouter({
       path: '/',
       component: () => import('./components/AppShell.vue'),
       children: [
-        { path: '', name: 'dashboard', component: () => import('./views/DashboardView.vue') },
-        { path: 'nodes', name: 'nodes', component: () => import('./views/NodesView.vue') },
-        { path: 'templates', name: 'templates', component: () => import('./views/TemplatesView.vue') },
-        { path: 'subscriptions', name: 'profiles', component: () => import('./views/ProfilesView.vue') },
+        { path: '', name: 'dashboard', component: appRouteLoaders.dashboard },
+        { path: 'nodes', name: 'nodes', component: appRouteLoaders.nodes },
+        { path: 'templates', name: 'templates', component: appRouteLoaders.templates },
+        { path: 'subscriptions', name: 'profiles', component: appRouteLoaders.profiles },
         { path: 'profiles', redirect: { name: 'profiles' } },
         { path: 'preview', redirect: { name: 'profiles' } },
-        { path: 'users', name: 'users', component: () => import('./views/UsersView.vue'), meta: { admin: true } },
-        { path: 'settings', name: 'settings', component: () => import('./views/SettingsView.vue') },
+        { path: 'users', name: 'users', component: appRouteLoaders.users, meta: { admin: true } },
+        { path: 'settings', name: 'settings', component: appRouteLoaders.settings },
       ],
     },
     { path: '/:pathMatch(.*)*', redirect: '/' },

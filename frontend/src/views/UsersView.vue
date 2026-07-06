@@ -126,7 +126,7 @@ async function copyResetPassword() {
       <button class="btn btn-sm" @click="resetPassword = ''">{{ i18n.t('关闭') }}</button>
     </div>
 
-    <div v-if="store.loading" class="flex justify-center py-10">
+    <div v-if="store.loading && !store.users.length" class="flex justify-center py-10">
       <span class="loading loading-spinner loading-lg"></span>
     </div>
 
@@ -193,7 +193,7 @@ async function copyResetPassword() {
           </label>
         </div>
         <div class="modal-action">
-          <button class="btn btn-modal-cancel" :disabled="busy" @click="showEdit = false">{{ i18n.t('取消') }}</button>
+          <button class="btn" :disabled="busy" @click="showEdit = false">{{ i18n.t('取消') }}</button>
           <button class="btn btn-primary" :disabled="busy" @click="save">
             <span v-if="busy" class="loading loading-spinner loading-sm"></span>
             {{ i18n.t('保存') }}

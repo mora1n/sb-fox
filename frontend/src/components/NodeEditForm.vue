@@ -362,7 +362,7 @@ watch(() => [props.node, props.copyFrom], () => resetFrom(props.node ?? props.co
       </div>
 
       <div class="modal-action">
-        <button class="btn btn-modal-cancel" @click="emit('close')" :disabled="busy">{{ i18n.t('取消') }}</button>
+        <button class="btn" @click="emit('close')" :disabled="busy">{{ i18n.t('取消') }}</button>
         <button class="btn btn-primary" @click="save" :disabled="busy || !!parseError">
           <span v-if="busy" class="loading loading-spinner loading-sm"></span>
           {{ i18n.t('保存') }}

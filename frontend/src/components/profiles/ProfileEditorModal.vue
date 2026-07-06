@@ -718,7 +718,7 @@ async function formatGenerated() {
       <div class="mb-3 flex items-center justify-between gap-3">
         <h3 class="font-bold text-lg truncate">{{ formTitle }}</h3>
         <div class="flex shrink-0 items-center gap-2">
-          <button class="btn btn-modal-cancel btn-sm" @click="closeForm" :disabled="busy">{{ i18n.t('取消') }}</button>
+          <button class="btn btn-sm" @click="closeForm" :disabled="busy">{{ i18n.t('取消') }}</button>
           <button class="btn btn-primary btn-sm" @click="submit" :disabled="formLocked">
             <span v-if="formLocked" class="loading loading-spinner loading-sm"></span> {{ i18n.t('保存') }}
           </button>
