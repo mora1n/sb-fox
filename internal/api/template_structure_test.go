@@ -114,7 +114,7 @@ func TestReadTemplateStructureIncludesReachableAndEmptyURLTestGroups(t *testing.
 	}
 }
 
-func TestReadTemplateStructureIncludesEmptyUnreachableGroupsOnly(t *testing.T) {
+func TestReadTemplateStructureIncludesAllExistingGroups(t *testing.T) {
 	content := `{
   "outbounds": [
     {"type":"selector","tag":"Proxy","outbounds":["Direct"]},
@@ -135,7 +135,7 @@ func TestReadTemplateStructureIncludesEmptyUnreachableGroupsOnly(t *testing.T) {
 	for _, g := range st.Groups {
 		got = append(got, g.Tag)
 	}
-	want := []string{"Proxy", "Auto", "EmptySelector", "NullURLTest"}
+	want := []string{"Proxy", "Auto", "EmptySelector", "NullURLTest", "Hidden"}
 	if !sameStrings(got, want) {
 		t.Fatalf("groups = %v, want %v", got, want)
 	}
@@ -205,7 +205,7 @@ func TestWriteTemplateStructureRejectsURLTestGroupCycle(t *testing.T) {
 	}
 }
 
-func TestWriteTemplateStructureRejectsDeletingEmptyUnreachableGroup(t *testing.T) {
+func TestWriteTemplateStructureRejectsDeletingExistingUnreachableGroup(t *testing.T) {
 	content := `{
   "outbounds": [
     {"type":"selector","tag":"Proxy","outbounds":["Direct"]},
@@ -222,7 +222,7 @@ func TestWriteTemplateStructureRejectsDeletingEmptyUnreachableGroup(t *testing.T
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "cannot be deleted") {
-		t.Fatalf("expected deleting empty unreachable group rejection, got %v", err)
+		t.Fatalf("expected deleting existing unreachable group rejection, got %v", err)
 	}
 
 	updated, err := writeTemplateStructure(content, templateStructure{
@@ -239,11 +239,14 @@ func TestWriteTemplateStructureRejectsDeletingEmptyUnreachableGroup(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(st.Groups) != 1 || st.Groups[0].Tag != "Proxy" {
-		t.Fatalf("filled unreachable Auto should stop being managed: %+v", st.Groups)
+	if len(st.Groups) != 2 || st.Groups[1].Tag != "Auto" {
+		t.Fatalf("filled unreachable Auto should remain visible: %+v", st.Groups)
+	}
+	if !sameStrings(st.Groups[1].Outbounds, []string{"Direct"}) {
+		t.Fatalf("Auto outbounds = %+v", st.Groups[1].Outbounds)
 	}
 	if !strings.Contains(updated, `"tag": "Auto"`) {
-		t.Fatalf("unmanaged filled Auto should be preserved:\n%s", updated)
+		t.Fatalf("filled unreachable Auto should be preserved:\n%s", updated)
 	}
 }
 
@@ -373,10 +376,11 @@ func TestWriteTemplateStructureRejectsGroupAddDeleteAndPreservesReferences(t *te
 		Final: "Proxy",
 		Groups: []templateStructureGroup{
 			{Tag: "Proxy", Type: "selector", Outbounds: []string{"Direct"}},
+			{Tag: "Child", Type: "selector", Outbounds: []string{"Direct"}},
 			{Tag: "New", Type: "selector", Outbounds: []string{"Direct"}},
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "not managed") {
+	if err == nil || !strings.Contains(err.Error(), "does not exist") {
 		t.Fatalf("expected add rejection, got %v", err)
 	}
 
@@ -384,6 +388,7 @@ func TestWriteTemplateStructureRejectsGroupAddDeleteAndPreservesReferences(t *te
 		Final: "Proxy",
 		Groups: []templateStructureGroup{
 			{Tag: "Proxy", Type: "selector", Outbounds: []string{"Child", "Direct"}, Default: "Child"},
+			{Tag: "Child", Type: "selector", Outbounds: []string{"Direct"}},
 		},
 	})
 	if err != nil {
@@ -400,12 +405,49 @@ func TestWriteTemplateStructureRejectsGroupAddDeleteAndPreservesReferences(t *te
 		t.Fatalf("proxy group = %+v", st.Groups[0])
 	}
 	if st.Groups[1].Tag != "Child" {
-		t.Fatalf("child group should become route-reachable: %+v", st.Groups)
+		t.Fatalf("child group should remain visible: %+v", st.Groups)
 	}
 	if !containsString(st.AvailableOutbounds, "Child") {
 		t.Fatalf("child selector should remain available: %+v", st.AvailableOutbounds)
 	}
 	if !strings.Contains(updated, `"tag": "Child"`) {
-		t.Fatalf("unmanaged child selector was not preserved:\n%s", updated)
+		t.Fatalf("existing child selector was not preserved:\n%s", updated)
+	}
+}
+
+func TestWriteTemplateStructurePreservesVisibleUnreachableNonEmptyGroup(t *testing.T) {
+	content := `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":["Direct"]},
+    {"type":"urltest","tag":"Po0","outbounds":["Direct"]},
+    {"type":"direct","tag":"Direct"}
+  ],
+  "route": {"final":"Proxy"}
+}`
+
+	st, err := readTemplateStructure(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Groups) != 2 || st.Groups[1].Tag != "Po0" {
+		t.Fatalf("structure = %+v", st)
+	}
+	if !sameStrings(st.Groups[1].Outbounds, []string{"Direct"}) {
+		t.Fatalf("Po0 outbounds = %+v", st.Groups[1].Outbounds)
+	}
+
+	updated, err := writeTemplateStructure(content, st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := readTemplateStructure(updated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(next.Groups) != 2 || next.Groups[1].Tag != "Po0" {
+		t.Fatalf("updated structure = %+v", next)
+	}
+	if !sameStrings(next.Groups[1].Outbounds, []string{"Direct"}) {
+		t.Fatalf("updated Po0 outbounds = %+v", next.Groups[1].Outbounds)
 	}
 }

@@ -194,10 +194,9 @@ func readTemplateStructure(content string) (templateStructure, error) {
 		return templateStructure{}, err
 	}
 	refs := routeGroupRefs(cfg, allGroups)
-	groups := managedTemplateGroups(allGroups, refs)
 	st := templateStructure{
 		Final:              routeFinal(cfg),
-		Groups:             groups,
+		Groups:             allGroups,
 		AvailableOutbounds: availableTemplateOutbounds(arr, allGroups),
 	}
 	for i := range st.Groups {
@@ -228,8 +227,6 @@ func writeTemplateStructure(content string, st templateStructure) (string, error
 	if err != nil {
 		return "", err
 	}
-	validRefs := routeGroupRefs(cfg, allGroups)
-	validGroups := managedTemplateGroups(allGroups, validRefs)
 	for _, g := range allGroups {
 		staticTags[g.Tag] = true
 	}
@@ -237,7 +234,7 @@ func writeTemplateStructure(content string, st templateStructure) (string, error
 	if err != nil {
 		return "", err
 	}
-	if err := validateTemplateGroupSet(desired, validGroups); err != nil {
+	if err := validateTemplateGroupSet(desired, allGroups); err != nil {
 		return "", err
 	}
 
@@ -288,20 +285,6 @@ func templateGroups(arr []any) ([]templateStructureGroup, error) {
 		})
 	}
 	return groups, nil
-}
-
-func managedTemplateGroups(groups []templateStructureGroup, refs map[string][]string) []templateStructureGroup {
-	out := make([]templateStructureGroup, 0, len(groups))
-	for _, g := range groups {
-		if len(refs[g.Tag]) > 0 || isEmptyTemplateGroup(g) {
-			out = append(out, g)
-		}
-	}
-	return out
-}
-
-func isEmptyTemplateGroup(g templateStructureGroup) bool {
-	return len(g.Outbounds) == 0
 }
 
 func routeGroupRefs(cfg *merge.OrderedMap, groups []templateStructureGroup) map[string][]string {
@@ -496,23 +479,23 @@ func validateTemplateStructure(st templateStructure, staticTags map[string]bool)
 	return desired, nil
 }
 
-func validateTemplateGroupSet(desired []templateStructureGroup, valid []templateStructureGroup) error {
+func validateTemplateGroupSet(desired []templateStructureGroup, existing []templateStructureGroup) error {
 	desiredTags := map[string]bool{}
 	for _, g := range desired {
 		desiredTags[g.Tag] = true
 	}
-	validTags := map[string]bool{}
-	for _, g := range valid {
-		validTags[g.Tag] = true
+	existingTags := map[string]bool{}
+	for _, g := range existing {
+		existingTags[g.Tag] = true
 	}
-	for tag := range validTags {
+	for tag := range existingTags {
 		if !desiredTags[tag] {
-			return fmt.Errorf("route outbound group %q cannot be deleted", tag)
+			return fmt.Errorf("template outbound group %q cannot be deleted", tag)
 		}
 	}
 	for tag := range desiredTags {
-		if !validTags[tag] {
-			return fmt.Errorf("outbound group %q is not managed by route references or an empty placeholder", tag)
+		if !existingTags[tag] {
+			return fmt.Errorf("template outbound group %q does not exist", tag)
 		}
 	}
 	return nil
