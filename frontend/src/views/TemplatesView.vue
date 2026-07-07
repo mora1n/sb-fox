@@ -363,7 +363,7 @@ function toggleOutbound(g: TemplateStructureGroup, tag: string) {
     }
     g.outbounds = [...g.outbounds, tag]
   }
-  if (g.default && !g.outbounds.includes(g.default)) g.default = ''
+  if (!groupSupportsDefault(g) || (g.default && !g.outbounds.includes(g.default))) g.default = ''
 }
 
 function allOutboundsSelected(g: TemplateStructureGroup) {
@@ -373,12 +373,21 @@ function allOutboundsSelected(g: TemplateStructureGroup) {
 
 function selectAllOutbounds(g: TemplateStructureGroup) {
   g.outbounds = outboundOptions(g)
-  if (g.default && !g.outbounds.includes(g.default)) g.default = ''
+  if (!groupSupportsDefault(g) || (g.default && !g.outbounds.includes(g.default))) g.default = ''
 }
 
 function clearOutbounds(g: TemplateStructureGroup) {
   g.outbounds = []
   g.default = ''
+}
+
+function groupSupportsDefault(g: TemplateStructureGroup) {
+  return g.type === 'selector'
+}
+
+function onGroupTypeChange(g: TemplateStructureGroup) {
+  if (!groupSupportsDefault(g)) g.default = ''
+  else if (g.default && !g.outbounds.includes(g.default)) g.default = ''
 }
 
 function moveGroup(index: number, delta: number) {
@@ -762,7 +771,7 @@ function removeSelectedIDs(current: Set<number>, ids: number[]) {
                 </label>
                 <label class="form-control">
                   <span class="label-text mb-1">{{ i18n.t('类型') }}</span>
-                  <select v-model="g.type" class="select select-bordered select-sm">
+                  <select v-model="g.type" class="select select-bordered select-sm" @change="onGroupTypeChange(g)">
                     <option value="selector">selector</option>
                     <option value="urltest">urltest</option>
                   </select>
@@ -808,7 +817,7 @@ function removeSelectedIDs(current: Set<number>, ids: number[]) {
                     </div>
                   </div>
                 </div>
-                <label class="form-control">
+                <label v-if="groupSupportsDefault(g)" class="form-control">
                   <span class="label-text mb-1">{{ i18n.t('默认出口') }}</span>
                   <select v-model="g.default" class="select select-bordered select-sm" :disabled="g.outbounds.length <= 1">
                     <option value="">{{ i18n.t('未指定') }}</option>

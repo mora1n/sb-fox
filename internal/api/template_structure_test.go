@@ -83,13 +83,13 @@ func TestWriteTemplateStructureValidation(t *testing.T) {
 
 func TestReadTemplateStructureIncludesReachableAndEmptyURLTestGroups(t *testing.T) {
 	content := `{
-  "outbounds": [
-    {"type":"selector","tag":"Proxy","outbounds":["Auto","Direct"]},
-    {"type":"urltest","tag":"Auto","outbounds":[]},
-    {"type":"urltest","tag":"Unused","outbounds":[]},
-    {"type":"direct","tag":"Direct"}
-  ],
-  "route": {"final":"Proxy"}
+	  "outbounds": [
+	    {"type":"selector","tag":"Proxy","outbounds":["Auto","Direct"]},
+	    {"type":"urltest","tag":"Auto","outbounds":[],"default":"Direct"},
+	    {"type":"urltest","tag":"Unused","outbounds":[]},
+	    {"type":"direct","tag":"Direct"}
+	  ],
+	  "route": {"final":"Proxy"}
 }`
 
 	st, err := readTemplateStructure(content)
@@ -106,11 +106,47 @@ func TestReadTemplateStructureIncludesReachableAndEmptyURLTestGroups(t *testing.
 	if auto.Type != "urltest" || len(auto.Outbounds) != 0 {
 		t.Fatalf("Auto group = %+v", auto)
 	}
+	if auto.Default != "" {
+		t.Fatalf("Auto default = %q, want empty", auto.Default)
+	}
 	if !containsString(auto.ReferencedBy, "Proxy") {
 		t.Fatalf("Auto referenced_by = %+v", auto.ReferencedBy)
 	}
 	if len(st.Groups[2].ReferencedBy) != 0 {
 		t.Fatalf("empty unreachable group should not have route refs: %+v", st.Groups[2])
+	}
+}
+
+func TestWriteTemplateStructureStripsURLTestDefault(t *testing.T) {
+	content := `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":["Auto","Direct"]},
+    {"type":"urltest","tag":"Auto","outbounds":["Direct"],"default":"Direct"},
+    {"type":"direct","tag":"Direct"}
+  ],
+  "route": {"final":"Proxy"}
+}`
+
+	updated, err := writeTemplateStructure(content, templateStructure{
+		Final: "Proxy",
+		Groups: []templateStructureGroup{
+			{Tag: "Proxy", Type: "selector", Outbounds: []string{"Auto", "Direct"}},
+			{Tag: "Auto", Type: "urltest", Outbounds: []string{"Direct"}, Default: "Direct"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(updated, `"type": "urltest","tag": "Auto","outbounds": ["Direct"],"default": "Direct"`) ||
+		strings.Contains(updated, `"tag":"Auto","outbounds":["Direct"],"default":"Direct"`) {
+		t.Fatalf("updated template kept urltest default:\n%s", updated)
+	}
+	st, err := readTemplateStructure(updated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Groups) < 2 || st.Groups[1].Default != "" {
+		t.Fatalf("structure = %+v", st.Groups)
 	}
 }
 

@@ -20,6 +20,7 @@ func generateConfig(templateContent string, nodes []*models.Node, opts models.Pr
 	if err != nil {
 		return nil, fmt.Errorf("parse template: %w", err)
 	}
+	normalizeTemplateGroupDefaultsInConfig(cfg)
 
 	mergeNodes, err := toMergeNodes(nodes)
 	if err != nil {
@@ -89,6 +90,7 @@ func generateConfigWithGroupSelections(templateContent string, groupNodes map[st
 	if err != nil {
 		return nil, fmt.Errorf("parse template: %w", err)
 	}
+	normalizeTemplateGroupDefaultsInConfig(cfg)
 	templateOutbounds, err := generatedOutbounds(cfg)
 	if err != nil {
 		return nil, err
@@ -174,7 +176,9 @@ func generateConfigWithGroupSelections(templateContent string, groupNodes map[st
 			)
 		}
 		group.Set("outbounds", stringSliceToAny(tags))
-		if def := group.GetString("default"); def != "" && !containsString(tags, def) {
+		if isURLTestGroup(group) {
+			group.Delete("default")
+		} else if def := group.GetString("default"); def != "" && !containsString(tags, def) {
 			group.Delete("default")
 		}
 	}

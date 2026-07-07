@@ -146,6 +146,29 @@ func TestGenerateConfigChainProxyUsesAutoCountryUpstreams(t *testing.T) {
 	}
 }
 
+func TestGenerateConfigStripsURLTestDefault(t *testing.T) {
+	template := `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":["Auto","Direct"]},
+    {"type":"urltest","tag":"Auto","outbounds":["node-a"],"default":"node-a"},
+    {"type":"direct","tag":"Direct"}
+  ],
+  "route": {"final":"Proxy"}
+}`
+	config, err := generateConfig(template, []*models.Node{testNode(1, "node-a", "US")}, models.ProfileOptions{}, nil)
+	if err != nil {
+		t.Fatalf("generateConfig: %v", err)
+	}
+	outbounds := generatedOutboundMap(t, config)
+	auto := outbounds["Auto"]
+	if auto == nil {
+		t.Fatal("missing Auto outbound")
+	}
+	if _, ok := auto["default"]; ok {
+		t.Fatalf("urltest outbound kept default field: %+v", auto)
+	}
+}
+
 func TestGenerateConfigChainProxyReplacesAutoCountrySelectedNodeRefs(t *testing.T) {
 	template := `{
   "outbounds": [

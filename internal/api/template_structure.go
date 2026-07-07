@@ -106,9 +106,14 @@ func extractTemplateProxyOutbounds(content string) (string, []*merge.OrderedMap,
 	if err != nil {
 		return "", nil, err
 	}
+	normalized := normalizeTemplateGroupDefaultsInConfig(cfg)
 	raw, ok := cfg.Get("outbounds")
 	if !ok {
-		return content, nil, nil
+		if !normalized {
+			return content, nil, nil
+		}
+		processed, err := orderedString(cfg)
+		return processed, nil, err
 	}
 	arr, ok := raw.([]any)
 	if !ok {
@@ -130,7 +135,11 @@ func extractTemplateProxyOutbounds(content string) (string, []*merge.OrderedMap,
 		}
 	}
 	if len(proxies) == 0 {
-		return content, nil, nil
+		if !normalized {
+			return content, nil, nil
+		}
+		processed, err := orderedString(cfg)
+		return processed, nil, err
 	}
 	next := make([]any, 0, len(arr))
 	for _, ob := range arr {
@@ -171,6 +180,10 @@ func cleanTemplateGroupRefs(ob *merge.OrderedMap, removed map[string]bool) {
 		next = append(next, item)
 	}
 	ob.Set("outbounds", next)
+	if isURLTestGroup(ob) {
+		ob.Delete("default")
+		return
+	}
 	if def := ob.GetString("default"); def != "" && removed[def] {
 		ob.Delete("default")
 	}
@@ -181,6 +194,7 @@ func readTemplateStructure(content string) (templateStructure, error) {
 	if err != nil {
 		return templateStructure{}, err
 	}
+	normalizeTemplateGroupDefaultsInConfig(cfg)
 	raw, ok := cfg.Get("outbounds")
 	if !ok {
 		return templateStructure{}, nil
@@ -249,7 +263,7 @@ func writeTemplateStructure(content string, st templateStructure) (string, error
 		om.Set("type", g.Type)
 		om.Set("tag", g.Tag)
 		om.Set("outbounds", stringSliceToAny(g.Outbounds))
-		if g.Default == "" {
+		if g.Type != "selector" || g.Default == "" {
 			om.Delete("default")
 		} else {
 			om.Set("default", g.Default)
@@ -355,10 +369,12 @@ func addNestedGroupRefs(groups []templateStructureGroup, groupByTag map[string]t
 			appendGroupRef(refs, outbound, g.Tag)
 			visit(outbound)
 		}
-		if def := strings.TrimSpace(g.Default); def != "" && def != g.Tag {
-			if _, ok := groupByTag[def]; ok {
-				appendGroupRef(refs, def, g.Tag+" default")
-				visit(def)
+		if g.Type == "selector" {
+			if def := strings.TrimSpace(g.Default); def != "" && def != g.Tag {
+				if _, ok := groupByTag[def]; ok {
+					appendGroupRef(refs, def, g.Tag+" default")
+					visit(def)
+				}
 			}
 		}
 	}
@@ -439,7 +455,7 @@ func validateTemplateStructure(st templateStructure, staticTags map[string]bool)
 	for _, g := range st.Groups {
 		g.Tag = strings.TrimSpace(g.Tag)
 		g.Type = strings.TrimSpace(g.Type)
-		g.Default = strings.TrimSpace(g.Default)
+		g = normalizeTemplateGroupDefault(g)
 		if g.Tag == "" {
 			return nil, fmt.Errorf("group tag is required")
 		}
@@ -469,7 +485,7 @@ func validateTemplateStructure(st templateStructure, staticTags map[string]bool)
 			return nil, err
 		}
 		desired[i].Outbounds = outs
-		if desired[i].Default != "" && !containsString(outs, desired[i].Default) {
+		if desired[i].Type == "selector" && desired[i].Default != "" && !containsString(outs, desired[i].Default) {
 			return nil, fmt.Errorf("default %q is not in group %q outbounds", desired[i].Default, desired[i].Tag)
 		}
 	}
@@ -619,7 +635,7 @@ func templateGroupRefs(final string, groups []templateStructureGroup) map[string
 				refs[ob] = append(refs[ob], g.Tag)
 			}
 		}
-		if g.Default != "" && g.Default != g.Tag {
+		if g.Type == "selector" && g.Default != "" && g.Default != g.Tag {
 			refs[g.Default] = append(refs[g.Default], g.Tag+" default")
 		}
 	}
@@ -629,6 +645,43 @@ func templateGroupRefs(final string, groups []templateStructureGroup) map[string
 func isTemplateGroup(ob *merge.OrderedMap) bool {
 	typ := ob.GetString("type")
 	return typ == "selector" || typ == "urltest"
+}
+
+func isURLTestGroup(ob *merge.OrderedMap) bool {
+	return ob.GetString("type") == "urltest"
+}
+
+func normalizeTemplateGroupDefault(group templateStructureGroup) templateStructureGroup {
+	group.Default = strings.TrimSpace(group.Default)
+	if strings.TrimSpace(group.Type) == "urltest" {
+		group.Default = ""
+	}
+	return group
+}
+
+func normalizeTemplateGroupDefaultsInConfig(cfg *merge.OrderedMap) bool {
+	raw, ok := cfg.Get("outbounds")
+	if !ok {
+		return false
+	}
+	arr, ok := raw.([]any)
+	if !ok {
+		return false
+	}
+	changed := false
+	for _, item := range arr {
+		om, ok := item.(*merge.OrderedMap)
+		if !ok || !isTemplateGroup(om) {
+			continue
+		}
+		if isURLTestGroup(om) {
+			if _, exists := om.Get("default"); exists {
+				changed = true
+			}
+			om.Delete("default")
+		}
+	}
+	return changed
 }
 
 func outboundStringList(ob *merge.OrderedMap) []string {
