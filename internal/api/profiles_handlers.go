@@ -17,6 +17,10 @@ func (s *Server) handleListProfiles(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
+	if err := s.decorateProfilesValidation(list, ownerID, allOwners); err != nil {
+		respondError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
 	respondJSON(w, http.StatusOK, list)
 }
 
@@ -29,6 +33,10 @@ func (s *Server) handleGetProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		respondError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	if err := s.decorateProfilesValidation([]*models.Profile{p}, ownerID, allOwners); err != nil {
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}

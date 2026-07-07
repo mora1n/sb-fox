@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/mora1n/sb-fox/internal/models"
@@ -145,6 +146,12 @@ func (s *Server) renderProfile(profileID int64) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := s.decorateProfilesValidation([]*models.Profile{p}, p.OwnerUserID, false); err != nil {
+		return nil, err
+	}
+	if err := profileValidationError(p.Validation); err != nil {
+		return nil, err
+	}
 	t, err := s.Store.GetTemplateForUser(p.TemplateID, p.OwnerUserID, false)
 	if err != nil {
 		return nil, err
@@ -160,6 +167,12 @@ func (s *Server) renderProfile(profileID int64) ([]byte, error) {
 func (s *Server) renderProfileForUser(profileID, ownerUserID int64, allOwners bool) ([]byte, error) {
 	p, err := s.Store.GetProfileForUser(profileID, ownerUserID, allOwners)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.decorateProfilesValidation([]*models.Profile{p}, ownerUserID, allOwners); err != nil {
+		return nil, err
+	}
+	if err := profileValidationError(p.Validation); err != nil {
 		return nil, err
 	}
 	t, err := s.Store.GetTemplateForUser(p.TemplateID, p.OwnerUserID, allOwners)
@@ -197,9 +210,17 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request, toke
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
+	if err := s.decorateProfilesValidation([]*models.Profile{p}, p.OwnerUserID, false); err != nil {
+		http.Error(w, "generate error: "+err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	if err := profileValidationError(p.Validation); err != nil {
+		http.Error(w, "generate error: "+err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
 	t, err := s.Store.GetTemplateForUser(p.TemplateID, p.OwnerUserID, false)
 	if err != nil {
-		http.Error(w, "template missing", http.StatusInternalServerError)
+		http.Error(w, "generate error: "+err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
 	opts := parseProfileOptions(p.Options)
@@ -276,7 +297,7 @@ func (s *Server) resolveNodesForUser(nodeIDs, groupIDs []int64, opts models.Prof
 		}
 		n, err := s.Store.GetNodeForUser(id, ownerUserID, allOwners)
 		if err == store.ErrNotFound {
-			return nil
+			return fmt.Errorf("profile references missing node #%d", id)
 		}
 		if err != nil {
 			return err
@@ -290,11 +311,14 @@ func (s *Server) resolveNodesForUser(nodeIDs, groupIDs []int64, opts models.Prof
 			return nil, err
 		}
 	}
-	groups, err := s.Store.GetNodeGroupsForUser(groupIDs, ownerUserID, allOwners)
-	if err != nil {
-		return nil, err
-	}
-	for _, g := range groups {
+	for _, groupID := range groupIDs {
+		g, err := s.Store.GetNodeGroupForUser(groupID, ownerUserID, allOwners)
+		if err == store.ErrNotFound {
+			return nil, fmt.Errorf("profile references missing node group #%d", groupID)
+		}
+		if err != nil {
+			return nil, err
+		}
 		for _, id := range g.NodeIDs {
 			if err := addNode(id); err != nil {
 				return nil, err

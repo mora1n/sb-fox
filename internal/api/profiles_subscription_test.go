@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"os/exec"
 	"path/filepath"
@@ -77,6 +78,129 @@ func TestPreviewSavedProfileRendersConfigAndChecksOwnership(t *testing.T) {
 	}))
 	if status != http.StatusUnprocessableEntity || code != "generate_error" {
 		t.Fatalf("other user preview status=%d code=%q", status, code)
+	}
+}
+
+func TestProfileValidationMarksMissingNodeAndBlocksGeneration(t *testing.T) {
+	_, ts := testServer(t)
+	c := newClient(t, ts.URL)
+	c.http.Jar = login(t, ts.URL)
+
+	profileID, nodeID, profileName := createSavedPreviewProfileWithNode(t, c)
+	decodeData(t, c.do(http.MethodDelete, "/api/nodes/"+itoa(nodeID), nil), nil)
+
+	var list []struct {
+		ID         int64 `json:"id"`
+		Validation struct {
+			Valid               bool    `json:"valid"`
+			MissingTemplate     bool    `json:"missing_template"`
+			MissingNodeIDs      []int64 `json:"missing_node_ids"`
+			MissingNodeGroupIDs []int64 `json:"missing_node_group_ids"`
+		} `json:"validation"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/profiles", nil), &list)
+	var listed *struct {
+		ID         int64 `json:"id"`
+		Validation struct {
+			Valid               bool    `json:"valid"`
+			MissingTemplate     bool    `json:"missing_template"`
+			MissingNodeIDs      []int64 `json:"missing_node_ids"`
+			MissingNodeGroupIDs []int64 `json:"missing_node_group_ids"`
+		} `json:"validation"`
+	}
+	for i := range list {
+		if list[i].ID == profileID {
+			listed = &list[i]
+			break
+		}
+	}
+	if listed == nil {
+		t.Fatalf("profile %d missing from list", profileID)
+	}
+	if listed.Validation.Valid || listed.Validation.MissingTemplate || !sameInt64s(listed.Validation.MissingNodeIDs, []int64{nodeID}) || len(listed.Validation.MissingNodeGroupIDs) != 0 {
+		t.Fatalf("list validation = %+v", listed.Validation)
+	}
+
+	var profile struct {
+		ID         int64 `json:"id"`
+		Validation struct {
+			Valid               bool    `json:"valid"`
+			MissingTemplate     bool    `json:"missing_template"`
+			MissingNodeIDs      []int64 `json:"missing_node_ids"`
+			MissingNodeGroupIDs []int64 `json:"missing_node_group_ids"`
+		} `json:"validation"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/profiles/"+itoa(profileID), nil), &profile)
+	if profile.Validation.Valid || profile.Validation.MissingTemplate || !sameInt64s(profile.Validation.MissingNodeIDs, []int64{nodeID}) || len(profile.Validation.MissingNodeGroupIDs) != 0 {
+		t.Fatalf("get validation = %+v", profile.Validation)
+	}
+
+	status, code, msg := decodeError(t, c.do(http.MethodPost, "/api/generate/preview", map[string]any{
+		"profile_id": profileID,
+	}))
+	if status != http.StatusUnprocessableEntity || code != "generate_error" || !strings.Contains(msg, "missing node") {
+		t.Fatalf("preview status=%d code=%q msg=%q", status, code, msg)
+	}
+
+	var tokenResp struct {
+		Token string `json:"token"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/auth/subscription-token", nil), &tokenResp)
+	resp, err := http.Get(ts.URL + "/sub/" + tokenResp.Token + "/" + profileName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(string(body), "missing node") {
+		t.Fatalf("public sub status=%d body=%q", resp.StatusCode, string(body))
+	}
+}
+
+func TestProfileValidationMarksMissingNodeInsideNodeGroup(t *testing.T) {
+	_, ts := testServer(t)
+	c := newClient(t, ts.URL)
+	c.http.Jar = login(t, ts.URL)
+
+	templateID := createPreviewOrderTemplate(t, c)
+	nodeID := createPreviewOrderNodes(t, c, []string{"dangling-node"})[0]
+	groupID := createPreviewOrderGroup(t, c, "dangling-group", []int64{nodeID})
+	var profile struct {
+		ID int64 `json:"id"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/profiles", map[string]any{
+		"name":        "group-invalid",
+		"template_id": templateID,
+		"options": map[string]any{
+			"autoCountryGroups": false,
+			"groupSelections": map[string]any{
+				"Proxy": map[string]any{
+					"nodeGroupIds": []int64{groupID},
+				},
+			},
+		},
+	}), &profile)
+
+	decodeData(t, c.do(http.MethodDelete, "/api/nodes/"+itoa(nodeID), nil), nil)
+
+	var got struct {
+		Validation struct {
+			Valid               bool    `json:"valid"`
+			MissingTemplate     bool    `json:"missing_template"`
+			MissingNodeIDs      []int64 `json:"missing_node_ids"`
+			MissingNodeGroupIDs []int64 `json:"missing_node_group_ids"`
+		} `json:"validation"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/profiles/"+itoa(profile.ID), nil), &got)
+	if got.Validation.Valid || got.Validation.MissingTemplate || len(got.Validation.MissingNodeIDs) != 0 || !sameInt64s(got.Validation.MissingNodeGroupIDs, []int64{groupID}) {
+		t.Fatalf("validation = %+v", got.Validation)
+	}
+
+	status, code, msg := decodeError(t, c.do(http.MethodPost, "/api/generate/preview", map[string]any{
+		"profile_id": profile.ID,
+	}))
+	if status != http.StatusUnprocessableEntity || code != "generate_error" || !strings.Contains(msg, "missing node") {
+		t.Fatalf("preview status=%d code=%q msg=%q", status, code, msg)
 	}
 }
 
@@ -321,6 +445,12 @@ func createPreviewOrderGroup(t *testing.T, c *apiClient, name string, nodeIDs []
 
 func createSavedPreviewProfile(t *testing.T, c *apiClient) int64 {
 	t.Helper()
+	profileID, _, _ := createSavedPreviewProfileWithNode(t, c)
+	return profileID
+}
+
+func createSavedPreviewProfileWithNode(t *testing.T, c *apiClient) (int64, int64, string) {
+	t.Helper()
 	template := `{"outbounds":[{"type":"selector","tag":"Proxy","outbounds":[]},{"type":"direct","tag":"Direct"}],"route":{"final":"Proxy"}}`
 	var createdTemplate struct {
 		Template struct {
@@ -352,7 +482,19 @@ func createSavedPreviewProfile(t *testing.T, c *apiClient) int64 {
 			},
 		},
 	}), &profile)
-	return profile.ID
+	return profile.ID, node.ID, "saved-preview"
+}
+
+func sameInt64s(a, b []int64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func assertPreviewConfigHasSavedNode(t *testing.T, config string) {

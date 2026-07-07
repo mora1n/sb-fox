@@ -51,18 +51,26 @@ type SubscriptionSource struct {
 // Profile ties a template + selected nodes + generation options into a public
 // subscription rendered through the owner's shared subscription token.
 type Profile struct {
-	ID            int64     `json:"id"`
-	OwnerUserID   int64     `json:"owner_user_id"`
-	Name          string    `json:"name"`
-	TemplateID    int64     `json:"template_id"`
-	Options       string    `json:"options"` // JSON: {autoCountryGroups, chainProxy, ...}
-	SubEnabled    bool      `json:"subscription_enabled"`
-	SubEnabledSet bool      `json:"-"`
-	Token         string    `json:"-"`
-	NodeIDs       []int64   `json:"node_ids"`
-	NodeGroupIDs  []int64   `json:"node_group_ids"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID            int64              `json:"id"`
+	OwnerUserID   int64              `json:"owner_user_id"`
+	Name          string             `json:"name"`
+	TemplateID    int64              `json:"template_id"`
+	Options       string             `json:"options"` // JSON: {autoCountryGroups, chainProxy, ...}
+	SubEnabled    bool               `json:"subscription_enabled"`
+	SubEnabledSet bool               `json:"-"`
+	Token         string             `json:"-"`
+	NodeIDs       []int64            `json:"node_ids"`
+	NodeGroupIDs  []int64            `json:"node_group_ids"`
+	Validation    *ProfileValidation `json:"validation,omitempty"`
+	CreatedAt     time.Time          `json:"created_at"`
+	UpdatedAt     time.Time          `json:"updated_at"`
+}
+
+type ProfileValidation struct {
+	Valid               bool    `json:"valid"`
+	MissingTemplate     bool    `json:"missing_template"`
+	MissingNodeIDs      []int64 `json:"missing_node_ids,omitempty"`
+	MissingNodeGroupIDs []int64 `json:"missing_node_group_ids,omitempty"`
 }
 
 // ProfileOptions is the parsed Profile.Options blob.

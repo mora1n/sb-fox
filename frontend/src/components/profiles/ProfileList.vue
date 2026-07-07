@@ -100,6 +100,33 @@ function sortIndicator(active: string, dir: SortDir, key: string) {
   return dir === 'asc' ? '↑' : '↓'
 }
 
+function invalidProfile(profile: Profile) {
+  return profile.validation && !profile.validation.valid
+}
+
+function profileValidationMemo(profile: Profile) {
+  if (!profile.validation) return 'none'
+  return [
+    profile.validation.valid ? '1' : '0',
+    profile.validation.missing_template ? '1' : '0',
+    (profile.validation.missing_node_ids ?? []).join(','),
+    (profile.validation.missing_node_group_ids ?? []).join(','),
+  ].join('|')
+}
+
+function profileValidationTitle(profile: Profile) {
+  if (!invalidProfile(profile)) return ''
+  const parts: string[] = []
+  if (profile.validation?.missing_template) parts.push(i18n.t('缺失模板'))
+  if (profile.validation?.missing_node_ids?.length) {
+    parts.push(`${i18n.t('缺失节点')}: ${profile.validation.missing_node_ids.map((id) => `#${id}`).join(', ')}`)
+  }
+  if (profile.validation?.missing_node_group_ids?.length) {
+    parts.push(`${i18n.t('缺失组合节点')}: ${profile.validation.missing_node_group_ids.map((id) => `#${id}`).join(', ')}`)
+  }
+  return parts.join('\n')
+}
+
 async function rotateSharedToken() {
   if (!confirm('轮换共享 token 后所有订阅链接都会变化，确认？')) return
   try {
@@ -258,7 +285,7 @@ function onProfileSubscriptionEnabledChange(profile: Profile, event: Event) {
       <div
         v-for="p in store.profiles"
         :key="p.id"
-        v-memo="[p.id, p.name, p.template_id, p.subscription_enabled, p.updated_at, selectedProfiles.has(p.id), store.subscriptionToken, tokenHost, i18n.locale]"
+        v-memo="[p.id, p.name, p.template_id, p.subscription_enabled, p.updated_at, selectedProfiles.has(p.id), store.subscriptionToken, tokenHost, i18n.locale, profileValidationMemo(p)]"
         class="card bg-base-100 shadow-sm border border-base-300 cursor-pointer transition-colors hover:bg-base-200/60"
         :class="{ 'ring-2 ring-primary': selectedProfiles.has(p.id) }"
         role="button"
@@ -279,7 +306,16 @@ function onProfileSubscriptionEnabledChange(profile: Profile, event: Event) {
                 @change="toggleProfileSelect(p.id)"
               />
               <div class="min-w-0">
-                <h2 class="card-title text-base truncate" :title="p.name">{{ p.name }}</h2>
+                <div class="flex items-center gap-2 min-w-0">
+                  <h2 class="card-title text-base truncate" :title="p.name">{{ p.name }}</h2>
+                  <span
+                    v-if="invalidProfile(p)"
+                    class="badge badge-error badge-sm shrink-0"
+                    :title="profileValidationTitle(p)"
+                  >
+                    {{ i18n.t('无效') }}
+                  </span>
+                </div>
                 <div class="text-xs opacity-70 mt-1 flex flex-wrap gap-2">
                   <span>{{ i18n.t('模板:') }} {{ templateName(p.template_id) }}</span>
                 </div>
@@ -337,7 +373,7 @@ function onProfileSubscriptionEnabledChange(profile: Profile, event: Event) {
           <tr
             v-for="p in sortedProfiles"
             :key="p.id"
-            v-memo="[p.id, p.name, p.template_id, p.subscription_enabled, p.updated_at, selectedProfiles.has(p.id), store.subscriptionToken, tokenHost, i18n.locale]"
+            v-memo="[p.id, p.name, p.template_id, p.subscription_enabled, p.updated_at, selectedProfiles.has(p.id), store.subscriptionToken, tokenHost, i18n.locale, profileValidationMemo(p)]"
             class="cursor-pointer hover:bg-base-200/70"
             :class="{ 'bg-base-200': selectedProfiles.has(p.id) }"
             @click="toggleProfileSelect(p.id)"
@@ -351,7 +387,18 @@ function onProfileSubscriptionEnabledChange(profile: Profile, event: Event) {
                 @change="toggleProfileSelect(p.id)"
               />
             </td>
-            <td class="font-medium max-w-64 truncate" :title="p.name">{{ p.name }}</td>
+            <td class="font-medium max-w-64">
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="truncate" :title="p.name">{{ p.name }}</span>
+                <span
+                  v-if="invalidProfile(p)"
+                  class="badge badge-error badge-sm shrink-0"
+                  :title="profileValidationTitle(p)"
+                >
+                  {{ i18n.t('无效') }}
+                </span>
+              </div>
+            </td>
             <td class="max-w-64 truncate" :title="templateName(p.template_id)">{{ templateName(p.template_id) }}</td>
             <td class="min-w-80" @click.stop>
               <div v-if="store.subscriptionToken" class="flex items-center gap-2 min-w-0">

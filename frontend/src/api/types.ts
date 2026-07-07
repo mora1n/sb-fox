@@ -143,8 +143,16 @@ export interface Profile {
   subscription_enabled: boolean
   node_ids?: number[] | null
   node_group_ids?: number[] | null
+  validation?: ProfileValidation | null
   created_at: string
   updated_at: string
+}
+
+export interface ProfileValidation {
+  valid: boolean
+  missing_template: boolean
+  missing_node_ids: number[]
+  missing_node_group_ids: number[]
 }
 
 export interface ProfilePayload {

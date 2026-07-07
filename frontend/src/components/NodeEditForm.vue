@@ -25,6 +25,7 @@ const ui = useUiStore()
 const i18n = useI18nStore()
 const busy = ref(false)
 const parseError = ref('')
+const hydrating = ref(false)
 
 const PROTOCOLS = [
   'shadowsocks',
@@ -40,9 +41,19 @@ const PROTOCOLS = [
   'http',
   'socks',
 ]
+const NETWORK_STRATEGIES = ['default', 'hybrid', 'fallback']
+const NETWORK_TYPES = ['wifi', 'cellular', 'ethernet', 'other']
+const HEADERS_ERROR_PREFIX = 'headers JSON 解析失败: '
+const DOMAIN_RESOLVER_ERROR_PREFIX = 'domain_resolver JSON 解析失败: '
+const NETWORK_TYPE_ERROR_PREFIX = 'network_type'
+const FALLBACK_NETWORK_TYPE_ERROR_PREFIX = 'fallback_network_type'
+type DomainResolverMode = 'string' | 'json'
 
 // raw is the authoritative parsed outbound; unknown keys are preserved on save.
 const raw = reactive<Record<string, any>>({})
+const domainResolverMode = ref<DomainResolverMode>('string')
+const domainResolverObjectDraft = ref('{\n  "server": ""\n}')
+let lastDomainResolverObject: Record<string, any> | null = null
 
 // manual country override
 const manualCountry = ref(false)
@@ -50,19 +61,28 @@ const countryCode = ref('')
 
 function resetFrom(node: Node | null) {
   parseError.value = ''
+  hydrating.value = true
   for (const k of Object.keys(raw)) delete raw[k]
-  if (node) {
-    try {
-      Object.assign(raw, JSON.parse(node.raw))
-    } catch (e) {
-      parseError.value = 'raw JSON 解析失败: ' + errMsg(e)
+  try {
+    if (node) {
+      try {
+        Object.assign(raw, JSON.parse(node.raw))
+      } catch (e) {
+        parseError.value = 'raw JSON 解析失败: ' + errMsg(e)
+      }
+      syncDomainResolverState()
+      manualCountry.value = node.country_source === 'manual'
+      countryCode.value = node.country_code || ''
+    } else {
+      Object.assign(raw, { type: 'shadowsocks', tag: '', server: '', server_port: 443 })
+      lastDomainResolverObject = null
+      domainResolverMode.value = 'string'
+      domainResolverObjectDraft.value = '{\n  "server": ""\n}'
+      manualCountry.value = false
+      countryCode.value = ''
     }
-    manualCountry.value = node.country_source === 'manual'
-    countryCode.value = node.country_code || ''
-  } else {
-    Object.assign(raw, { type: 'shadowsocks', tag: '', server: '', server_port: 443 })
-    manualCountry.value = false
-    countryCode.value = ''
+  } finally {
+    hydrating.value = false
   }
 }
 // ensure a nested tls object exists, then return it
@@ -107,16 +127,71 @@ const headersText = computed({
     const trimmed = v.trim()
     if (!trimmed) {
       delete raw.headers
-      parseError.value = ''
+      clearFieldError(HEADERS_ERROR_PREFIX)
       return
     }
     try {
       raw.headers = JSON.parse(trimmed)
-      parseError.value = ''
+      clearFieldError(HEADERS_ERROR_PREFIX)
     } catch (e) {
-      parseError.value = 'headers JSON 解析失败: ' + errMsg(e)
+      parseError.value = HEADERS_ERROR_PREFIX + errMsg(e)
     }
   },
+})
+const domainResolverText = computed({
+  get: () => (typeof raw.domain_resolver === 'string' ? raw.domain_resolver : ''),
+  set: (v: string) => {
+    const trimmed = v.trim()
+    if (!trimmed) {
+      delete raw.domain_resolver
+      clearFieldError(DOMAIN_RESOLVER_ERROR_PREFIX)
+      return
+    }
+    raw.domain_resolver = trimmed
+    clearFieldError(DOMAIN_RESOLVER_ERROR_PREFIX)
+  },
+})
+const domainResolverJSON = computed({
+  get: () => {
+    const value = raw.domain_resolver
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      rememberDomainResolverObject(value)
+      try {
+        domainResolverObjectDraft.value = JSON.stringify(value, null, 2)
+      } catch {
+        domainResolverObjectDraft.value = '{\n  "server": ""\n}'
+      }
+    }
+    return domainResolverObjectDraft.value
+  },
+  set: (v: string) => {
+    domainResolverObjectDraft.value = v
+    const trimmed = v.trim()
+    if (!trimmed) {
+      delete raw.domain_resolver
+      clearFieldError(DOMAIN_RESOLVER_ERROR_PREFIX)
+      return
+    }
+    try {
+      const parsed = JSON.parse(trimmed)
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error(i18n.t('请输入有效 JSON 对象'))
+      }
+      raw.domain_resolver = parsed
+      rememberDomainResolverObject(parsed)
+      clearFieldError(DOMAIN_RESOLVER_ERROR_PREFIX)
+    } catch (e) {
+      parseError.value = DOMAIN_RESOLVER_ERROR_PREFIX + errMsg(e)
+    }
+  },
+})
+const networkTypeText = computed({
+  get: () => listFieldText(raw.network_type),
+  set: (v: string) => setListField('network_type', v, NETWORK_TYPES, NETWORK_TYPE_ERROR_PREFIX),
+})
+const fallbackNetworkTypeText = computed({
+  get: () => listFieldText(raw.fallback_network_type),
+  set: (v: string) => setListField('fallback_network_type', v, NETWORK_TYPES, FALLBACK_NETWORK_TYPE_ERROR_PREFIX),
 })
 
 const countryOptions = computed(() => sortCountryOptions(COUNTRY_CODES, settings.countryHeatOrder))
@@ -135,6 +210,9 @@ const summaryLine = computed(() => {
 function resetPending() {
   parseError.value = ''
   for (const k of Object.keys(raw)) delete raw[k]
+  lastDomainResolverObject = null
+  domainResolverMode.value = 'string'
+  domainResolverObjectDraft.value = '{\n  "server": ""\n}'
   manualCountry.value = false
   countryCode.value = ''
 }
@@ -148,6 +226,92 @@ function defaultPortFor(type: string) {
 
 function defaultTLSEnabled(type: string) {
   return ['trojan', 'hysteria', 'hysteria2', 'tuic', 'anytls', 'shadowtls', 'naive'].includes(type)
+}
+
+function clearFieldError(prefix: string) {
+  if (parseError.value.startsWith(prefix)) parseError.value = ''
+}
+
+function rememberDomainResolverObject(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return
+  try {
+    lastDomainResolverObject = JSON.parse(JSON.stringify(value))
+  } catch {
+    lastDomainResolverObject = null
+  }
+}
+
+function syncDomainResolverState() {
+  const value = raw.domain_resolver
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    domainResolverMode.value = 'json'
+    rememberDomainResolverObject(value)
+    try {
+      domainResolverObjectDraft.value = JSON.stringify(value, null, 2)
+    } catch {
+      domainResolverObjectDraft.value = '{\n  "server": ""\n}'
+    }
+    return
+  }
+  domainResolverMode.value = 'string'
+  if (typeof value === 'string') {
+    clearFieldError(DOMAIN_RESOLVER_ERROR_PREFIX)
+  }
+}
+
+function setDomainResolverMode(next: DomainResolverMode) {
+  if (domainResolverMode.value === next) return
+  const current = raw.domain_resolver
+  if (next === 'json') {
+    if (current && typeof current === 'object' && !Array.isArray(current)) {
+      rememberDomainResolverObject(current)
+      domainResolverObjectDraft.value = JSON.stringify(current, null, 2)
+    } else if (lastDomainResolverObject) {
+      const nextObj = JSON.parse(JSON.stringify(lastDomainResolverObject))
+      if (typeof current === 'string' && current.trim()) nextObj.server = current.trim()
+      domainResolverObjectDraft.value = JSON.stringify(nextObj, null, 2)
+    } else if (typeof current === 'string' && current.trim()) {
+      domainResolverObjectDraft.value = JSON.stringify({ server: current.trim() }, null, 2)
+    } else {
+      domainResolverObjectDraft.value = '{\n  "server": ""\n}'
+    }
+  } else {
+    if (current && typeof current === 'object' && !Array.isArray(current)) {
+      rememberDomainResolverObject(current)
+      const server = typeof current.server === 'string' ? current.server.trim() : ''
+      if (server) raw.domain_resolver = server
+      else delete raw.domain_resolver
+    } else if (typeof current === 'string') {
+      const trimmed = current.trim()
+      if (trimmed) raw.domain_resolver = trimmed
+      else delete raw.domain_resolver
+    } else {
+      delete raw.domain_resolver
+    }
+  }
+  clearFieldError(DOMAIN_RESOLVER_ERROR_PREFIX)
+  domainResolverMode.value = next
+}
+
+function listFieldText(value: unknown) {
+  return Array.isArray(value) ? value.join(', ') : ''
+}
+
+function setListField(field: string, rawValue: string, allowed: string[], prefix: string) {
+  const trimmed = rawValue.trim()
+  if (!trimmed) {
+    delete raw[field]
+    clearFieldError(prefix)
+    return
+  }
+  const items = trimmed.split(',').map((item) => item.trim()).filter(Boolean)
+  const invalid = items.filter((item) => !allowed.includes(item))
+  if (invalid.length) {
+    parseError.value = `${prefix} ${i18n.t('仅支持以下值')}: ${allowed.join(', ')}`
+    return
+  }
+  raw[field] = [...new Set(items)]
+  clearFieldError(prefix)
 }
 
 async function save() {
@@ -193,7 +357,7 @@ watch(
 watch(
   () => raw.type,
   (next, prev) => {
-    if (!next || next === prev) return
+    if (!next || next === prev || hydrating.value) return
     if (!raw.server_port || raw.server_port === defaultPortFor(prev || '')) {
       raw.server_port = defaultPortFor(next)
     }
@@ -564,6 +728,116 @@ watch(
               class="input input-bordered input-sm"
               @input="((reality().short_id = ($event.target as HTMLInputElement).value), (reality().enabled = true))"
             />
+          </label>
+        </div>
+
+        <div class="divider my-0 text-xs opacity-60">{{ i18n.t('拨号字段') }}</div>
+        <div class="grid grid-cols-2 gap-3">
+          <label class="form-control">
+            <span class="label-text mb-1">{{ i18n.t('上游出口') }}</span>
+            <input v-model="raw.detour" class="input input-bordered input-sm" />
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">{{ i18n.t('绑定接口') }}</span>
+            <input v-model="raw.bind_interface" class="input input-bordered input-sm" />
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">{{ i18n.t('IPv4 绑定地址') }}</span>
+            <input v-model="raw.inet4_bind_address" class="input input-bordered input-sm" />
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">{{ i18n.t('IPv6 绑定地址') }}</span>
+            <input v-model="raw.inet6_bind_address" class="input input-bordered input-sm" />
+          </label>
+          <label class="label cursor-pointer justify-start gap-2">
+            <input type="checkbox" class="toggle toggle-sm" v-model="raw.bind_address_no_port" />
+            <span class="label-text">{{ i18n.t('绑定地址不保留端口') }}</span>
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">{{ i18n.t('Protect Path') }}</span>
+            <input v-model="raw.protect_path" class="input input-bordered input-sm" />
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">{{ i18n.t('路由标记') }}</span>
+            <input v-model="raw.routing_mark" class="input input-bordered input-sm" placeholder="0x1234" />
+          </label>
+          <label class="label cursor-pointer justify-start gap-2">
+            <input type="checkbox" class="toggle toggle-sm" v-model="raw.reuse_addr" />
+            <span class="label-text">{{ i18n.t('重用地址') }}</span>
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">{{ i18n.t('网络命名空间') }}</span>
+            <input v-model="raw.netns" class="input input-bordered input-sm" />
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">{{ i18n.t('连接超时') }}</span>
+            <input v-model="raw.connect_timeout" class="input input-bordered input-sm" placeholder="5s" />
+          </label>
+          <label class="label cursor-pointer justify-start gap-2">
+            <input type="checkbox" class="toggle toggle-sm" v-model="raw.tcp_fast_open" />
+            <span class="label-text">{{ i18n.t('TCP Fast Open') }}</span>
+          </label>
+          <label class="label cursor-pointer justify-start gap-2">
+            <input type="checkbox" class="toggle toggle-sm" v-model="raw.tcp_multi_path" />
+            <span class="label-text">{{ i18n.t('TCP Multi Path') }}</span>
+          </label>
+          <label class="label cursor-pointer justify-start gap-2">
+            <input type="checkbox" class="toggle toggle-sm" v-model="raw.disable_tcp_keep_alive" />
+            <span class="label-text">{{ i18n.t('禁用 TCP Keep Alive') }}</span>
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">{{ i18n.t('TCP Keep Alive') }}</span>
+            <input v-model="raw.tcp_keep_alive" class="input input-bordered input-sm" placeholder="5m" />
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">{{ i18n.t('TCP Keep Alive 间隔') }}</span>
+            <input v-model="raw.tcp_keep_alive_interval" class="input input-bordered input-sm" placeholder="75s" />
+          </label>
+          <label class="label cursor-pointer justify-start gap-2">
+            <input type="checkbox" class="toggle toggle-sm" v-model="raw.udp_fragment" />
+            <span class="label-text">{{ i18n.t('UDP 分段') }}</span>
+          </label>
+          <label class="form-control col-span-2">
+            <span class="label-text mb-1">{{ i18n.t('域名解析器') }}</span>
+            <div class="join mb-2">
+              <button type="button" class="btn btn-sm join-item" :class="{ 'btn-active': domainResolverMode === 'string' }" @click="setDomainResolverMode('string')">
+                {{ i18n.t('简单模式') }}
+              </button>
+              <button type="button" class="btn btn-sm join-item" :class="{ 'btn-active': domainResolverMode === 'json' }" @click="setDomainResolverMode('json')">
+                {{ i18n.t('高级 JSON') }}
+              </button>
+            </div>
+            <input
+              v-if="domainResolverMode === 'string'"
+              v-model="domainResolverText"
+              class="input input-bordered input-sm"
+              :placeholder="i18n.t('域名解析器标签')"
+            />
+            <textarea
+              v-else
+              v-model="domainResolverJSON"
+              class="textarea textarea-bordered textarea-sm font-mono text-xs min-h-24"
+              :placeholder="i18n.t('域名解析器 JSON')"
+            ></textarea>
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">{{ i18n.t('网络策略') }}</span>
+            <select v-model="raw.network_strategy" class="select select-bordered select-sm">
+              <option value="">{{ i18n.t('未指定') }}</option>
+              <option v-for="strategy in NETWORK_STRATEGIES" :key="strategy" :value="strategy">{{ strategy }}</option>
+            </select>
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">{{ i18n.t('网络类型') }}</span>
+            <input v-model="networkTypeText" class="input input-bordered input-sm" placeholder="wifi, cellular" />
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">{{ i18n.t('回退网络类型') }}</span>
+            <input v-model="fallbackNetworkTypeText" class="input input-bordered input-sm" placeholder="cellular" />
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">{{ i18n.t('回退延迟') }}</span>
+            <input v-model="raw.fallback_delay" class="input input-bordered input-sm" placeholder="1s" />
           </label>
         </div>
 

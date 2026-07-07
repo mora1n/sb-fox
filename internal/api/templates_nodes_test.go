@@ -460,6 +460,101 @@ func TestExportLinksRejectsUnsupportedNode(t *testing.T) {
 	}
 }
 
+func TestCreateAndUpdateHTTPNodePreservesDialFields(t *testing.T) {
+	_, ts := testServer(t)
+	c := newClient(t, ts.URL)
+	c.http.Jar = login(t, ts.URL)
+
+	createRaw := `{
+  "type":"http",
+  "tag":"⚪ Po0",
+  "server":"console.po0.com",
+  "server_port":443,
+  "path":"/modules/servers/penguin/api/firewall.php?action=add",
+  "username":"",
+  "password":"",
+  "detour":"Proxy",
+  "bind_interface":"eth0",
+  "routing_mark":"0x1234",
+  "connect_timeout":"5s",
+  "udp_fragment":true,
+  "domain_resolver":{"server":"hosts","disable_cache":true},
+  "network_strategy":"fallback",
+  "network_type":["wifi"],
+  "fallback_network_type":["cellular"],
+  "fallback_delay":"1s"
+}`
+
+	var created struct {
+		ID         int64  `json:"id"`
+		Type       string `json:"type"`
+		Tag        string `json:"tag"`
+		Server     string `json:"server"`
+		ServerPort int    `json:"server_port"`
+		Detour     string `json:"detour"`
+		Raw        string `json:"raw"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/nodes", map[string]string{"raw": createRaw}), &created)
+	if created.Type != "http" || created.Tag != "⚪ Po0" || created.Server != "console.po0.com" || created.ServerPort != 443 {
+		t.Fatalf("created node = %+v", created)
+	}
+	if created.Detour != "Proxy" || !strings.Contains(created.Raw, `"domain_resolver":{"server":"hosts","disable_cache":true}`) {
+		t.Fatalf("created raw = %s", created.Raw)
+	}
+
+	var fetched struct {
+		ID         int64  `json:"id"`
+		ServerPort int    `json:"server_port"`
+		Detour     string `json:"detour"`
+		Raw        string `json:"raw"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/nodes/"+itoa(created.ID), nil), &fetched)
+	if fetched.ServerPort != 443 || fetched.Detour != "Proxy" || !strings.Contains(fetched.Raw, `"routing_mark":"0x1234"`) {
+		t.Fatalf("fetched node = %+v", fetched)
+	}
+
+	updateRaw := `{
+  "type":"http",
+  "tag":"⚪ Po0",
+  "server":"console.po0.com",
+  "server_port":443,
+  "path":"/modules/servers/penguin/api/firewall.php?action=add",
+  "username":"",
+  "password":"",
+  "detour":"Proxy",
+  "bind_interface":"eth1",
+  "routing_mark":"0x5678",
+  "connect_timeout":"10s",
+  "udp_fragment":false,
+  "domain_resolver":"hosts",
+  "network_strategy":"hybrid",
+  "network_type":["wifi","ethernet"]
+}`
+
+	var updated struct {
+		ID         int64  `json:"id"`
+		ServerPort int    `json:"server_port"`
+		Detour     string `json:"detour"`
+		Raw        string `json:"raw"`
+	}
+	decodeData(t, c.do(http.MethodPut, "/api/nodes/"+itoa(created.ID), map[string]string{"raw": updateRaw}), &updated)
+	if updated.ServerPort != 443 || updated.Detour != "Proxy" {
+		t.Fatalf("updated node = %+v", updated)
+	}
+	for _, want := range []string{
+		`"bind_interface":"eth1"`,
+		`"routing_mark":"0x5678"`,
+		`"connect_timeout":"10s"`,
+		`"domain_resolver":"hosts"`,
+		`"network_strategy":"hybrid"`,
+		`"network_type":["wifi","ethernet"]`,
+	} {
+		if !strings.Contains(updated.Raw, want) {
+			t.Fatalf("updated raw missing %s: %s", want, updated.Raw)
+		}
+	}
+}
+
 func TestImportAndExportAnyTLSLink(t *testing.T) {
 	_, ts := testServer(t)
 	c := newClient(t, ts.URL)
