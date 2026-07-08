@@ -132,6 +132,10 @@ function transport(): Record<string, any> {
   if (!raw.transport || typeof raw.transport !== 'object') raw.transport = {}
   return raw.transport
 }
+function obfs(): Record<string, any> {
+  if (!raw.obfs || typeof raw.obfs !== 'object') raw.obfs = {}
+  return raw.obfs
+}
 
 // alpn is an array in sing-box; edit it as comma-separated text
 const alpnText = computed({
@@ -535,71 +539,95 @@ watch(
         </div>
 
         <!-- hysteria2 -->
-        <div v-else-if="raw.type === 'hysteria2'" class="grid grid-cols-2 gap-3">
-          <label class="form-control">
-            <span class="label-text mb-1">{{ i18n.t('密码') }}</span>
-            <input v-model="raw.password" class="input input-bordered input-sm" />
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">{{ i18n.t('obfs 类型') }}</span>
-            <input
-              :value="raw.obfs?.type"
-              class="input input-bordered input-sm"
-              @input="(raw.obfs ||= {}).type = ($event.target as HTMLInputElement).value"
-            />
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">up_mbps</span>
-            <input v-model.number="raw.up_mbps" type="number" class="input input-bordered input-sm" />
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">down_mbps</span>
-            <input v-model.number="raw.down_mbps" type="number" class="input input-bordered input-sm" />
-          </label>
+        <div v-else-if="raw.type === 'hysteria2'" class="flex flex-col gap-3">
+          <div class="grid grid-cols-2 gap-3">
+            <label class="form-control">
+              <span class="label-text mb-1">{{ i18n.t('密码') }}</span>
+              <input v-model="raw.password" class="input input-bordered input-sm" />
+            </label>
+            <label class="form-control">
+              <span class="label-text mb-1">up_mbps</span>
+              <input v-model.number="raw.up_mbps" type="number" class="input input-bordered input-sm" />
+            </label>
+            <label class="form-control">
+              <span class="label-text mb-1">down_mbps</span>
+              <input v-model.number="raw.down_mbps" type="number" class="input input-bordered input-sm" />
+            </label>
+          </div>
+          <div class="divider my-0 text-xs opacity-50">obfs</div>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="form-control">
+              <span class="label-text mb-1">type</span>
+              <input
+                :value="raw.obfs?.type"
+                class="input input-bordered input-sm"
+                @input="obfs().type = ($event.target as HTMLInputElement).value"
+              />
+            </label>
+            <label class="form-control">
+              <span class="label-text mb-1">password</span>
+              <input
+                :value="raw.obfs?.password"
+                class="input input-bordered input-sm"
+                @input="obfs().password = ($event.target as HTMLInputElement).value"
+              />
+            </label>
+          </div>
         </div>
 
         <!-- tuic -->
-        <div v-else-if="raw.type === 'tuic'" class="grid grid-cols-2 gap-3">
-          <label class="form-control">
-            <span class="label-text mb-1">UUID</span>
-            <input v-model="raw.uuid" class="input input-bordered input-sm" />
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">{{ i18n.t('密码') }}</span>
-            <input v-model="raw.password" class="input input-bordered input-sm" />
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">congestion_control</span>
-            <input v-model="raw.congestion_control" class="input input-bordered input-sm" placeholder="bbr" />
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">udp_relay_mode</span>
-            <input v-model="raw.udp_relay_mode" class="input input-bordered input-sm" placeholder="native" />
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">heartbeat</span>
-            <input v-model="raw.heartbeat" class="input input-bordered input-sm" placeholder="10s" />
-          </label>
+        <div v-else-if="raw.type === 'tuic'" class="flex flex-col gap-3">
+          <div class="divider my-0 text-xs opacity-50">{{ i18n.t('认证') }}</div>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="form-control">
+              <span class="label-text mb-1">UUID</span>
+              <input v-model="raw.uuid" class="input input-bordered input-sm" />
+            </label>
+            <label class="form-control">
+              <span class="label-text mb-1">{{ i18n.t('密码') }}</span>
+              <input v-model="raw.password" class="input input-bordered input-sm" />
+            </label>
+          </div>
+          <div class="divider my-0 text-xs opacity-50">QUIC</div>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="form-control">
+              <span class="label-text mb-1">congestion_control</span>
+              <input v-model="raw.congestion_control" class="input input-bordered input-sm" placeholder="bbr" />
+            </label>
+            <label class="form-control">
+              <span class="label-text mb-1">udp_relay_mode</span>
+              <input v-model="raw.udp_relay_mode" class="input input-bordered input-sm" placeholder="native" />
+            </label>
+            <label class="form-control">
+              <span class="label-text mb-1">heartbeat</span>
+              <input v-model="raw.heartbeat" class="input input-bordered input-sm" placeholder="10s" />
+            </label>
+          </div>
         </div>
 
         <!-- anytls -->
-        <div v-else-if="raw.type === 'anytls'" class="grid grid-cols-2 gap-3">
-          <label class="form-control">
-            <span class="label-text mb-1">{{ i18n.t('密码') }}</span>
-            <input v-model="raw.password" class="input input-bordered input-sm" />
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">idle_session_check_interval</span>
-            <input v-model="raw.idle_session_check_interval" class="input input-bordered input-sm" placeholder="30s" />
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">idle_session_timeout</span>
-            <input v-model="raw.idle_session_timeout" class="input input-bordered input-sm" placeholder="30s" />
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">min_idle_session</span>
-            <input v-model.number="raw.min_idle_session" type="number" class="input input-bordered input-sm" />
-          </label>
+        <div v-else-if="raw.type === 'anytls'" class="flex flex-col gap-3">
+          <div class="grid grid-cols-2 gap-3">
+            <label class="form-control">
+              <span class="label-text mb-1">{{ i18n.t('密码') }}</span>
+              <input v-model="raw.password" class="input input-bordered input-sm" />
+            </label>
+          </div>
+          <div class="divider my-0 text-xs opacity-50">{{ i18n.t('会话') }}</div>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="form-control">
+              <span class="label-text mb-1">idle_session_check_interval</span>
+              <input v-model="raw.idle_session_check_interval" class="input input-bordered input-sm" placeholder="30s" />
+            </label>
+            <label class="form-control">
+              <span class="label-text mb-1">idle_session_timeout</span>
+              <input v-model="raw.idle_session_timeout" class="input input-bordered input-sm" placeholder="30s" />
+            </label>
+            <label class="form-control">
+              <span class="label-text mb-1">min_idle_session</span>
+              <input v-model.number="raw.min_idle_session" type="number" class="input input-bordered input-sm" />
+            </label>
+          </div>
         </div>
 
         <!-- shadowtls -->
@@ -615,100 +643,131 @@ watch(
         </div>
 
         <!-- naive -->
-        <div v-else-if="raw.type === 'naive'" class="grid grid-cols-2 gap-3">
-          <label class="form-control">
-            <span class="label-text mb-1">{{ i18n.t('用户名') }}</span>
-            <input v-model="raw.username" class="input input-bordered input-sm" />
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">{{ i18n.t('密码') }}</span>
-            <input v-model="raw.password" class="input input-bordered input-sm" />
-          </label>
-          <label class="label cursor-pointer justify-start gap-2">
-            <input type="checkbox" class="toggle toggle-sm" v-model="raw.quic" />
-            <span class="label-text">QUIC</span>
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">quic_congestion_control</span>
-            <input v-model="raw.quic_congestion_control" class="input input-bordered input-sm" placeholder="bbr" />
-          </label>
+        <div v-else-if="raw.type === 'naive'" class="flex flex-col gap-3">
+          <div class="divider my-0 text-xs opacity-50">{{ i18n.t('认证') }}</div>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="form-control">
+              <span class="label-text mb-1">{{ i18n.t('用户名') }}</span>
+              <input v-model="raw.username" class="input input-bordered input-sm" />
+            </label>
+            <label class="form-control">
+              <span class="label-text mb-1">{{ i18n.t('密码') }}</span>
+              <input v-model="raw.password" class="input input-bordered input-sm" />
+            </label>
+          </div>
+          <div class="divider my-0 text-xs opacity-50">QUIC</div>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="label cursor-pointer justify-start gap-2">
+              <input type="checkbox" class="toggle toggle-sm" v-model="raw.quic" />
+              <span class="label-text">quic</span>
+            </label>
+            <label class="form-control">
+              <span class="label-text mb-1">quic_congestion_control</span>
+              <input v-model="raw.quic_congestion_control" class="input input-bordered input-sm" placeholder="bbr" />
+            </label>
+          </div>
         </div>
 
         <!-- http -->
-        <div v-else-if="raw.type === 'http'" class="grid grid-cols-2 gap-3">
-          <label class="form-control">
-            <span class="label-text mb-1">{{ i18n.t('用户名') }}</span>
-            <input v-model="raw.username" class="input input-bordered input-sm" />
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">{{ i18n.t('密码') }}</span>
-            <input v-model="raw.password" class="input input-bordered input-sm" />
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">path</span>
-            <input v-model="raw.path" class="input input-bordered input-sm" />
-          </label>
-          <label class="form-control col-span-2">
-            <span class="label-text mb-1">headers JSON</span>
-            <textarea v-model="headersText" class="textarea textarea-bordered textarea-sm font-mono text-xs min-h-20" placeholder='{ "Host": "example.com" }'></textarea>
-          </label>
+        <div v-else-if="raw.type === 'http'" class="flex flex-col gap-3">
+          <div class="divider my-0 text-xs opacity-50">{{ i18n.t('认证') }}</div>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="form-control">
+              <span class="label-text mb-1">{{ i18n.t('用户名') }}</span>
+              <input v-model="raw.username" class="input input-bordered input-sm" />
+            </label>
+            <label class="form-control">
+              <span class="label-text mb-1">{{ i18n.t('密码') }}</span>
+              <input v-model="raw.password" class="input input-bordered input-sm" />
+            </label>
+          </div>
+          <div class="divider my-0 text-xs opacity-50">{{ i18n.t('请求') }}</div>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="form-control">
+              <span class="label-text mb-1">path</span>
+              <input v-model="raw.path" class="input input-bordered input-sm" />
+            </label>
+          </div>
+          <div class="divider my-0 text-xs opacity-50">headers</div>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="form-control col-span-2">
+              <span class="label-text mb-1">JSON</span>
+              <textarea v-model="headersText" class="textarea textarea-bordered textarea-sm font-mono text-xs min-h-20" placeholder='{ "Host": "example.com" }'></textarea>
+            </label>
+          </div>
         </div>
 
         <!-- socks -->
-        <div v-else-if="raw.type === 'socks'" class="grid grid-cols-2 gap-3">
-          <label class="form-control">
-            <span class="label-text mb-1">version</span>
-            <select v-model="raw.version" class="select select-bordered select-sm">
-              <option value="5">5</option>
-              <option value="4">4</option>
-              <option value="4a">4a</option>
-            </select>
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">network</span>
-            <input v-model="raw.network" class="input input-bordered input-sm" placeholder="tcp,udp" />
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">{{ i18n.t('用户名') }}</span>
-            <input v-model="raw.username" class="input input-bordered input-sm" />
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">{{ i18n.t('密码') }}</span>
-            <input v-model="raw.password" class="input input-bordered input-sm" />
-          </label>
+        <div v-else-if="raw.type === 'socks'" class="flex flex-col gap-3">
+          <div class="grid grid-cols-2 gap-3">
+            <label class="form-control">
+              <span class="label-text mb-1">version</span>
+              <select v-model="raw.version" class="select select-bordered select-sm">
+                <option value="5">5</option>
+                <option value="4">4</option>
+                <option value="4a">4a</option>
+              </select>
+            </label>
+            <label class="form-control">
+              <span class="label-text mb-1">network</span>
+              <input v-model="raw.network" class="input input-bordered input-sm" placeholder="tcp,udp" />
+            </label>
+          </div>
+          <div class="divider my-0 text-xs opacity-50">{{ i18n.t('认证') }}</div>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="form-control">
+              <span class="label-text mb-1">{{ i18n.t('用户名') }}</span>
+              <input v-model="raw.username" class="input input-bordered input-sm" />
+            </label>
+            <label class="form-control">
+              <span class="label-text mb-1">{{ i18n.t('密码') }}</span>
+              <input v-model="raw.password" class="input input-bordered input-sm" />
+            </label>
+          </div>
         </div>
 
-        <div v-if="['vmess', 'vless', 'trojan'].includes(raw.type)" class="grid grid-cols-2 gap-3">
-          <label class="form-control">
-            <span class="label-text mb-1">transport.type</span>
-            <select
-              :value="raw.transport?.type || ''"
-              class="select select-bordered select-sm"
-              @change="transport().type = ($event.target as HTMLSelectElement).value"
-            >
-              <option value="">{{ i18n.t('未指定') }}</option>
-              <option value="ws">ws</option>
-              <option value="grpc">grpc</option>
-              <option value="http">http</option>
-              <option value="httpupgrade">httpupgrade</option>
-            </select>
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">transport.path</span>
-            <input
-              :value="raw.transport?.path"
-              class="input input-bordered input-sm"
-              @input="transport().path = ($event.target as HTMLInputElement).value"
-            />
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">grpc.service_name</span>
-            <input
-              :value="raw.transport?.service_name"
-              class="input input-bordered input-sm"
-              @input="transport().service_name = ($event.target as HTMLInputElement).value"
-            />
-          </label>
+        <div v-if="['vmess', 'vless', 'trojan'].includes(raw.type)" class="flex flex-col gap-3">
+          <div class="divider my-0 text-xs opacity-50">transport</div>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="form-control">
+              <span class="label-text mb-1">type</span>
+              <select
+                :value="raw.transport?.type || ''"
+                class="select select-bordered select-sm"
+                @change="transport().type = ($event.target as HTMLSelectElement).value"
+              >
+                <option value="">{{ i18n.t('未指定') }}</option>
+                <option value="ws">ws</option>
+                <option value="grpc">grpc</option>
+                <option value="http">http</option>
+                <option value="httpupgrade">httpupgrade</option>
+              </select>
+            </label>
+            <label class="form-control">
+              <span class="label-text mb-1">path</span>
+              <input
+                :value="raw.transport?.path"
+                class="input input-bordered input-sm"
+                @input="transport().path = ($event.target as HTMLInputElement).value"
+              />
+            </label>
+            <label class="form-control">
+              <span class="label-text mb-1">service_name</span>
+              <input
+                :value="raw.transport?.service_name"
+                class="input input-bordered input-sm"
+                @input="transport().service_name = ($event.target as HTMLInputElement).value"
+              />
+            </label>
+            <label class="form-control">
+              <span class="label-text mb-1">host</span>
+              <input
+                :value="raw.transport?.host"
+                class="input input-bordered input-sm"
+                @input="transport().host = ($event.target as HTMLInputElement).value"
+              />
+            </label>
+          </div>
         </div>
 
         <!-- shared TLS block (all except plain shadowsocks may still use it) -->
@@ -722,62 +781,70 @@ watch(
           />
           <span class="label-text">{{ i18n.t('启用 TLS') }}</span>
         </label>
-        <div v-if="raw.tls?.enabled" class="grid grid-cols-2 gap-3">
-          <label class="form-control">
-            <span class="label-text mb-1">{{ i18n.t('服务名') }}</span>
-            <input
-              :value="raw.tls?.server_name"
-              class="input input-bordered input-sm"
-              @input="tls().server_name = ($event.target as HTMLInputElement).value"
-            />
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">ALPN</span>
-            <input v-model="alpnText" class="input input-bordered input-sm" placeholder="h2, http/1.1" />
-          </label>
-          <label class="label cursor-pointer justify-start gap-2">
-            <input
-              type="checkbox"
-              class="toggle toggle-sm"
-              :checked="!!raw.tls?.insecure"
-              @change="tls().insecure = ($event.target as HTMLInputElement).checked"
-            />
-            <span class="label-text">{{ i18n.t('允许不安全') }}</span>
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">uTLS 指纹</span>
-            <input
-              :value="raw.tls?.utls?.fingerprint"
-              class="input input-bordered input-sm"
-              placeholder="chrome"
-              @input="((utls().fingerprint = ($event.target as HTMLInputElement).value), (utls().enabled = true))"
-            />
-          </label>
-          <label class="label cursor-pointer justify-start gap-2">
-            <input
-              type="checkbox"
-              class="toggle toggle-sm"
-              :checked="!!raw.tls?.reality?.enabled"
-              @change="reality().enabled = ($event.target as HTMLInputElement).checked"
-            />
-            <span class="label-text">Reality</span>
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">Reality public_key</span>
-            <input
-              :value="raw.tls?.reality?.public_key"
-              class="input input-bordered input-sm"
-              @input="((reality().public_key = ($event.target as HTMLInputElement).value), (reality().enabled = true))"
-            />
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">Reality short_id</span>
-            <input
-              :value="raw.tls?.reality?.short_id"
-              class="input input-bordered input-sm"
-              @input="((reality().short_id = ($event.target as HTMLInputElement).value), (reality().enabled = true))"
-            />
-          </label>
+        <div v-if="raw.tls?.enabled" class="flex flex-col gap-3">
+          <div class="grid grid-cols-2 gap-3">
+            <label class="form-control">
+              <span class="label-text mb-1">server_name</span>
+              <input
+                :value="raw.tls?.server_name"
+                class="input input-bordered input-sm"
+                @input="tls().server_name = ($event.target as HTMLInputElement).value"
+              />
+            </label>
+            <label class="form-control">
+              <span class="label-text mb-1">ALPN</span>
+              <input v-model="alpnText" class="input input-bordered input-sm" placeholder="h2, http/1.1" />
+            </label>
+            <label class="label cursor-pointer justify-start gap-2">
+              <input
+                type="checkbox"
+                class="toggle toggle-sm"
+                :checked="!!raw.tls?.insecure"
+                @change="tls().insecure = ($event.target as HTMLInputElement).checked"
+              />
+              <span class="label-text">insecure</span>
+            </label>
+          </div>
+          <div class="divider my-0 text-xs opacity-50">uTLS</div>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="form-control">
+              <span class="label-text mb-1">fingerprint</span>
+              <input
+                :value="raw.tls?.utls?.fingerprint"
+                class="input input-bordered input-sm"
+                placeholder="chrome"
+                @input="((utls().fingerprint = ($event.target as HTMLInputElement).value), (utls().enabled = true))"
+              />
+            </label>
+          </div>
+          <div class="divider my-0 text-xs opacity-50">Reality</div>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="label cursor-pointer justify-start gap-2">
+              <input
+                type="checkbox"
+                class="toggle toggle-sm"
+                :checked="!!raw.tls?.reality?.enabled"
+                @change="reality().enabled = ($event.target as HTMLInputElement).checked"
+              />
+              <span class="label-text">{{ i18n.t('启用') }}</span>
+            </label>
+            <label class="form-control">
+              <span class="label-text mb-1">public_key</span>
+              <input
+                :value="raw.tls?.reality?.public_key"
+                class="input input-bordered input-sm"
+                @input="((reality().public_key = ($event.target as HTMLInputElement).value), (reality().enabled = true))"
+              />
+            </label>
+            <label class="form-control">
+              <span class="label-text mb-1">short_id</span>
+              <input
+                :value="raw.tls?.reality?.short_id"
+                class="input input-bordered input-sm"
+                @input="((reality().short_id = ($event.target as HTMLInputElement).value), (reality().enabled = true))"
+              />
+            </label>
+          </div>
         </div>
 
         <div class="divider my-0 text-xs opacity-60">
