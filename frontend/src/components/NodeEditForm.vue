@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
+import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/vue/24/outline'
 import type { Node, NodeSummary } from '../api/types'
 import { useNodesStore } from '../stores/nodes'
 import { useSettingsStore } from '../stores/settings'
@@ -779,16 +780,17 @@ watch(
           </label>
         </div>
 
-        <div class="divider my-0 text-xs opacity-60">{{ i18n.t('高级拨号字段') }}</div>
-        <div class="flex items-center justify-between gap-3">
-          <span class="text-xs opacity-70">
-            <template v-if="configuredDialFieldCount">
-              {{ i18n.t('已配置拨号字段') }}: {{ configuredDialFieldCount }}
-            </template>
-          </span>
-          <button type="button" class="btn btn-sm" @click="showDialFields = !showDialFields">
-            {{ showDialFields ? i18n.t('隐藏拨号字段') : i18n.t('显示拨号字段') }}
+        <div class="divider my-0 text-xs opacity-60">
+          <span>{{ i18n.t('拨号字段') }}</span>
+          <button type="button" class="btn btn-xs btn-ghost btn-square" :title="i18n.t('拨号字段')" @click="showDialFields = !showDialFields">
+            <ChevronUpIcon v-if="showDialFields" class="h-3 w-3" />
+            <ChevronDownIcon v-else class="h-3 w-3" />
           </button>
+        </div>
+        <div v-if="configuredDialFieldCount" class="flex items-center justify-between gap-3 -mt-2">
+          <span class="text-xs opacity-70">
+            {{ i18n.t('已配置拨号字段') }}: {{ configuredDialFieldCount }}
+          </span>
         </div>
         <div v-if="showDialFields" class="grid grid-cols-2 gap-3">
           <label class="form-control">
