@@ -819,7 +819,7 @@ function removeSelectedIDs(current: Set<number>, ids: number[]) {
                 </div>
                 <label v-if="groupSupportsDefault(g)" class="form-control">
                   <span class="label-text mb-1">{{ i18n.t('默认出口') }}</span>
-                  <select v-model="g.default" class="select select-bordered select-sm" :disabled="g.outbounds.length <= 1">
+                  <select v-model="g.default" class="select select-bordered select-sm" :disabled="g.outbounds.length === 0">
                     <option value="">{{ i18n.t('未指定') }}</option>
                     <option v-for="tag in g.outbounds" :key="tag" :value="tag">{{ tag }}</option>
                   </select>
