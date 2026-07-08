@@ -386,6 +386,102 @@ proxies:
 	}
 }
 
+func TestParseClashYAMLMapsDialFields(t *testing.T) {
+	text := `
+proxies:
+  - name: Dialed
+    type: http
+    server: dial.example.com
+    port: 443
+    tls: true
+    dialer-proxy: Upstream
+    interface-name: eth0
+    routing-mark: "0x1234"
+    tfo: true
+    mptcp: true
+    udp-fragment: false
+    domain-resolver:
+      server: local
+      timeout: 1s
+      strategy: prefer_ipv4
+    network-strategy: fallback
+    network-type:
+      - wifi
+      - ethernet
+    fallback-network-type: cellular
+    fallback-delay: 1s
+`
+	out, warnings, err := ParseManyWithWarnings(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 0 || len(out) != 1 {
+		t.Fatalf("warnings=%v out=%d", warnings, len(out))
+	}
+	node := out[0]
+	for key, want := range map[string]string{
+		"detour":           "Upstream",
+		"bind_interface":   "eth0",
+		"routing_mark":     "0x1234",
+		"network_strategy": "fallback",
+		"fallback_delay":   "1s",
+	} {
+		if got := field(t, node, key); got != want {
+			t.Fatalf("%s = %q, want %q", key, got, want)
+		}
+	}
+	for key, want := range map[string]string{
+		"tcp_fast_open":  "true",
+		"tcp_multi_path": "true",
+		"udp_fragment":   "false",
+	} {
+		if got := scalarField(t, node, key); got != want {
+			t.Fatalf("%s = %q, want %q", key, got, want)
+		}
+	}
+	resolver := nested(t, node, "domain_resolver")
+	if got := field(t, resolver, "server"); got != "local" {
+		t.Fatalf("domain_resolver.server = %q", got)
+	}
+	if got := field(t, resolver, "timeout"); got != "1s" {
+		t.Fatalf("domain_resolver.timeout = %q", got)
+	}
+	if got := field(t, resolver, "strategy"); got != "prefer_ipv4" {
+		t.Fatalf("domain_resolver.strategy = %q", got)
+	}
+	if got := scalarField(t, node, "network_type"); got != "[wifi ethernet]" {
+		t.Fatalf("network_type = %q", got)
+	}
+	if got := scalarField(t, node, "fallback_network_type"); got != "[cellular]" {
+		t.Fatalf("fallback_network_type = %q", got)
+	}
+}
+
+func TestParseClashYAMLDoesNotConvertDomainStrategy(t *testing.T) {
+	text := `
+proxies:
+  - name: LegacyStrategy
+    type: socks5
+    server: socks.example.com
+    port: 1080
+    domain-strategy: prefer_ipv4
+    ip-version: ipv4
+`
+	out, warnings, err := ParseManyWithWarnings(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 0 || len(out) != 1 {
+		t.Fatalf("warnings=%v out=%d", warnings, len(out))
+	}
+	if _, ok := out[0].Get("domain_resolver"); ok {
+		t.Fatalf("unexpected domain_resolver = %+v", out[0])
+	}
+	if _, ok := out[0].Get("domain_strategy"); ok {
+		t.Fatalf("unexpected domain_strategy = %+v", out[0])
+	}
+}
+
 func TestParseManyRejectsHTML(t *testing.T) {
 	_, _, err := ParseManyWithWarnings(`<!DOCTYPE html><html><body>login</body></html>`)
 	if err == nil || !strings.Contains(err.Error(), "html") {

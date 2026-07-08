@@ -43,16 +43,41 @@ const PROTOCOLS = [
 ]
 const NETWORK_STRATEGIES = ['default', 'hybrid', 'fallback']
 const NETWORK_TYPES = ['wifi', 'cellular', 'ethernet', 'other']
+const DIAL_FIELD_KEYS = [
+  'detour',
+  'bind_interface',
+  'inet4_bind_address',
+  'inet6_bind_address',
+  'bind_address_no_port',
+  'protect_path',
+  'routing_mark',
+  'reuse_addr',
+  'netns',
+  'connect_timeout',
+  'tcp_fast_open',
+  'tcp_multi_path',
+  'disable_tcp_keep_alive',
+  'tcp_keep_alive',
+  'tcp_keep_alive_interval',
+  'udp_fragment',
+  'domain_resolver',
+  'network_strategy',
+  'network_type',
+  'fallback_network_type',
+  'fallback_delay',
+]
 const HEADERS_ERROR_PREFIX = 'headers JSON 解析失败: '
 const DOMAIN_RESOLVER_ERROR_PREFIX = 'domain_resolver JSON 解析失败: '
 const NETWORK_TYPE_ERROR_PREFIX = 'network_type'
 const FALLBACK_NETWORK_TYPE_ERROR_PREFIX = 'fallback_network_type'
+const EMPTY_DOMAIN_RESOLVER_DRAFT = '{\n  "server": "",\n  "timeout": ""\n}'
 type DomainResolverMode = 'string' | 'json'
 
 // raw is the authoritative parsed outbound; unknown keys are preserved on save.
 const raw = reactive<Record<string, any>>({})
 const domainResolverMode = ref<DomainResolverMode>('string')
-const domainResolverObjectDraft = ref('{\n  "server": ""\n}')
+const domainResolverObjectDraft = ref(EMPTY_DOMAIN_RESOLVER_DRAFT)
+const showDialFields = ref(false)
 let lastDomainResolverObject: Record<string, any> | null = null
 
 // manual country override
@@ -70,6 +95,7 @@ function resetFrom(node: Node | null) {
       } catch (e) {
         parseError.value = 'raw JSON 解析失败: ' + errMsg(e)
       }
+      showDialFields.value = false
       syncDomainResolverState()
       manualCountry.value = node.country_source === 'manual'
       countryCode.value = node.country_code || ''
@@ -77,7 +103,8 @@ function resetFrom(node: Node | null) {
       Object.assign(raw, { type: 'shadowsocks', tag: '', server: '', server_port: 443 })
       lastDomainResolverObject = null
       domainResolverMode.value = 'string'
-      domainResolverObjectDraft.value = '{\n  "server": ""\n}'
+      domainResolverObjectDraft.value = EMPTY_DOMAIN_RESOLVER_DRAFT
+      showDialFields.value = false
       manualCountry.value = false
       countryCode.value = ''
     }
@@ -159,7 +186,7 @@ const domainResolverJSON = computed({
       try {
         domainResolverObjectDraft.value = JSON.stringify(value, null, 2)
       } catch {
-        domainResolverObjectDraft.value = '{\n  "server": ""\n}'
+        domainResolverObjectDraft.value = EMPTY_DOMAIN_RESOLVER_DRAFT
       }
     }
     return domainResolverObjectDraft.value
@@ -206,13 +233,34 @@ const summaryLine = computed(() => {
   if (!s) return ''
   return [s.type, s.tag, `${s.server}:${s.server_port}`].filter(Boolean).join(' · ')
 })
+const configuredDialFieldCount = computed(() => {
+  let count = 0
+  for (const key of DIAL_FIELD_KEYS) {
+    const value = raw[key]
+    if (Array.isArray(value)) {
+      if (value.length) count++
+      continue
+    }
+    if (value && typeof value === 'object') {
+      count++
+      continue
+    }
+    if (typeof value === 'boolean') {
+      if (value) count++
+      continue
+    }
+    if (value !== undefined && value !== null && String(value).trim() !== '') count++
+  }
+  return count
+})
 
 function resetPending() {
   parseError.value = ''
   for (const k of Object.keys(raw)) delete raw[k]
   lastDomainResolverObject = null
   domainResolverMode.value = 'string'
-  domainResolverObjectDraft.value = '{\n  "server": ""\n}'
+  domainResolverObjectDraft.value = EMPTY_DOMAIN_RESOLVER_DRAFT
+  showDialFields.value = false
   manualCountry.value = false
   countryCode.value = ''
 }
@@ -249,7 +297,7 @@ function syncDomainResolverState() {
     try {
       domainResolverObjectDraft.value = JSON.stringify(value, null, 2)
     } catch {
-      domainResolverObjectDraft.value = '{\n  "server": ""\n}'
+      domainResolverObjectDraft.value = EMPTY_DOMAIN_RESOLVER_DRAFT
     }
     return
   }
@@ -273,7 +321,7 @@ function setDomainResolverMode(next: DomainResolverMode) {
     } else if (typeof current === 'string' && current.trim()) {
       domainResolverObjectDraft.value = JSON.stringify({ server: current.trim() }, null, 2)
     } else {
-      domainResolverObjectDraft.value = '{\n  "server": ""\n}'
+      domainResolverObjectDraft.value = EMPTY_DOMAIN_RESOLVER_DRAFT
     }
   } else {
     if (current && typeof current === 'object' && !Array.isArray(current)) {
@@ -731,8 +779,18 @@ watch(
           </label>
         </div>
 
-        <div class="divider my-0 text-xs opacity-60">{{ i18n.t('拨号字段') }}</div>
-        <div class="grid grid-cols-2 gap-3">
+        <div class="divider my-0 text-xs opacity-60">{{ i18n.t('高级拨号字段') }}</div>
+        <div class="flex items-center justify-between gap-3">
+          <span class="text-xs opacity-70">
+            <template v-if="configuredDialFieldCount">
+              {{ i18n.t('已配置拨号字段') }}: {{ configuredDialFieldCount }}
+            </template>
+          </span>
+          <button type="button" class="btn btn-sm" @click="showDialFields = !showDialFields">
+            {{ showDialFields ? i18n.t('隐藏拨号字段') : i18n.t('显示拨号字段') }}
+          </button>
+        </div>
+        <div v-if="showDialFields" class="grid grid-cols-2 gap-3">
           <label class="form-control">
             <span class="label-text mb-1">{{ i18n.t('上游出口') }}</span>
             <input v-model="raw.detour" class="input input-bordered input-sm" />

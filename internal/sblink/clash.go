@@ -67,31 +67,33 @@ func normalizeClashYAML(text string) string {
 
 func clashProxyOutbound(p map[string]any) (*merge.OrderedMap, error) {
 	typ := strings.ToLower(clashString(p, "type"))
+	var out *merge.OrderedMap
+	var err error
 	switch typ {
 	case "ss", "shadowsocks":
-		return clashShadowsocks(p)
+		out, err = clashShadowsocks(p)
 	case "vmess":
-		return clashVMess(p)
+		out, err = clashVMess(p)
 	case "vless":
-		return clashVLESS(p)
+		out, err = clashVLESS(p)
 	case "trojan":
-		return clashTrojan(p)
+		out, err = clashTrojan(p)
 	case "hysteria":
-		return clashHysteria(p)
+		out, err = clashHysteria(p)
 	case "hysteria2", "hy2":
-		return clashHysteria2(p)
+		out, err = clashHysteria2(p)
 	case "tuic":
-		return clashTUIC(p)
+		out, err = clashTUIC(p)
 	case "anytls":
-		return clashAnyTLS(p)
+		out, err = clashAnyTLS(p)
 	case "shadowtls":
-		return clashShadowTLS(p)
+		out, err = clashShadowTLS(p)
 	case "http", "https":
-		return clashHTTP(p, typ == "https")
+		out, err = clashHTTP(p, typ == "https")
 	case "socks", "socks5", "socks4", "socks4a":
-		return clashSOCKS(p, typ)
+		out, err = clashSOCKS(p, typ)
 	case "naive":
-		return clashNaive(p)
+		out, err = clashNaive(p)
 	case "ssr":
 		return nil, fmt.Errorf("ssr is recognized but not converted to sing-box")
 	case "wireguard", "wg":
@@ -99,6 +101,11 @@ func clashProxyOutbound(p map[string]any) (*merge.OrderedMap, error) {
 	default:
 		return nil, fmt.Errorf("unsupported proxy type %q", typ)
 	}
+	if err != nil {
+		return nil, err
+	}
+	applyClashDialFields(out, p)
+	return out, nil
 }
 
 func clashBase(p map[string]any, typ string) (*merge.OrderedMap, error) {
@@ -121,6 +128,78 @@ func clashBaseWithDefault(p map[string]any, typ string, defaultPort int) (*merge
 	out.Set("server", server)
 	out.Set("server_port", pn)
 	return out, nil
+}
+
+func applyClashDialFields(out *merge.OrderedMap, p map[string]any) {
+	setStringIfPresent(out, "detour", clashStringAny(p, "dialer-proxy", "dialer_proxy", "detour"))
+	setStringIfPresent(out, "bind_interface", clashStringAny(p, "interface-name", "interface_name", "bind-interface", "bind_interface"))
+	setStringIfPresent(out, "inet4_bind_address", clashStringAny(p, "inet4-bind-address", "inet4_bind_address"))
+	setStringIfPresent(out, "inet6_bind_address", clashStringAny(p, "inet6-bind-address", "inet6_bind_address"))
+	setStringIfPresent(out, "protect_path", clashStringAny(p, "protect-path", "protect_path"))
+	setStringIfPresent(out, "routing_mark", clashStringAny(p, "routing-mark", "routing_mark"))
+	setStringIfPresent(out, "netns", clashStringAny(p, "netns"))
+	setStringIfPresent(out, "connect_timeout", clashStringAny(p, "connect-timeout", "connect_timeout"))
+	setStringIfPresent(out, "tcp_keep_alive", clashStringAny(p, "tcp-keep-alive", "tcp_keep_alive"))
+	setStringIfPresent(out, "tcp_keep_alive_interval", clashStringAny(p, "tcp-keep-alive-interval", "tcp_keep_alive_interval"))
+	setStringIfPresent(out, "network_strategy", clashStringAny(p, "network-strategy", "network_strategy"))
+	setStringIfPresent(out, "fallback_delay", clashStringAny(p, "fallback-delay", "fallback_delay"))
+	setBoolIfPresent(out, p, "bind_address_no_port", "bind-address-no-port", "bind_address_no_port")
+	setBoolIfPresent(out, p, "reuse_addr", "reuse-addr", "reuse_addr")
+	setBoolIfPresent(out, p, "tcp_fast_open", "tfo", "tcp-fast-open", "tcp_fast_open")
+	setBoolIfPresent(out, p, "tcp_multi_path", "mptcp", "tcp-multi-path", "tcp_multi_path")
+	setBoolIfPresent(out, p, "disable_tcp_keep_alive", "disable-tcp-keep-alive", "disable_tcp_keep_alive")
+	setBoolIfPresent(out, p, "udp_fragment", "udp-fragment", "udp_fragment")
+	setStringListField(out, "network_type", clashAny(p, "network-type", "network_type"))
+	setStringListField(out, "fallback_network_type", clashAny(p, "fallback-network-type", "fallback_network_type"))
+	setDomainResolverField(out, clashAny(p, "domain-resolver", "domain_resolver"))
+}
+
+func setBoolIfPresent(out *merge.OrderedMap, p map[string]any, outKey string, keys ...string) {
+	for _, key := range keys {
+		if p == nil {
+			return
+		}
+		if _, ok := p[key]; ok {
+			out.Set(outKey, clashBool(p, key, false))
+			return
+		}
+	}
+}
+
+func setStringListField(out *merge.OrderedMap, key string, value any) {
+	values := clashStringSlice(value)
+	if len(values) == 0 {
+		return
+	}
+	arr := make([]any, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			arr = append(arr, value)
+		}
+	}
+	if len(arr) > 0 {
+		out.Set(key, arr)
+	}
+}
+
+func setDomainResolverField(out *merge.OrderedMap, value any) {
+	switch v := value.(type) {
+	case string:
+		setStringIfPresent(out, "domain_resolver", v)
+	case map[string]any:
+		if resolver := orderedFromMap(v); resolver != nil {
+			out.Set("domain_resolver", resolver)
+		}
+	case map[any]any:
+		m := make(map[string]any, len(v))
+		for key, item := range v {
+			m[anyToString(key)] = item
+		}
+		if resolver := orderedFromMap(m); resolver != nil {
+			out.Set("domain_resolver", resolver)
+		}
+	}
 }
 
 func clashShadowsocks(p map[string]any) (*merge.OrderedMap, error) {
@@ -438,6 +517,18 @@ func clashString(m map[string]any, key string) string {
 		return ""
 	}
 	return anyToString(m[key])
+}
+
+func clashAny(m map[string]any, keys ...string) any {
+	for _, key := range keys {
+		if m == nil {
+			return nil
+		}
+		if value, ok := m[key]; ok {
+			return value
+		}
+	}
+	return nil
 }
 
 func clashStringAny(m map[string]any, keys ...string) string {

@@ -475,10 +475,21 @@ func TestCreateAndUpdateHTTPNodePreservesDialFields(t *testing.T) {
   "password":"",
   "detour":"Proxy",
   "bind_interface":"eth0",
+  "inet4_bind_address":"192.0.2.10",
+  "inet6_bind_address":"2001:db8::10",
+  "bind_address_no_port":true,
+  "protect_path":"/run/sing-box/protect.sock",
   "routing_mark":"0x1234",
+  "reuse_addr":true,
+  "netns":"blue",
   "connect_timeout":"5s",
+  "tcp_fast_open":true,
+  "tcp_multi_path":true,
+  "disable_tcp_keep_alive":true,
+  "tcp_keep_alive":"5m",
+  "tcp_keep_alive_interval":"75s",
   "udp_fragment":true,
-  "domain_resolver":{"server":"hosts","disable_cache":true},
+  "domain_resolver":{"server":"hosts","timeout":"1s","disable_cache":true},
   "network_strategy":"fallback",
   "network_type":["wifi"],
   "fallback_network_type":["cellular"],
@@ -498,8 +509,25 @@ func TestCreateAndUpdateHTTPNodePreservesDialFields(t *testing.T) {
 	if created.Type != "http" || created.Tag != "⚪ Po0" || created.Server != "console.po0.com" || created.ServerPort != 443 {
 		t.Fatalf("created node = %+v", created)
 	}
-	if created.Detour != "Proxy" || !strings.Contains(created.Raw, `"domain_resolver":{"server":"hosts","disable_cache":true}`) {
+	if created.Detour != "Proxy" || !strings.Contains(created.Raw, `"domain_resolver":{"server":"hosts","timeout":"1s","disable_cache":true}`) {
 		t.Fatalf("created raw = %s", created.Raw)
+	}
+	for _, want := range []string{
+		`"inet4_bind_address":"192.0.2.10"`,
+		`"inet6_bind_address":"2001:db8::10"`,
+		`"bind_address_no_port":true`,
+		`"protect_path":"/run/sing-box/protect.sock"`,
+		`"reuse_addr":true`,
+		`"netns":"blue"`,
+		`"tcp_fast_open":true`,
+		`"tcp_multi_path":true`,
+		`"disable_tcp_keep_alive":true`,
+		`"tcp_keep_alive":"5m"`,
+		`"tcp_keep_alive_interval":"75s"`,
+	} {
+		if !strings.Contains(created.Raw, want) {
+			t.Fatalf("created raw missing %s: %s", want, created.Raw)
+		}
 	}
 
 	var fetched struct {
