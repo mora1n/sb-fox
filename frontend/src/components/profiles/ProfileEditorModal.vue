@@ -41,6 +41,7 @@ const i18n = useI18nStore()
 const editing = ref<Profile | null>(null)
 const copyingFrom = ref<Profile | null>(null)
 const busy = ref(false)
+const configLoading = ref(false)
 const structureLoading = ref(false)
 const dependenciesLoading = ref(false)
 const formLoading = computed(() => structureLoading.value || dependenciesLoading.value)
@@ -52,9 +53,13 @@ const structure = ref<TemplateStructure | null>(null)
 const activeGroup = ref('')
 const activeEditor = ref<EditorMode>('group')
 const kernelHint = computed(() => i18n.t('请选择有效 sing-box 内核或联系管理员配置内核'))
+const kernelKnownUnavailable = computed(() => settings.kernel !== null && !settings.kernel.available)
+const previewActionMuted = computed(() => !config.value || kernelKnownUnavailable.value)
+const previewActionTitle = computed(() => (kernelKnownUnavailable.value ? kernelHint.value : ''))
 let openSeq = 0
 let structureSeq = 0
 let dependenciesSeq = 0
+let configSeq = 0
 
 class ProfileFormError extends Error {
   details: ApiErrorDetails
@@ -204,8 +209,7 @@ async function loadStructure(templateID: number, openToken = openSeq) {
     const next = await templates.structure(templateID)
     if (seq !== structureSeq || openToken !== openSeq || form.value.template_id !== templateID) return
     structure.value = next
-    config.value = ''
-    validation.value = null
+    clearConfig()
     sanitizeGroupSelectionsForStructure()
     if (!structure.value.groups.length) {
       activeGroup.value = ''
@@ -296,6 +300,31 @@ function numberArray(value: unknown): number[] {
   return Array.isArray(value) ? value.map(Number).filter(Boolean) : []
 }
 
+function clearConfig() {
+  configSeq++
+  config.value = ''
+  validation.value = null
+  configLoading.value = false
+}
+
+async function loadSavedProfileConfig(p: Profile, openToken = openSeq) {
+  const seq = ++configSeq
+  configLoading.value = true
+  config.value = ''
+  validation.value = null
+  try {
+    const r = await post<{ config: string }>('/generate/preview', { profile_id: p.id })
+    if (seq !== configSeq || openToken !== openSeq || editing.value?.id !== p.id) return
+    config.value = r.config
+  } catch (e) {
+    if (seq !== configSeq || openToken !== openSeq || editing.value?.id !== p.id) return
+    focusErrorTarget(e)
+    ui.error(errMsg(e, '生成失败'))
+  } finally {
+    if (seq === configSeq && openToken === openSeq && editing.value?.id === p.id) configLoading.value = false
+  }
+}
+
 async function openCreate() {
   const seq = ++openSeq
   suppressTemplateWatch.value = true
@@ -309,8 +338,8 @@ async function openCreate() {
     subscription_enabled: true,
     options: { autoCountryGroups: false, chainProxy: false, groupSelections: {} },
   }
-  config.value = ''
-  validation.value = null
+  clearConfig()
+  configLoading.value = false
   structure.value = null
   activeGroup.value = ''
   activeEditor.value = 'group'
@@ -340,8 +369,8 @@ async function openEdit(p: Profile) {
     subscription_enabled: p.subscription_enabled,
     options: parseOptions(p.options),
   }
-  config.value = ''
-  validation.value = null
+  clearConfig()
+  configLoading.value = false
   structure.value = null
   activeGroup.value = ''
   activeEditor.value = 'group'
@@ -361,6 +390,7 @@ async function openEdit(p: Profile) {
     }
     await Promise.all([loadStructure(p.template_id, seq), loadEditorDependencies(seq)])
     if (seq === openSeq && shouldHydrateLegacySelection) hydrateLegacySelection(legacyNodeIDs, legacyNodeGroupIDs)
+    if (seq === openSeq) void loadSavedProfileConfig(p, seq)
   } catch (e) {
     if (seq !== openSeq) return
     ui.error(errMsg(e))
@@ -382,8 +412,8 @@ async function openCopy(p: Profile) {
     subscription_enabled: true,
     options: parseOptions(p.options),
   }
-  config.value = ''
-  validation.value = null
+  clearConfig()
+  configLoading.value = false
   structure.value = null
   activeGroup.value = ''
   activeEditor.value = 'group'
@@ -415,8 +445,10 @@ function closeForm() {
   openSeq++
   structureSeq++
   dependenciesSeq++
+  configSeq++
   structureLoading.value = false
   dependenciesLoading.value = false
+  configLoading.value = false
   emit('close')
 }
 
@@ -658,8 +690,8 @@ async function submit() {
 async function generate() {
   if (formLoading.value) return ui.info('正在加载订阅...')
   busy.value = true
-  validation.value = null
-  config.value = ''
+  clearConfig()
+  const seq = configSeq
   try {
     validateForm()
     const payload: PreviewPayload = {
@@ -669,9 +701,11 @@ async function generate() {
       options: buildPayload().options,
     }
     const r = await post<{ config: string }>('/generate/preview', payload)
+    if (seq !== configSeq) return
     config.value = r.config
     ui.success('已生成配置')
   } catch (e) {
+    if (seq !== configSeq) return
     focusErrorTarget(e)
     ui.error(errMsg(e, '生成失败'))
   } finally {
@@ -893,16 +927,20 @@ async function formatGenerated() {
 
         <div class="flex flex-col gap-3 min-w-0">
           <div class="flex gap-2 flex-wrap">
-            <button class="btn btn-primary btn-sm w-24 justify-center" @click="generate" :disabled="formLocked">
+            <button class="btn btn-primary btn-sm w-24 justify-center" @click="generate" :disabled="formLocked || configLoading">
               <span v-if="formLocked" class="loading loading-spinner loading-sm"></span>
               <span>{{ i18n.t('生成') }}</span>
             </button>
-            <button class="btn btn-sm" @click="validateGenerated" :disabled="formLocked" :class="{ 'opacity-50 cursor-not-allowed': !config || !settings.kernel?.available }" :title="settings.kernel?.available ? '' : kernelHint">{{ i18n.t('校验') }}</button>
-            <button class="btn btn-sm" @click="formatGenerated" :disabled="formLocked" :class="{ 'opacity-50 cursor-not-allowed': !config || !settings.kernel?.available }" :title="settings.kernel?.available ? '' : kernelHint">{{ i18n.t('格式化') }}</button>
+            <button class="btn btn-sm" @click="validateGenerated" :disabled="formLocked || configLoading" :class="{ 'opacity-50': previewActionMuted }" :title="previewActionTitle">{{ i18n.t('校验') }}</button>
+            <button class="btn btn-sm" @click="formatGenerated" :disabled="formLocked || configLoading" :class="{ 'opacity-50': previewActionMuted }" :title="previewActionTitle">{{ i18n.t('格式化') }}</button>
           </div>
           <ValidationBadge :status="validation?.status ?? null" :messages="validation?.messages" />
           <div class="border border-base-300 rounded-box bg-base-100 min-h-[28rem] min-w-80 overflow-auto resize-y">
-            <JsonViewer v-if="config" :content="config" max-height="none" />
+            <div v-if="configLoading" class="flex items-center justify-center gap-2 opacity-70 text-sm py-24">
+              <span class="loading loading-spinner loading-sm"></span>
+              <span>{{ i18n.t('正在生成配置...') }}</span>
+            </div>
+            <JsonViewer v-else-if="config" :content="config" max-height="none" />
             <div v-else class="opacity-60 text-sm py-24 text-center">{{ i18n.t('点击「生成」查看配置。') }}</div>
           </div>
         </div>

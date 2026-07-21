@@ -101,6 +101,7 @@ const en: Record<string, string> = {
   '格式化': 'Format',
   '配置输出': 'Config Output',
   '点击「生成」查看配置。': 'Click "Generate" to preview the config.',
+  '正在生成配置...': 'Generating config...',
   '可用': 'Available',
   '不可用': 'Unavailable',
   '内核状态': 'Kernel Status',
