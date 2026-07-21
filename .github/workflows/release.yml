@@ -1,8 +1,8 @@
 name: release
 
-# Publish cross-built release artifacts when a v* tag is pushed.
-# Each target is packaged as sb-fox-<os>-<arch>-<version>.tar.gz, plus a
-# single SHA256SUMS file covering all archives.
+# Publish cross-built release assets when a v* tag is pushed.
+# Release assets are uploaded directly from the runner to avoid consuming
+# GitHub Actions artifact storage quota.
 on:
   push:
     tags:
@@ -15,8 +15,8 @@ env:
   BINARY: sb-fox
 
 jobs:
-  test:
-    name: test
+  release:
+    name: test, build and publish
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,87 +49,35 @@ jobs:
       - name: Check whitespace
         run: git diff --check
 
-  build:
-    name: build ${{ matrix.goos }}/${{ matrix.goarch }}
-    needs: test
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { goos: linux, goarch: amd64 }
-          - { goos: linux, goarch: arm64 }
-          - { goos: darwin, goarch: amd64 }
-          - { goos: darwin, goarch: arm64 }
-          - { goos: windows, goarch: amd64, ext: ".exe" }
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.26"
-          cache: true
-
-      - name: Build frontend (embedded)
-        run: |
-          cd frontend
-          npm ci
-          npm run build
-
-      - name: Build binary
+      - name: Build release archives
         env:
+          VERSION: ${{ github.ref_name }}
           CGO_ENABLED: "0"
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          VERSION: ${{ github.ref_name }}
         run: |
-          out="${BINARY}${{ matrix.ext }}"
-          go build -trimpath \
-            -ldflags "-s -w -X main.version=${VERSION}" \
-            -o "${out}" ./cmd/sb-fox
-
-      - name: Package archive
-        id: package
-        env:
-          VERSION: ${{ github.ref_name }}
-        run: |
-          name="${BINARY}-${{ matrix.goos }}-${{ matrix.goarch }}-${VERSION}"
-          mkdir -p "dist/${name}"
-          cp "${BINARY}${{ matrix.ext }}" "dist/${name}/"
-          cp -R data "dist/${name}/"
-          [ -f README.md ] && cp README.md "dist/${name}/" || true
-          [ -f LICENSE ] && cp LICENSE "dist/${name}/" || true
-          tar -C dist -czf "dist/${name}.tar.gz" "${name}"
-          echo "archive=dist/${name}.tar.gz" >>"$GITHUB_OUTPUT"
-
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.BINARY }}-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: ${{ steps.package.outputs.archive }}
-          retention-days: 1
-
-  release:
-    name: publish release
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download all archives
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-          merge-multiple: true
+          rm -rf dist
+          mkdir -p dist
+          while read -r goos goarch ext; do
+            name="${BINARY}-${goos}-${goarch}-${VERSION}"
+            bin="${BINARY}${ext}"
+            mkdir -p "dist/${name}"
+            GOOS="${goos}" GOARCH="${goarch}" go build -trimpath \
+              -ldflags "-s -w -X main.version=${VERSION}" \
+              -o "dist/${name}/${bin}" ./cmd/sb-fox
+            cp -R data "dist/${name}/"
+            [ -f README.md ] && cp README.md "dist/${name}/" || true
+            [ -f LICENSE ] && cp LICENSE "dist/${name}/" || true
+            tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+            rm -rf "dist/${name}"
+          done <<'TARGETS'
+          linux amd64
+          linux arm64
+          darwin amd64
+          darwin arm64
+          windows amd64 .exe
+          TARGETS
 
       - name: Generate SHA256SUMS
-        working-directory: artifacts
+        working-directory: dist
         run: |
           sha256sum *.tar.gz | tee SHA256SUMS
 
@@ -137,7 +85,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/*.tar.gz
-            artifacts/SHA256SUMS
+            dist/*.tar.gz
+            dist/SHA256SUMS
           generate_release_notes: true
           fail_on_unmatched_files: true
