@@ -132,6 +132,30 @@ function transport(): Record<string, any> {
   if (!raw.transport || typeof raw.transport !== 'object') raw.transport = {}
   return raw.transport
 }
+function objectRecord(value: unknown): Record<string, any> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  return value as Record<string, any>
+}
+function transportHeaders(): Record<string, any> {
+  const t = transport()
+  const headers = objectRecord(t.headers)
+  if (headers) return headers
+  t.headers = {}
+  return t.headers
+}
+function hostText(value: unknown): string {
+  if (Array.isArray(value)) return value.join(', ')
+  if (value === undefined || value === null) return ''
+  return String(value)
+}
+function setHostValue(target: Record<string, any>, key: string, value: string) {
+  if (value) target[key] = value
+  else delete target[key]
+}
+function cleanupTransportHeaders(t: Record<string, any>) {
+  const headers = objectRecord(t.headers)
+  if (headers && Object.keys(headers).length === 0) delete t.headers
+}
 function obfs(): Record<string, any> {
   if (!raw.obfs || typeof raw.obfs !== 'object') raw.obfs = {}
   return raw.obfs
@@ -168,6 +192,30 @@ const headersText = computed({
     } catch (e) {
       parseError.value = HEADERS_ERROR_PREFIX + errMsg(e)
     }
+  },
+})
+const transportHostText = computed({
+  get: () => {
+    const t = objectRecord(raw.transport)
+    if (!t) return ''
+    if (t.host !== undefined) return hostText(t.host)
+    const headers = objectRecord(t.headers)
+    if (!headers) return ''
+    if (headers.Host !== undefined) return hostText(headers.Host)
+    return hostText(headers.host)
+  },
+  set: (v: string) => {
+    const value = v.trim()
+    const t = transport()
+    const headers = objectRecord(t.headers)
+    if (t.host !== undefined) {
+      setHostValue(t, 'host', value)
+    } else if (headers?.host !== undefined && headers.Host === undefined) {
+      setHostValue(headers, 'host', value)
+    } else {
+      setHostValue(transportHeaders(), 'Host', value)
+    }
+    cleanupTransportHeaders(t)
   },
 })
 const domainResolverText = computed({
@@ -761,11 +809,7 @@ watch(
             </label>
             <label class="form-control">
               <span class="label-text mb-1">host</span>
-              <input
-                :value="raw.transport?.host"
-                class="input input-bordered input-sm"
-                @input="transport().host = ($event.target as HTMLInputElement).value"
-              />
+              <input v-model="transportHostText" class="input input-bordered input-sm" />
             </label>
           </div>
         </div>
