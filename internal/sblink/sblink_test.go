@@ -136,6 +136,53 @@ func TestParseVLESSReality(t *testing.T) {
 	}
 }
 
+func TestParseVLESSPacketEncoding(t *testing.T) {
+	tests := []struct {
+		name string
+		uri  string
+		want string
+	}{
+		{
+			name: "none is omitted",
+			uri:  "vless://uuid-1234@vless.example.com:443?packetEncoding=none#VLESS",
+			want: "",
+		},
+		{
+			name: "xudp is preserved",
+			uri:  "vless://uuid-1234@vless.example.com:443?packet_encoding=xudp#VLESS",
+			want: "xudp",
+		},
+		{
+			name: "packetaddr is preserved",
+			uri:  "vless://uuid-1234@vless.example.com:443?packet-encoding=packetaddr#VLESS",
+			want: "packetaddr",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := Parse(tt.uri)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, ok := out.Get("packet_encoding")
+			if tt.want == "" {
+				if ok {
+					t.Fatalf("packet_encoding = %v, want absent", got)
+				}
+				return
+			}
+			if !ok || got != tt.want {
+				t.Fatalf("packet_encoding = %v, want %q", got, tt.want)
+			}
+		})
+	}
+
+	_, err := Parse("vless://uuid-1234@vless.example.com:443?packetEncoding=bad#VLESS")
+	if err == nil || !strings.Contains(err.Error(), "packetEncoding") {
+		t.Fatalf("invalid packetEncoding err = %v", err)
+	}
+}
+
 func TestParseTrojanWS(t *testing.T) {
 	uri := "trojan://mypassword@trojan.example.com:443?security=tls&sni=trojan.example.com&type=ws&path=%2Fws#Trojan"
 	out, err := Parse(uri)

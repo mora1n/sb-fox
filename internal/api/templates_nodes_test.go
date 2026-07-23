@@ -460,6 +460,31 @@ func TestExportLinksRejectsUnsupportedNode(t *testing.T) {
 	}
 }
 
+func TestCreateAndUpdateVLESSNodeNormalizesPacketEncodingNone(t *testing.T) {
+	_, ts := testServer(t)
+	c := newClient(t, ts.URL)
+	c.http.Jar = login(t, ts.URL)
+
+	createRaw := `{"type":"vless","tag":"VLESS","server":"vless.example.com","server_port":443,"uuid":"uuid-1234","packet_encoding":"none"}`
+	var created struct {
+		ID  int64  `json:"id"`
+		Raw string `json:"raw"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/nodes", map[string]string{"raw": createRaw}), &created)
+	if strings.Contains(created.Raw, "packet_encoding") {
+		t.Fatalf("created raw keeps packet_encoding=none: %s", created.Raw)
+	}
+
+	updateRaw := `{"type":"vless","tag":"VLESS","server":"vless.example.com","server_port":443,"uuid":"uuid-1234","packet_encoding":"xudp"}`
+	var updated struct {
+		Raw string `json:"raw"`
+	}
+	decodeData(t, c.do(http.MethodPut, "/api/nodes/"+itoa(created.ID), map[string]string{"raw": updateRaw}), &updated)
+	if !strings.Contains(updated.Raw, `"packet_encoding":"xudp"`) {
+		t.Fatalf("updated raw dropped valid packet_encoding: %s", updated.Raw)
+	}
+}
+
 func TestCreateAndUpdateHTTPNodePreservesDialFields(t *testing.T) {
 	_, ts := testServer(t)
 	c := newClient(t, ts.URL)

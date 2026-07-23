@@ -2,6 +2,7 @@ package api
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/mora1n/sb-fox/internal/merge"
 	"github.com/mora1n/sb-fox/internal/models"
@@ -11,6 +12,7 @@ import (
 // extracting the metadata columns. Country detection uses the same logic as the
 // merge engine (tag-based), honoring a `server#CC` override with precedence.
 func nodeFromOutbound(raw *merge.OrderedMap, source string, sourceRef *int64) (*models.Node, error) {
+	normalizeNodeOutbound(raw)
 	compact, err := raw.MarshalJSON()
 	if err != nil {
 		return nil, err
@@ -49,6 +51,15 @@ func nodeFromOutbound(raw *merge.OrderedMap, source string, sourceRef *int64) (*
 	}
 
 	return n, nil
+}
+
+func normalizeNodeOutbound(raw *merge.OrderedMap) {
+	if raw.GetString("type") != "vless" {
+		return
+	}
+	if strings.EqualFold(strings.TrimSpace(raw.GetString("packet_encoding")), "none") {
+		raw.Delete("packet_encoding")
+	}
 }
 
 // numberToInt converts a JSON-decoded numeric value to int.

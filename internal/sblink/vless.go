@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/mora1n/sb-fox/internal/merge"
 )
@@ -79,10 +80,26 @@ func parseVLESS(uri string) (*merge.OrderedMap, error) {
 	if t := transportFromQuery(p.query); t != nil {
 		out.Set("transport", t)
 	}
-	if enc := p.query.Get("packetEncoding"); enc != "" {
+	enc, err := vlessPacketEncoding(p.query)
+	if err != nil {
+		return nil, err
+	}
+	if enc != "" {
 		out.Set("packet_encoding", enc)
 	}
 	return out, nil
+}
+
+func vlessPacketEncoding(q url.Values) (string, error) {
+	enc := strings.ToLower(strings.TrimSpace(queryFirst(q, "packetEncoding", "packet_encoding", "packet-encoding")))
+	switch enc {
+	case "", "none":
+		return "", nil
+	case "packetaddr", "xudp":
+		return enc, nil
+	default:
+		return "", fmt.Errorf("sblink: unsupported vless packetEncoding %q", enc)
+	}
 }
 
 // vlessTLS builds the tls block from a vless query, handling both plain TLS and
