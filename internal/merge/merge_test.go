@@ -156,6 +156,31 @@ func TestCountryHeatOrderOption(t *testing.T) {
 	}
 }
 
+func TestExtendedCountrySelector(t *testing.T) {
+	cfg := loadTemplate(t, "fakeip")
+	raw := NewOrderedMap()
+	raw.Set("type", "socks")
+	raw.Set("tag", "🇧🇴 Bolivia")
+	raw.Set("server", "bo.example.com")
+	raw.Set("server_port", 1080)
+
+	out, err := Generate(cfg, []*Node{{Raw: raw, Source: "protocol"}}, Options{AutoCountryGroups: true})
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	outbounds, err := configOutbounds(out)
+	if err != nil {
+		t.Fatalf("outbounds: %v", err)
+	}
+	for _, outbound := range outbounds {
+		group, ok := outbound.(*OrderedMap)
+		if ok && group.GetString("tag") == "🇧🇴 Bolivia" && group.GetString("type") == "selector" {
+			return
+		}
+	}
+	t.Fatal("generated config is missing the Bolivia selector")
+}
+
 func TestChainProxySelector(t *testing.T) {
 	cfg := loadTemplate(t, "fakeip")
 	nodes := loadFixtureNodes(t, "proto-a", "protocol")

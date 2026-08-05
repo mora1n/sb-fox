@@ -16,28 +16,34 @@ func jsLen(s string) int {
 // compiledAlias is a country alias compiled into a matcher, mirroring the
 // objects pushed into COMPILED_COUNTRY_ALIASES in merge.js.
 type compiledAlias struct {
-	code             string
-	name             string
-	emoji            string
-	text             string
-	needle           string // substring pre-check (lowered or raw per target)
-	regex            *regexp.Regexp
-	target           string // "lower" or "raw"
-	boundaryPriority int
+	code              string
+	name              string
+	emoji             string
+	text              string
+	needle            string // substring pre-check (lowered or raw per target)
+	regex             *regexp.Regexp
+	target            string // "lower" or "raw"
+	boundaryPriority  int
 	aliasTypePriority int
-	aliasLength      int
+	aliasLength       int
 }
 
-func isAsciiAlphaNumeric(text string) bool {
+func isASCII(text string) bool {
 	if text == "" {
 		return false
 	}
 	for _, r := range text {
-		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')) {
+		if r > 0x7f {
 			return false
 		}
 	}
 	return true
+}
+
+func isASCIIAlphaNumericByte(char byte) bool {
+	return (char >= 'a' && char <= 'z') ||
+		(char >= 'A' && char <= 'Z') ||
+		(char >= '0' && char <= '9')
 }
 
 var reTwoAsciiLetters = regexp.MustCompile(`^[a-zA-Z]{2}$`)
@@ -65,7 +71,7 @@ type aliasMatcher struct {
 func buildAliasMatcher(alias, aliasType string) aliasMatcher {
 	lowerAlias := strings.ToLower(alias)
 
-	if !isAsciiAlphaNumeric(lowerAlias) {
+	if !isASCII(lowerAlias) {
 		return aliasMatcher{
 			regex:            regexp.MustCompile(regexp.QuoteMeta(alias)),
 			target:           "raw",
@@ -86,6 +92,31 @@ func buildAliasMatcher(alias, aliasType string) aliasMatcher {
 		target:           "lower",
 		boundaryPriority: 2,
 	}
+}
+
+// extractUpperCountryCode finds an uppercase two-letter catalog code with
+// non-alphanumeric boundaries. It runs after full-name matching so a tag such
+// as "Germany-US" keeps resolving to Germany, while "BO-01" resolves to
+// Bolivia without making ordinary lowercase words such as "to" country codes.
+func extractUpperCountryCode(tag string) *CountryInfo {
+	for i := 0; i+1 < len(tag); i++ {
+		first, second := tag[i], tag[i+1]
+		if first < 'A' || first > 'Z' || second < 'A' || second > 'Z' {
+			continue
+		}
+		if i > 0 && isASCIIAlphaNumericByte(tag[i-1]) {
+			continue
+		}
+		if i+2 < len(tag) && isASCIIAlphaNumericByte(tag[i+2]) {
+			continue
+		}
+		if info, ok := countryMap[tag[i:i+2]]; ok {
+			country := info
+			return &country
+		}
+		i++
+	}
+	return nil
 }
 
 // compareCountryAliasCandidate returns <0 if a should rank before b, matching

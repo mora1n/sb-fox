@@ -1,15 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { countryFlagEmoji } from '../utils/countries'
 
 const props = defineProps<{ code?: string; showCode?: boolean }>()
 
-// Convert a 2-letter ISO country code to its regional-indicator flag emoji.
-const flag = computed(() => {
-  const c = (props.code || '').trim().toUpperCase()
-  if (!/^[A-Z]{2}$/.test(c)) return '🏳️'
-  const base = 0x1f1e6
-  return String.fromCodePoint(base + (c.charCodeAt(0) - 65), base + (c.charCodeAt(1) - 65))
-})
+const flag = computed(() => countryFlagEmoji(props.code || ''))
 </script>
 
 <template>

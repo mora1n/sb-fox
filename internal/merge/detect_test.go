@@ -23,14 +23,24 @@ func TestExtractCountry(t *testing.T) {
 		// emoji flag detection
 		{"🇭🇰 Premium", "HK"},
 		{"🇺🇸", "US"},
+		{"🇧🇴 Bolivia", "BO"},
+		{"🇨🇶 Sark", "CQ"},
+		{"🇽🇰 Kosovo", "XK"},
+		{"🇺🇳 United Nations", "UN"},
 		// code aliases with boundaries
 		{"Node JP", "JP"},
 		{"SG-01", "SG"},
+		{"BO-01", "BO"},
 		// name aliases
 		{"Singapore Premium", "SG"},
 		{"Britain 1", "GB"}, // "britain" alias; note "united kingdom" is NOT an alias
 		{"UK-1", "GB"},
+		{"玻利维亚-01", "BO"},
+		{"bolivia premium", "BO"},
 		// no match
+		{"go to the edge", ""},
+		{"this is a node", ""},
+		{"🇿🇿 Unknown", ""},
 		{"Mystery-1", ""},
 		{"Unknown Relay", ""},
 		{"", ""},
@@ -48,6 +58,50 @@ func TestExtractCountry(t *testing.T) {
 	}
 }
 
+func TestCountryCatalogIntegrity(t *testing.T) {
+	if got := len(countryOrder); got != 259 {
+		t.Fatalf("countryOrder has %d entries, want 259", got)
+	}
+	if got := len(countryMap); got != 259 {
+		t.Fatalf("countryMap has %d entries, want 259", got)
+	}
+
+	seen := make(map[string]struct{}, len(countryOrder))
+	for _, code := range countryOrder {
+		if _, duplicate := seen[code]; duplicate {
+			t.Fatalf("duplicate country code %q", code)
+		}
+		seen[code] = struct{}{}
+		info, ok := countryMap[code]
+		if !ok {
+			t.Fatalf("countryOrder code %q is missing from countryMap", code)
+		}
+		if !reTwoLetterCode.MatchString(code) || info.Code != code {
+			t.Fatalf("invalid country entry %q: %+v", code, info)
+		}
+		if info.Name == "" || info.Emoji != buildFlagEmoji(code) || len(info.Aliases) == 0 {
+			t.Fatalf("incomplete country entry %q: %+v", code, info)
+		}
+		if region := inferRegion(code); region == "unknown" && code != "EU" && code != "UN" {
+			t.Fatalf("country %q has no region", code)
+		}
+	}
+
+	order, err := NormalizeCountryHeatOrder([]string{"bo", "CQ", "BO", "xk"})
+	if err != nil {
+		t.Fatalf("NormalizeCountryHeatOrder: %v", err)
+	}
+	want := []string{"BO", "CQ", "XK"}
+	if len(order) != len(want) {
+		t.Fatalf("normalized order = %v, want %v", order, want)
+	}
+	for i := range want {
+		if order[i] != want[i] {
+			t.Fatalf("normalized order = %v, want %v", order, want)
+		}
+	}
+}
+
 // TestServerCountryOverride covers the `server#CC` suffix (requirement h).
 func TestServerCountryOverride(t *testing.T) {
 	cases := []struct {
@@ -59,7 +113,7 @@ func TestServerCountryOverride(t *testing.T) {
 		{"relay.example.com#CN", "relay.example.com", "CN", false},
 		{"1.2.3.4#us", "1.2.3.4", "US", false},
 		{"plain.example.com", "", "", true},
-		{"#CN", "", "", true}, // empty server part
+		{"#CN", "", "", true},      // empty server part
 		{"host#ABC", "", "", true}, // 3 letters, not a 2-letter code
 	}
 	for _, c := range cases {
@@ -103,11 +157,11 @@ func TestBuildFlagEmoji(t *testing.T) {
 // TestStripEmoji covers the leading-emoji removal used by matchTag.
 func TestStripEmoji(t *testing.T) {
 	cases := map[string]string{
-		"🚀 Proxy":       "Proxy",
-		"🏠 Mainland":    "Mainland",
-		"🏳️‍🌈 Others":    "Others",
-		"Plain":         "Plain",
-		"  Trimmed  ":   "Trimmed",
+		"🚀 Proxy":      "Proxy",
+		"🏠 Mainland":   "Mainland",
+		"🏳️‍🌈 Others":  "Others",
+		"Plain":        "Plain",
+		"  Trimmed  ":  "Trimmed",
 		"🇭🇰 Hong Kong": "Hong Kong",
 	}
 	for in, want := range cases {

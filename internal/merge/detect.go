@@ -146,6 +146,10 @@ func extractCountry(tag string) *CountryInfo {
 		}
 	}
 
+	if result == nil {
+		result = extractUpperCountryCode(tag)
+	}
+
 	extractCache[tag] = result
 	return result
 }

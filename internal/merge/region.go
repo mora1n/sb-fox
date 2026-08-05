@@ -20,11 +20,11 @@ var regionFallbackOrder = map[string]int{
 }
 
 var regionSets = map[string][]string{
-	"asia":     {"HK", "CN", "JP", "KR", "SG", "TW", "IN", "TH", "MY", "PH", "VN", "ID", "IL", "AE", "SA", "KW", "PK", "BD", "KZ", "UZ", "TR", "RU"},
-	"americas": {"US", "CA", "BR", "MX", "AR", "CL", "CO", "PE", "VE"},
-	"europe":   {"GB", "FR", "DE", "NL", "CH", "IT", "ES", "SE", "NO", "FI", "PL", "AT", "BE", "DK", "PT", "GR", "IE", "CZ", "RO", "UA", "LT", "LV", "EE", "BG", "HR", "SK", "SI", "HU"},
-	"africa":   {"ZA", "EG", "NG"},
-	"oceania":  {"AU", "NZ", "FJ"},
+	"asia":     strings.Fields("AE AF AM AZ BD BH BN BT CN CY GE HK ID IL IN IQ IR JO JP KG KH KP KR KW KZ LA LB LK MM MN MO MV MY NP OM PH PK PS QA SA SG SY TH TJ TL TM TR TW UZ VN YE"),
+	"americas": strings.Fields("AG AI AR AW BB BL BM BO BQ BR BS BV BZ CA CL CO CR CU CW DM DO EC FK GD GF GL GP GS GT GY HN HT JM KN KY LC MF MQ MS MX NI PA PE PM PR PY SR SV SX TC TT US UY VC VE VG VI"),
+	"europe":   strings.Fields("AD AL AT AX BA BE BG BY CH CQ CZ DE DK EE ES FI FO FR GB GG GI GR HR HU IE IM IS IT JE LI LT LU LV MC MD ME MK MT NL NO PL PT RO RS RU SE SI SJ SK SM UA VA XK"),
+	"africa":   strings.Fields("AO BF BI BJ BW CD CF CG CI CM CV DJ DZ EA EG EH ER ET GA GH GM GN GQ GW IC IO KE KM LR LS LY MA MG ML MR MU MW MZ NA NE NG RE RW SC SD SH SL SN SO SS ST SZ TD TF TG TN TZ UG YT ZA ZM ZW"),
+	"oceania":  strings.Fields("AC AQ AS AU CC CK CP CX DG FJ FM GU HM KI MH MP NC NF NR NU NZ PF PG PN PW SB TA TK TO TV UM VU WF WS"),
 }
 
 const (
