@@ -65,10 +65,6 @@ func validateProfileRefs(profile *models.Profile, templateIDs, nodeIDs map[int64
 			missingGroups[id] = true
 			return
 		}
-		if len(group.NodeIDs) == 0 {
-			missingGroups[id] = true
-			return
-		}
 		for _, nodeID := range group.NodeIDs {
 			addNode(nodeID)
 		}

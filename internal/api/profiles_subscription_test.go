@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mora1n/sb-fox/internal/models"
 )
 
 func TestProfileEmptyNodeIDsAreJSONArrays(t *testing.T) {
@@ -81,7 +83,7 @@ func TestPreviewSavedProfileRendersConfigAndChecksOwnership(t *testing.T) {
 	}
 }
 
-func TestProfileValidationMarksMissingNodeAndBlocksGeneration(t *testing.T) {
+func TestDeleteNodeCleansProfileReferencesAndReportsEmptySelection(t *testing.T) {
 	_, ts := testServer(t)
 	c := newClient(t, ts.URL)
 	c.http.Jar = login(t, ts.URL)
@@ -117,12 +119,13 @@ func TestProfileValidationMarksMissingNodeAndBlocksGeneration(t *testing.T) {
 	if listed == nil {
 		t.Fatalf("profile %d missing from list", profileID)
 	}
-	if listed.Validation.Valid || listed.Validation.MissingTemplate || !sameInt64s(listed.Validation.MissingNodeIDs, []int64{nodeID}) || len(listed.Validation.MissingNodeGroupIDs) != 0 {
+	if !listed.Validation.Valid || listed.Validation.MissingTemplate || len(listed.Validation.MissingNodeIDs) != 0 || len(listed.Validation.MissingNodeGroupIDs) != 0 {
 		t.Fatalf("list validation = %+v", listed.Validation)
 	}
 
 	var profile struct {
-		ID         int64 `json:"id"`
+		ID         int64  `json:"id"`
+		Options    string `json:"options"`
 		Validation struct {
 			Valid               bool    `json:"valid"`
 			MissingTemplate     bool    `json:"missing_template"`
@@ -131,14 +134,21 @@ func TestProfileValidationMarksMissingNodeAndBlocksGeneration(t *testing.T) {
 		} `json:"validation"`
 	}
 	decodeData(t, c.do(http.MethodGet, "/api/profiles/"+itoa(profileID), nil), &profile)
-	if profile.Validation.Valid || profile.Validation.MissingTemplate || !sameInt64s(profile.Validation.MissingNodeIDs, []int64{nodeID}) || len(profile.Validation.MissingNodeGroupIDs) != 0 {
+	if !profile.Validation.Valid || profile.Validation.MissingTemplate || len(profile.Validation.MissingNodeIDs) != 0 || len(profile.Validation.MissingNodeGroupIDs) != 0 {
 		t.Fatalf("get validation = %+v", profile.Validation)
+	}
+	var options models.ProfileOptions
+	if err := json.Unmarshal([]byte(profile.Options), &options); err != nil {
+		t.Fatal(err)
+	}
+	if got := options.GroupSelections["Proxy"].NodeIDs; len(got) != 0 {
+		t.Fatalf("saved node ids = %v, want empty", got)
 	}
 
 	status, code, msg := decodeError(t, c.do(http.MethodPost, "/api/generate/preview", map[string]any{
 		"profile_id": profileID,
 	}))
-	if status != http.StatusUnprocessableEntity || code != "generate_error" || !strings.Contains(msg, "missing node") {
+	if status != http.StatusUnprocessableEntity || code != "generate_error" || !strings.Contains(msg, "no selected nodes") {
 		t.Fatalf("preview status=%d code=%q msg=%q", status, code, msg)
 	}
 
@@ -152,12 +162,12 @@ func TestProfileValidationMarksMissingNodeAndBlocksGeneration(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(string(body), "missing node") {
+	if resp.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(string(body), "no selected nodes") {
 		t.Fatalf("public sub status=%d body=%q", resp.StatusCode, string(body))
 	}
 }
 
-func TestProfileValidationMarksMissingNodeInsideNodeGroup(t *testing.T) {
+func TestDeleteNodeKeepsEmptyNodeGroupWithoutDanglingValidation(t *testing.T) {
 	_, ts := testServer(t)
 	c := newClient(t, ts.URL)
 	c.http.Jar = login(t, ts.URL)
@@ -182,6 +192,14 @@ func TestProfileValidationMarksMissingNodeInsideNodeGroup(t *testing.T) {
 	}), &profile)
 
 	decodeData(t, c.do(http.MethodDelete, "/api/nodes/"+itoa(nodeID), nil), nil)
+	var group struct {
+		ID      int64   `json:"id"`
+		NodeIDs []int64 `json:"node_ids"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/node-groups/"+itoa(groupID), nil), &group)
+	if group.ID != groupID || len(group.NodeIDs) != 0 {
+		t.Fatalf("group after node delete = %+v", group)
+	}
 
 	var got struct {
 		Validation struct {
@@ -192,15 +210,57 @@ func TestProfileValidationMarksMissingNodeInsideNodeGroup(t *testing.T) {
 		} `json:"validation"`
 	}
 	decodeData(t, c.do(http.MethodGet, "/api/profiles/"+itoa(profile.ID), nil), &got)
-	if got.Validation.Valid || got.Validation.MissingTemplate || len(got.Validation.MissingNodeIDs) != 0 || !sameInt64s(got.Validation.MissingNodeGroupIDs, []int64{groupID}) {
+	if !got.Validation.Valid || got.Validation.MissingTemplate || len(got.Validation.MissingNodeIDs) != 0 || len(got.Validation.MissingNodeGroupIDs) != 0 {
 		t.Fatalf("validation = %+v", got.Validation)
 	}
 
 	status, code, msg := decodeError(t, c.do(http.MethodPost, "/api/generate/preview", map[string]any{
 		"profile_id": profile.ID,
 	}))
-	if status != http.StatusUnprocessableEntity || code != "generate_error" || !strings.Contains(msg, "missing node") {
+	if status != http.StatusUnprocessableEntity || code != "generate_error" || !strings.Contains(msg, "no selected nodes") {
 		t.Fatalf("preview status=%d code=%q msg=%q", status, code, msg)
+	}
+}
+
+func TestDeleteNodeKeepsProfileUsableWithRemainingNode(t *testing.T) {
+	_, ts := testServer(t)
+	c := newClient(t, ts.URL)
+	c.http.Jar = login(t, ts.URL)
+
+	templateID := createPreviewOrderTemplate(t, c)
+	nodeIDs := createPreviewOrderNodes(t, c, []string{"deleted-node", "surviving-node"})
+	var profile struct {
+		ID int64 `json:"id"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/profiles", map[string]any{
+		"name":        "surviving-profile",
+		"template_id": templateID,
+		"options": map[string]any{
+			"autoCountryGroups": false,
+			"groupSelections": map[string]any{
+				"Proxy": map[string]any{"nodeIds": nodeIDs},
+			},
+		},
+	}), &profile)
+
+	decodeData(t, c.do(http.MethodDelete, "/api/nodes/"+itoa(nodeIDs[0]), nil), nil)
+	var saved struct {
+		Options string `json:"options"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/profiles/"+itoa(profile.ID), nil), &saved)
+	var options models.ProfileOptions
+	if err := json.Unmarshal([]byte(saved.Options), &options); err != nil {
+		t.Fatal(err)
+	}
+	if got := options.GroupSelections["Proxy"].NodeIDs; !sameInt64s(got, []int64{nodeIDs[1]}) {
+		t.Fatalf("saved node ids = %v, want [%d]", got, nodeIDs[1])
+	}
+	var preview struct {
+		Config string `json:"config"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/generate/preview", map[string]any{"profile_id": profile.ID}), &preview)
+	if !strings.Contains(preview.Config, "surviving-node") || strings.Contains(preview.Config, "deleted-node") {
+		t.Fatalf("unexpected preview after delete: %s", preview.Config)
 	}
 }
 

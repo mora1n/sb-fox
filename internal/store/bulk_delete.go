@@ -5,7 +5,7 @@ import (
 )
 
 func (s *Store) DeleteNodesByIDs(ids []int64) (int, error) {
-	return s.deleteByIDs("nodes", ids, "")
+	return s.deleteNodesWithReferences(ids, nil)
 }
 
 func (s *Store) DeleteNodeGroupsByIDs(ids []int64) (int, error) {

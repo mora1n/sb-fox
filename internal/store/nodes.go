@@ -184,12 +184,13 @@ func (s *Store) UpdateNode(n *models.Node) error {
 
 // DeleteNode removes a node by id.
 func (s *Store) DeleteNode(id int64) error {
-	_, err := s.db.Exec(`DELETE FROM nodes WHERE id = ?`, id)
+	_, err := s.deleteNodesWithReferences([]int64{id}, nil)
 	return err
 }
 
 func (s *Store) DeleteNodeForUser(id, ownerUserID int64) error {
-	return requireRowsAffected(s.db.Exec(`DELETE FROM nodes WHERE id = ? AND owner_user_id = ?`, id, ownerUserID))
+	_, err := s.deleteNodesWithReferences([]int64{id}, &ownerUserID)
+	return err
 }
 
 func (s *Store) ListNodeUsage(id, ownerUserID int64, allOwners bool) ([]*models.NodeUsage, error) {

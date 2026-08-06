@@ -11,19 +11,25 @@ export const useProfilesStore = defineStore('profiles', () => {
   const tokenLoaded = ref(false)
   let inFlight: Promise<void> | null = null
   let tokenInFlight: Promise<string> | null = null
+  let listVersion = 0
 
   async function fetchAll(force = false): Promise<void> {
     if (!force && loaded.value) return
     if (!force && inFlight) return inFlight
+    const version = listVersion
     loading.value = true
-    inFlight = get<Profile[]>('/profiles').then((items) => {
+    const request = get<Profile[]>('/profiles').then((items) => {
+      if (version !== listVersion) return
       profiles.value = items ?? []
       loaded.value = true
     }).finally(() => {
-      loading.value = false
-      inFlight = null
+      if (inFlight === request) {
+        loading.value = false
+        inFlight = null
+      }
     })
-    return inFlight
+    inFlight = request
+    return request
   }
 
   async function getOne(id: number): Promise<Profile> {
@@ -82,6 +88,13 @@ export const useProfilesStore = defineStore('profiles', () => {
     return r.token
   }
 
+  function invalidate(): void {
+    listVersion++
+    loaded.value = false
+    loading.value = false
+    inFlight = null
+  }
+
   function reset(): void {
     profiles.value = []
     subscriptionToken.value = ''
@@ -90,6 +103,7 @@ export const useProfilesStore = defineStore('profiles', () => {
     tokenLoaded.value = false
     inFlight = null
     tokenInFlight = null
+    listVersion++
   }
 
   return {
@@ -103,6 +117,7 @@ export const useProfilesStore = defineStore('profiles', () => {
     setSubscriptionEnabled,
     remove,
     bulkDelete,
+    invalidate,
     fetchSubscriptionToken,
     rotateSubscriptionToken,
     reset,

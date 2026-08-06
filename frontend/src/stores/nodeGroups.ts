@@ -60,6 +60,14 @@ export const useNodeGroupsStore = defineStore('nodeGroups', () => {
     return r.deleted
   }
 
+  function removeNodeIDs(ids: number[]): void {
+    const idSet = new Set(ids)
+    groups.value = groups.value.map((group) => ({
+      ...group,
+      node_ids: group.node_ids.filter((id) => !idSet.has(id)),
+    }))
+  }
+
   function reset(): void {
     groups.value = []
     loading.value = false
@@ -67,5 +75,5 @@ export const useNodeGroupsStore = defineStore('nodeGroups', () => {
     inFlight = null
   }
 
-  return { groups, loading, fetchAll, create, update, remove, bulkDelete, reset }
+  return { groups, loading, fetchAll, create, update, remove, bulkDelete, removeNodeIDs, reset }
 })

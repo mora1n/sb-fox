@@ -260,7 +260,7 @@ const en: Record<string, string> = {
   '删除订阅': 'Delete Subscriptions',
   '确认删除': 'Confirm deleting',
   '正在检查引用...': 'Checking references...',
-  '删除后可能影响以下订阅': 'Deleting may affect these subscriptions',
+  '节点引用将从组合节点和以下订阅中自动清理': 'Node references will be removed from node groups and these subscriptions',
   '此操作不可撤销。': 'This action cannot be undone.',
   '选项': 'Options',
   '未检测到 selector/urltest 分组。': 'No selector/urltest groups detected.',

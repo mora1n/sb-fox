@@ -2,6 +2,8 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { del, get, post, put } from '../api/client'
 import type { BulkDeleteResult, BulkNodeUsageResult, ImportPreviewResult, ImportResult, Node, NodeSummary, NodeUsage } from '../api/types'
+import { useNodeGroupsStore } from './nodeGroups'
+import { useProfilesStore } from './profiles'
 import { useSettingsStore } from './settings'
 import { nodeCountries, nodeTypes } from '../utils/nodeFilters'
 
@@ -24,6 +26,8 @@ function defaultFilters(): NodeFilters {
 
 export const useNodesStore = defineStore('nodes', () => {
   const settings = useSettingsStore()
+  const nodeGroups = useNodeGroupsStore()
+  const profiles = useProfilesStore()
   const nodes = ref<NodeSummary[]>([])
   const unfilteredNodes = ref<NodeSummary[]>([])
   const summaryNodes = ref<NodeSummary[]>([])
@@ -157,6 +161,8 @@ export const useNodesStore = defineStore('nodes', () => {
     for (const [key, items] of queryCache) {
       queryCache.set(key, items.filter((n) => !idSet.has(n.id)))
     }
+    nodeGroups.removeNodeIDs(ids)
+    profiles.invalidate()
   }
 
   async function previewBulkDelete(ids: number[]): Promise<BulkNodeUsageResult> {

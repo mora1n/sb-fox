@@ -188,6 +188,9 @@ func (s *Server) profileOptionNodeUsage(nodeID, ownerID int64, allOwners bool) (
 	var out []*models.NodeUsage
 	for _, p := range profiles {
 		opts := parseProfileOptions(p.Options)
+		if containsInt64(opts.ChainProxyNodeIDs, nodeID) {
+			out = append(out, &models.NodeUsage{ProfileID: p.ID, ProfileName: p.Name})
+		}
 		selections := make([]models.NodeSelection, 0, len(opts.GroupSelections)+1)
 		for _, sel := range opts.GroupSelections {
 			selections = append(selections, sel)

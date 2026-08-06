@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -283,13 +284,21 @@ func TestNodeUsageEndpoint(t *testing.T) {
 		"name": "grouped", "template_id": templateID, "node_group_ids": []int64{group.ID},
 		"options": map[string]bool{"autoCountryGroups": true},
 	}), nil)
+	decodeData(t, c.do(http.MethodPost, "/api/profiles", map[string]any{
+		"name": "legacy-chain", "template_id": templateID, "node_ids": []int64{n1, n2},
+		"options": map[string]any{
+			"autoCountryGroups": false,
+			"chainProxy":        true,
+			"chainProxyNodeIds": []int64{n1},
+		},
+	}), nil)
 
 	var usage []struct {
 		ProfileName  string `json:"profile_name"`
 		ViaGroupName string `json:"via_group_name"`
 	}
 	decodeData(t, c.do(http.MethodGet, "/api/nodes/"+itoa(n1)+"/usage", nil), &usage)
-	if len(usage) != 2 {
+	if len(usage) != 3 {
 		t.Fatalf("usage = %+v", usage)
 	}
 	seen := map[string]string{}
@@ -302,6 +311,9 @@ func TestNodeUsageEndpoint(t *testing.T) {
 	if seen["grouped"] != "g1" {
 		t.Fatalf("missing group usage: %+v", usage)
 	}
+	if _, ok := seen["legacy-chain"]; !ok {
+		t.Fatalf("missing legacy chain usage: %+v", usage)
+	}
 }
 
 func TestBulkDeleteNodesPreviewAndDelete(t *testing.T) {
@@ -313,6 +325,9 @@ func TestBulkDeleteNodesPreviewAndDelete(t *testing.T) {
 	nodeIDs := createPreviewOrderNodes(t, c, []string{"bulk-a", "bulk-b"})
 	groupID := createPreviewOrderGroup(t, c, "bulk-group", []int64{nodeIDs[0]})
 
+	var profile struct {
+		ID int64 `json:"id"`
+	}
 	decodeData(t, c.do(http.MethodPost, "/api/profiles", map[string]any{
 		"name":        "bulk-profile",
 		"template_id": templateID,
@@ -326,7 +341,7 @@ func TestBulkDeleteNodesPreviewAndDelete(t *testing.T) {
 				},
 			},
 		},
-	}), nil)
+	}), &profile)
 
 	var preview struct {
 		Usage []struct {
@@ -362,6 +377,34 @@ func TestBulkDeleteNodesPreviewAndDelete(t *testing.T) {
 		if status != http.StatusNotFound {
 			t.Fatalf("node %d still exists, get status=%d", id, status)
 		}
+	}
+	var group struct {
+		NodeIDs []int64 `json:"node_ids"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/node-groups/"+itoa(groupID), nil), &group)
+	if len(group.NodeIDs) != 0 {
+		t.Fatalf("group node ids after bulk delete = %v", group.NodeIDs)
+	}
+	var saved struct {
+		NodeIDs    []int64 `json:"node_ids"`
+		Options    string  `json:"options"`
+		Validation struct {
+			Valid               bool    `json:"valid"`
+			MissingNodeIDs      []int64 `json:"missing_node_ids"`
+			MissingNodeGroupIDs []int64 `json:"missing_node_group_ids"`
+		} `json:"validation"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/profiles/"+itoa(profile.ID), nil), &saved)
+	if len(saved.NodeIDs) != 0 || !saved.Validation.Valid || len(saved.Validation.MissingNodeIDs) != 0 || len(saved.Validation.MissingNodeGroupIDs) != 0 {
+		t.Fatalf("profile after bulk delete = %+v", saved)
+	}
+	var options models.ProfileOptions
+	if err := json.Unmarshal([]byte(saved.Options), &options); err != nil {
+		t.Fatal(err)
+	}
+	selection := options.GroupSelections["Proxy"]
+	if len(selection.NodeIDs) != 0 || !sameInt64s(selection.NodeGroupIDs, []int64{groupID}) {
+		t.Fatalf("profile selection after bulk delete = %+v", selection)
 	}
 }
 

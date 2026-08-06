@@ -46,7 +46,7 @@ const confirmDisabled = computed(() => props.busy || props.loadingPreview || !!p
       </div>
       <div v-else-if="affected.length" class="alert alert-warning">
         <div>
-          <div class="font-medium">{{ i18n.t('删除后可能影响以下订阅') }}</div>
+          <div class="font-medium">{{ i18n.t('节点引用将从组合节点和以下订阅中自动清理') }}</div>
           <div class="mt-2 flex flex-wrap gap-1">
             <span v-for="name in affected" :key="name" class="badge badge-sm badge-warning">{{ name }}</span>
           </div>
