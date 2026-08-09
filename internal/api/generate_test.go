@@ -295,7 +295,7 @@ func TestGenerateConfigWithGroupSelectionOutboundRef(t *testing.T) {
 		AutoCountryGroups: false,
 		GroupSelections: map[string]models.NodeSelection{
 			"Proxy":    {NodeIDs: []int64{1}},
-			"Fallback": {OutboundRefs: []string{"Proxy"}},
+			"Fallback": {OutboundRefs: []string{"Direct", "Proxy"}},
 		},
 	}, nil)
 	if err != nil {
@@ -303,7 +303,7 @@ func TestGenerateConfigWithGroupSelectionOutboundRef(t *testing.T) {
 	}
 
 	outbounds := generatedOutboundMap(t, config)
-	if got := stringSliceValue(t, outbounds["Fallback"]["outbounds"]); !sameStrings(got, []string{"Proxy"}) {
+	if got := stringSliceValue(t, outbounds["Fallback"]["outbounds"]); !sameStrings(got, []string{"Direct", "Proxy"}) {
 		t.Fatalf("Fallback outbounds = %v", got)
 	}
 	if got := stringSliceValue(t, outbounds["Proxy"]["outbounds"]); !sameStrings(got, []string{"proxy-node"}) {

@@ -22,6 +22,7 @@ import type {
 } from '../../api/types'
 import NodeMultiSelect from '../NodeMultiSelect.vue'
 import NodeGroupMultiSelect from '../NodeGroupMultiSelect.vue'
+import OutboundRefMultiSelect from '../OutboundRefMultiSelect.vue'
 import JsonViewer from '../JsonViewer.vue'
 import ValidationBadge from '../ValidationBadge.vue'
 
@@ -649,17 +650,8 @@ function groupCanReach(current: string, target: string, graph: Map<string, strin
   return (graph.get(current) ?? []).some((next) => groupCanReach(next, target, graph, seen))
 }
 
-function toggleOutboundRef(groupTag: string, sel: NodeSelection, tag: string) {
-  const set = new Set(sel.outboundRefs)
-  if (set.has(tag)) set.delete(tag)
-  else {
-    if (groupRefCreatesCycle(groupTag, tag)) {
-      ui.error(i18n.t('不能选择会造成循环引用的分组'))
-      return
-    }
-    set.add(tag)
-  }
-  sel.outboundRefs = [...set]
+function setOutboundRefs(groupTag: string, refs: string[]) {
+  selectionFor(groupTag).outboundRefs = refs
 }
 
 async function submit() {
@@ -858,25 +850,11 @@ async function formatGenerated() {
               </label>
             </div>
             <div v-if="activeStructureGroup" class="mb-3">
-              <div class="label-text mb-1">{{ i18n.t('引用出口') }}</div>
-              <div class="border border-base-300 rounded-box max-h-32 overflow-y-auto divide-y divide-base-200">
-                <label
-                  v-for="tag in outboundRefOptions(activeGroup)"
-                  :key="tag"
-                  class="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-base-200"
-                >
-                  <input
-                    type="checkbox"
-                    class="checkbox checkbox-sm"
-                    :checked="selectionFor(activeGroup).outboundRefs.includes(tag)"
-                    @change="toggleOutboundRef(activeGroup, selectionFor(activeGroup), tag)"
-                  />
-                  <span class="truncate flex-1 text-sm" :title="tag">{{ tag }}</span>
-                </label>
-                <div v-if="!outboundRefOptions(activeGroup).length" class="px-3 py-4 text-sm opacity-60 text-center">
-                  {{ i18n.t('无可选出口') }}
-                </div>
-              </div>
+              <OutboundRefMultiSelect
+                :options="outboundRefOptions(activeGroup)"
+                :model-value="selectionFor(activeGroup).outboundRefs"
+                @update:model-value="setOutboundRefs(activeGroup, $event)"
+              />
             </div>
             <NodeMultiSelect :nodes="allNodes" v-model="activeNodeIds" :disabled="dependenciesLoading || !activeGroup" />
             <div class="mt-3">

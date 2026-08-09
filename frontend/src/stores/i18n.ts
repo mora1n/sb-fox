@@ -203,6 +203,8 @@ const en: Record<string, string> = {
   '链式代理节点': 'Chain Proxy Nodes',
   '当前出口分组': 'Current Outlet Group',
   '引用出口': 'Referenced Outbounds',
+  '已选出口': 'Selected Outbounds',
+  '出口列表': 'Outbound List',
   '不能选择会造成循环引用的分组': 'Cannot select a group that would create a reference cycle',
   '跳过国家分组': 'Skip Country Groups',
   '模板:': 'Template:',
