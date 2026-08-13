@@ -3,6 +3,8 @@ package api
 import (
 	"strings"
 	"testing"
+
+	"github.com/mora1n/sb-fox/internal/merge"
 )
 
 func TestExtractTemplateProxyOutbounds(t *testing.T) {
@@ -40,6 +42,78 @@ func TestExtractTemplateProxyOutbounds(t *testing.T) {
 	}
 	if len(st.AvailableOutbounds) != 2 || st.AvailableOutbounds[0] != "Direct" || st.AvailableOutbounds[1] != "Proxy" {
 		t.Fatalf("available outbounds = %+v", st.AvailableOutbounds)
+	}
+}
+
+func TestExtractTemplateProxyOutboundsPreservesRouteRuleReferences(t *testing.T) {
+	content := `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":["node-a","Reqable","Nested","Direct"],"default":"Reqable"},
+    {"type":"shadowsocks","tag":"node-a","server":"a.example.com","server_port":8388},
+    {"type":"http","tag":"Reqable","server":"127.0.0.1","server_port":9000},
+    {"type":"socks","tag":"Nested","server":"127.0.0.1","server_port":1080},
+    {"type":"direct","tag":"Direct"}
+  ],
+  "route": {
+    "rules": [
+      {"type":"logical","mode":"and","rules":[{"process_name":"Reqable.exe"},{"network":"tcp"}],"outbound":"Reqable"},
+      {"type":"logical","mode":"and","rules":[{"network":"tcp","outbound":"Nested"}]}
+    ],
+    "final":"Proxy"
+  }
+}`
+
+	processed, proxies, err := extractTemplateProxyOutbounds(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(proxies) != 1 || proxies[0].GetString("tag") != "node-a" {
+		t.Fatalf("proxies = %+v", proxies)
+	}
+	cfg, err := merge.ParseOrdered([]byte(processed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawOutbounds, _ := cfg.Get("outbounds")
+	outbounds, _ := rawOutbounds.([]any)
+	if len(outbounds) != 4 {
+		t.Fatalf("processed outbounds = %+v", outbounds)
+	}
+	wantTags := []string{"Proxy", "Reqable", "Nested", "Direct"}
+	for i, want := range wantTags {
+		outbound, ok := outbounds[i].(*merge.OrderedMap)
+		if !ok || outbound.GetString("tag") != want {
+			t.Fatalf("outbound[%d] = %+v, want tag %q", i, outbounds[i], want)
+		}
+	}
+	reqable := outbounds[1].(*merge.OrderedMap)
+	if reqable.GetString("type") != "http" || reqable.GetString("server") != "127.0.0.1" {
+		t.Fatalf("Reqable outbound = %+v", reqable)
+	}
+	nested := outbounds[2].(*merge.OrderedMap)
+	if nested.GetString("type") != "socks" || nested.GetString("server") != "127.0.0.1" {
+		t.Fatalf("Nested outbound = %+v", nested)
+	}
+	st, err := readTemplateStructure(processed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Groups) != 1 || !sameStrings(st.Groups[0].Outbounds, []string{"Reqable", "Nested", "Direct"}) {
+		t.Fatalf("groups = %+v", st.Groups)
+	}
+	if st.Groups[0].Default != "Reqable" {
+		t.Fatalf("Proxy default = %q, want Reqable", st.Groups[0].Default)
+	}
+	original, err := merge.ParseOrdered([]byte(content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalRoute, _ := original.Get("route")
+	processedRoute, _ := cfg.Get("route")
+	originalJSON, _ := originalRoute.(*merge.OrderedMap).MarshalJSON()
+	processedJSON, _ := processedRoute.(*merge.OrderedMap).MarshalJSON()
+	if string(processedJSON) != string(originalJSON) {
+		t.Fatalf("processed route = %s, want %s", processedJSON, originalJSON)
 	}
 }
 

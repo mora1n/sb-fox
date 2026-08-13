@@ -79,6 +79,67 @@ func TestTemplateLookupByNameForOverwriteFlow(t *testing.T) {
 	}
 }
 
+func TestTemplateImportPreservesRouteReferencedOutbounds(t *testing.T) {
+	_, ts := testServer(t)
+	c := newClient(t, ts.URL)
+	c.http.Jar = login(t, ts.URL)
+	content := `{
+  "outbounds": [
+    {"type":"selector","tag":"Proxy","outbounds":["node-a","Reqable"]},
+    {"type":"shadowsocks","tag":"node-a","server":"a.example.com","server_port":8388},
+    {"type":"http","tag":"Reqable","server":"127.0.0.1","server_port":9000}
+  ],
+  "route": {"rules":[{"type":"logical","mode":"and","rules":[{"process_name":"Reqable.exe"},{"network":"tcp"}],"outbound":"Reqable"}],"final":"Proxy"}
+}`
+
+	var created struct {
+		Template struct {
+			ID      int64  `json:"id"`
+			Content string `json:"content"`
+		} `json:"template"`
+		Imported int `json:"imported"`
+		Nodes    []struct {
+			Tag string `json:"tag"`
+		} `json:"nodes"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/templates", map[string]string{
+		"name": "route-ref", "content": content,
+	}), &created)
+	if created.Imported != 1 || len(created.Nodes) != 1 || created.Nodes[0].Tag != "node-a" {
+		t.Fatalf("created import result = %+v", created)
+	}
+	if strings.Contains(created.Template.Content, `"tag": "node-a"`) || !strings.Contains(created.Template.Content, `"tag": "Reqable"`) {
+		t.Fatalf("created template content = %s", created.Template.Content)
+	}
+
+	var nodes []struct {
+		Tag string `json:"tag"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/nodes", nil), &nodes)
+	for _, node := range nodes {
+		if node.Tag == "Reqable" {
+			t.Fatalf("route-referenced outbound was imported as a node: %+v", nodes)
+		}
+	}
+
+	var updateResult struct {
+		Imported int `json:"imported"`
+	}
+	decodeData(t, c.do(http.MethodPut, "/api/templates/"+itoa(created.Template.ID), map[string]string{
+		"content": content,
+	}), &updateResult)
+	if updateResult.Imported != 0 {
+		t.Fatalf("updated template imported %d nodes, want 0", updateResult.Imported)
+	}
+	var updated struct {
+		Content string `json:"content"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/templates/"+itoa(created.Template.ID), nil), &updated)
+	if strings.Contains(updated.Content, `"tag": "node-a"`) || !strings.Contains(updated.Content, `"tag": "Reqable"`) {
+		t.Fatalf("updated template content = %s", updated.Content)
+	}
+}
+
 func TestUserResourceIsolationAcrossAccounts(t *testing.T) {
 	srv, ts := testServer(t)
 	admin := newClient(t, ts.URL)

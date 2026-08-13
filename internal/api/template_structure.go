@@ -120,6 +120,7 @@ func extractTemplateProxyOutbounds(content string) (string, []*merge.OrderedMap,
 		return "", nil, fmt.Errorf("outbounds must be an array")
 	}
 
+	routeRefs := routeRuleOutboundRefs(cfg)
 	var proxies []*merge.OrderedMap
 	proxyTags := map[string]bool{}
 	for _, ob := range arr {
@@ -127,7 +128,7 @@ func extractTemplateProxyOutbounds(content string) (string, []*merge.OrderedMap,
 		if !ok {
 			continue
 		}
-		if isProxyOutbound(om.GetString("type")) {
+		if isProxyOutbound(om.GetString("type")) && !routeRefs[om.GetString("tag")] {
 			proxies = append(proxies, om)
 			if tag := om.GetString("tag"); tag != "" {
 				proxyTags[tag] = true
@@ -148,7 +149,7 @@ func extractTemplateProxyOutbounds(content string) (string, []*merge.OrderedMap,
 			next = append(next, ob)
 			continue
 		}
-		if isProxyOutbound(om.GetString("type")) {
+		if isProxyOutbound(om.GetString("type")) && !routeRefs[om.GetString("tag")] {
 			continue
 		}
 		cleanTemplateGroupRefs(om, proxyTags)
@@ -157,6 +158,48 @@ func extractTemplateProxyOutbounds(content string) (string, []*merge.OrderedMap,
 	cfg.Set("outbounds", next)
 	processed, err := orderedString(cfg)
 	return processed, proxies, err
+}
+
+func routeRuleOutboundRefs(cfg *merge.OrderedMap) map[string]bool {
+	refs := map[string]bool{}
+	rawRoute, ok := cfg.Get("route")
+	if !ok {
+		return refs
+	}
+	route, ok := rawRoute.(*merge.OrderedMap)
+	if !ok {
+		return refs
+	}
+	rawRules, ok := route.Get("rules")
+	if !ok {
+		return refs
+	}
+	rules, ok := rawRules.([]any)
+	if !ok {
+		return refs
+	}
+	collectRouteRuleOutboundRefs(rules, refs)
+	return refs
+}
+
+func collectRouteRuleOutboundRefs(rules []any, refs map[string]bool) {
+	for _, item := range rules {
+		rule, ok := item.(*merge.OrderedMap)
+		if !ok {
+			continue
+		}
+		if outbound := strings.TrimSpace(rule.GetString("outbound")); outbound != "" {
+			refs[outbound] = true
+		}
+		rawNested, ok := rule.Get("rules")
+		if !ok {
+			continue
+		}
+		nested, ok := rawNested.([]any)
+		if ok {
+			collectRouteRuleOutboundRefs(nested, refs)
+		}
+	}
 }
 
 func cleanTemplateGroupRefs(ob *merge.OrderedMap, removed map[string]bool) {
