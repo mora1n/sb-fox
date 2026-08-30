@@ -30,6 +30,18 @@ type Result struct {
 	FromCache bool
 }
 
+// ByteOptions configures an uncached raw response fetch. MaxBytes must be
+// positive; callers use it to make resource limits explicit.
+type ByteOptions struct {
+	Request  Options
+	MaxBytes int64
+}
+
+type ByteResult struct {
+	URL  string
+	Body []byte
+}
+
 type BatchResult struct {
 	Bodies []string
 	Items  []BatchItem

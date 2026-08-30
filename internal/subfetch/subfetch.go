@@ -78,6 +78,49 @@ func (f *Fetcher) Fetch(ctx context.Context, rawURL string) (string, error) {
 	return result.Body, nil
 }
 
+// FetchBytes retrieves an uncached raw HTTP body without text/base64
+// transformations. It is used for source JSON and binary SRS rule-set inputs.
+func (f *Fetcher) FetchBytes(ctx context.Context, rawURL string, opts ByteOptions) (ByteResult, error) {
+	if opts.MaxBytes <= 0 {
+		return ByteResult{}, errors.New("subfetch: max bytes must be positive")
+	}
+	opts.Request.NoCache = true
+	spec, err := parseURLSpec(rawURL, opts.Request)
+	if err != nil {
+		return ByteResult{}, err
+	}
+	if err := validateURL(spec.URL); err != nil {
+		return ByteResult{}, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, spec.URL, nil)
+	if err != nil {
+		return ByteResult{}, err
+	}
+	for key, value := range spec.Headers {
+		req.Header.Set(key, value)
+	}
+	client := f.client
+	if spec.Insecure {
+		client = f.insecureClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return ByteResult{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return ByteResult{}, fmt.Errorf("subfetch: status %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, opts.MaxBytes+1))
+	if err != nil {
+		return ByteResult{}, err
+	}
+	if int64(len(body)) > opts.MaxBytes {
+		return ByteResult{}, fmt.Errorf("subfetch: response exceeds %d bytes", opts.MaxBytes)
+	}
+	return ByteResult{URL: spec.SafeURL, Body: body}, nil
+}
+
 // FetchWithOptions retrieves a single subscription URL with Sub-Store-style
 // fragment options stripped from the actual request URL.
 func (f *Fetcher) FetchWithOptions(ctx context.Context, rawURL string, opts Options) (Result, error) {

@@ -227,4 +227,38 @@ var migrations = []string{
 
 	// 13: per-profile public subscription switch.
 	`ALTER TABLE profiles ADD COLUMN subscription_enabled INTEGER NOT NULL DEFAULT 1;`,
+
+	// 14: per-user rule-set definitions and atomically published artifacts.
+	`CREATE TABLE rule_sets (
+		id               INTEGER PRIMARY KEY AUTOINCREMENT,
+		owner_user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		name             TEXT NOT NULL,
+		description      TEXT NOT NULL DEFAULT '',
+		published_json   BLOB NOT NULL,
+		published_srs    BLOB NOT NULL,
+		rule_count       INTEGER NOT NULL,
+		json_size        INTEGER NOT NULL,
+		srs_size         INTEGER NOT NULL,
+		json_sha256      TEXT NOT NULL,
+		srs_sha256       TEXT NOT NULL,
+		kernel_version   TEXT NOT NULL,
+		published_at     TEXT NOT NULL,
+		last_attempt_at  TEXT NOT NULL,
+		last_error       TEXT NOT NULL DEFAULT '',
+		created_at       TEXT NOT NULL,
+		updated_at       TEXT NOT NULL,
+		UNIQUE(owner_user_id, name)
+	);
+	CREATE TABLE rule_set_sources (
+		id          INTEGER PRIMARY KEY AUTOINCREMENT,
+		rule_set_id INTEGER NOT NULL REFERENCES rule_sets(id) ON DELETE CASCADE,
+		kind        TEXT NOT NULL CHECK (kind IN ('manual', 'remote')),
+		format      TEXT NOT NULL CHECK (format IN ('source', 'binary')),
+		url         TEXT NOT NULL DEFAULT '',
+		content     TEXT NOT NULL DEFAULT '',
+		position    INTEGER NOT NULL,
+		UNIQUE(rule_set_id, position)
+	);
+	CREATE INDEX idx_rule_sets_owner ON rule_sets(owner_user_id);
+	CREATE INDEX idx_rule_set_sources_parent ON rule_set_sources(rule_set_id);`,
 }

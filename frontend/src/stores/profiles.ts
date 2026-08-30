@@ -5,12 +5,9 @@ import type { BulkDeleteResult, Profile, ProfilePayload } from '../api/types'
 
 export const useProfilesStore = defineStore('profiles', () => {
   const profiles = ref<Profile[]>([])
-  const subscriptionToken = ref('')
   const loading = ref(false)
   const loaded = ref(false)
-  const tokenLoaded = ref(false)
   let inFlight: Promise<void> | null = null
-  let tokenInFlight: Promise<string> | null = null
   let listVersion = 0
 
   async function fetchAll(force = false): Promise<void> {
@@ -68,26 +65,6 @@ export const useProfilesStore = defineStore('profiles', () => {
     return r.deleted
   }
 
-  async function fetchSubscriptionToken(force = false): Promise<string> {
-    if (!force && tokenLoaded.value) return subscriptionToken.value
-    if (!force && tokenInFlight) return tokenInFlight
-    tokenInFlight = get<{ token: string }>('/auth/subscription-token').then((r) => {
-      subscriptionToken.value = r.token
-      tokenLoaded.value = true
-      return r.token
-    }).finally(() => {
-      tokenInFlight = null
-    })
-    return tokenInFlight
-  }
-
-  async function rotateSubscriptionToken(): Promise<string> {
-    const r = await post<{ token: string }>('/auth/subscription-token/rotate')
-    subscriptionToken.value = r.token
-    tokenLoaded.value = true
-    return r.token
-  }
-
   function invalidate(): void {
     listVersion++
     loaded.value = false
@@ -97,18 +74,14 @@ export const useProfilesStore = defineStore('profiles', () => {
 
   function reset(): void {
     profiles.value = []
-    subscriptionToken.value = ''
     loading.value = false
     loaded.value = false
-    tokenLoaded.value = false
     inFlight = null
-    tokenInFlight = null
     listVersion++
   }
 
   return {
     profiles,
-    subscriptionToken,
     loading,
     fetchAll,
     getOne,
@@ -118,8 +91,6 @@ export const useProfilesStore = defineStore('profiles', () => {
     remove,
     bulkDelete,
     invalidate,
-    fetchSubscriptionToken,
-    rotateSubscriptionToken,
     reset,
   }
 })

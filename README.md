@@ -3,7 +3,7 @@
 [![Release](https://img.shields.io/github/v/release/mora1n/sb-fox?sort=semver)](https://github.com/mora1n/sb-fox/releases)
 [![sing-box](https://img.shields.io/badge/sing--box-recommended%201.13.14-neutral)](https://github.com/SagerNet/sing-box)
 
-`sb-fox` 是一个轻量的 sing-box Web 面板，用于管理节点、模板和公开订阅。
+`sb-fox` 是一个轻量的 sing-box Web 面板，用于管理节点、模板、规则集和公开订阅。
 
 它围绕日常使用流程设计：导入节点，按国家整理，选择模板，然后发布带共享 token 的 sing-box 订阅链接。
 
@@ -14,6 +14,7 @@
 - 按可自定义的国家热度顺序生成国家 selector
 - 在设置页通过拖拽调整国家优先级
 - 在简洁的 Web UI 中管理模板、节点和订阅
+- 聚合手工 source JSON、远程 JSON/SRS 规则源，发布 JSON/SRS 下载链接
 - 支持多用户，管理员可管理用户、重置密码并设置资源上限
 - 生成可轮换共享 token 的公开订阅链接，并按订阅名称区分
 - 调用本机 sing-box 校验和格式化生成配置，未安装内核时相关按钮会置灰提示
@@ -26,6 +27,7 @@
 4. 在“节点”中导入分享链接、远程订阅或 sing-box 配置。
 5. 在“订阅”中选择模板、配置出口分组，并生成预览。
 6. 开启分享订阅后，复制订阅链接到 sing-box 客户端使用。
+7. 如需自托管规则集，在“规则集”中添加规则源并把生成的远程规则集片段加入模板。
 
 ## 安装
 
@@ -128,6 +130,18 @@ data/templates/fakeip.json
 
 该模板建议使用 sing-box `1.13.14` 做兼容性检查；`sb-fox` 运行时不锁定 sing-box 版本。
 
+## 规则集
+
+规则集模块支持按顺序聚合以下来源：
+
+- 手工输入的 sing-box source-format JSON
+- 远程 source JSON
+- 远程 binary SRS
+
+保存或手动刷新时，`sb-fox` 会使用当前用户选择的 sing-box 内核完成校验、SRS 反编译、结构去重和重新编译。任一来源失败都会中止本次发布，已经发布的旧快照不会被覆盖。
+
+发布成功后可在面板复制 source JSON、binary SRS 链接，或直接复制 `route.rule_set` 配置片段。规则集和订阅复用同一个用户级共享 token；轮换 token 会同时撤销两类旧链接。
+
 ## 配置
 
 常用选项：
@@ -177,9 +191,9 @@ sing-box check -c data/templates/fakeip.json
 
 ## 安全
 
-`/sub/{token}/{订阅名称}` 链接是公开订阅入口，会直接返回生成后的 JSON 配置。token 是用户级共享凭据，任何拿到完整链接的人都可以获取完整配置；如果 token 泄露，应及时轮换。
+`/sub/{token}/{订阅名称}` 和 `/rules/{token}/{规则集名称}.{json|srs}` 是公开入口。token 是用户级共享凭据，任何拿到完整链接的人都可以获取对应配置或规则集；如果 token 泄露，应及时轮换。
 
-远程订阅抓取默认拒绝私网、环回和云元数据地址。只有在可信网络环境中才建议开启私网地址抓取。
+远程订阅和规则集抓取默认拒绝私网、环回和云元数据地址。规则集单源限制为 64 MiB，单次聚合原始输入总计限制为 256 MiB。只有在可信网络环境中才建议开启私网地址抓取。
 
 ## 免责声明
 

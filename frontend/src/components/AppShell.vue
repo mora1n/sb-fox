@@ -16,6 +16,7 @@ import {
   HomeIcon,
   ServerStackIcon,
   DocumentTextIcon,
+  CircleStackIcon,
   UserGroupIcon,
   UsersIcon,
   Cog6ToothIcon,
@@ -40,6 +41,7 @@ const nav = computed(() => [
   { name: 'dashboard', label: i18n.t('仪表盘'), icon: HomeIcon },
   { name: 'nodes', label: i18n.t('节点'), icon: ServerStackIcon },
   { name: 'templates', label: i18n.t('模板'), icon: DocumentTextIcon },
+  { name: 'ruleSets', label: i18n.t('规则集'), icon: CircleStackIcon },
   { name: 'profiles', label: i18n.t('订阅'), icon: UserGroupIcon },
   { name: 'settings', label: i18n.t('设置'), icon: Cog6ToothIcon },
 ])

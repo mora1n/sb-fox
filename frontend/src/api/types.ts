@@ -20,12 +20,29 @@ export type ApiErrorKind =
   | 'auto_country_empty'
   | 'chain_proxy_empty'
 
+export type RuleSetPublishStage =
+  | 'kernel'
+  | 'fetch'
+  | 'limit'
+  | 'decompile'
+  | 'format'
+  | 'decode'
+  | 'merge'
+  | 'compile'
+  | 'version'
+
 export interface ApiErrorDetails {
-  kind: ApiErrorKind
+  kind: ApiErrorKind | 'rule_set_publish_error'
   panel?: ApiErrorPanel
   groupTag?: string
   outboundTag?: string
   cycle?: string[]
+  stage?: RuleSetPublishStage | string
+  source_index?: number
+  source_kind?: RuleSetSourceKind
+  source_format?: RuleSetSourceFormat
+  url?: string
+  message?: string
 }
 
 export type CountrySource = 'auto' | 'manual' | 'override'
@@ -114,6 +131,52 @@ export interface NodeGroupPayload {
   name: string
   description: string
   node_ids: number[]
+}
+
+export type RuleSetSourceKind = 'manual' | 'remote'
+export type RuleSetSourceFormat = 'source' | 'binary'
+
+export interface RuleSetSource {
+  id: number
+  rule_set_id: number
+  kind: RuleSetSourceKind
+  format: RuleSetSourceFormat
+  url?: string
+  content?: string
+  position: number
+}
+
+export interface RuleSet {
+  id: number
+  owner_user_id: number
+  name: string
+  description: string
+  sources?: RuleSetSource[]
+  source_count: number
+  rule_count: number
+  json_size: number
+  srs_size: number
+  json_sha256: string
+  srs_sha256: string
+  kernel_version: string
+  published_at: string
+  last_attempt_at: string
+  last_error?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface RuleSetSourcePayload {
+  kind: RuleSetSourceKind
+  format: RuleSetSourceFormat
+  url?: string
+  content?: string
+}
+
+export interface RuleSetPayload {
+  name: string
+  description: string
+  sources: RuleSetSourcePayload[]
 }
 
 export interface ProfileOptions {

@@ -87,6 +87,23 @@ func TestFetchAllowPrivate(t *testing.T) {
 	}
 }
 
+func TestFetchBytesPreservesBinaryAndEnforcesLimit(t *testing.T) {
+	binary := []byte{0, 1, 2, 3, 255}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(binary)
+	}))
+	defer srv.Close()
+	f := New()
+	f.AllowPrivate = true
+	result, err := f.FetchBytes(context.Background(), srv.URL, ByteOptions{MaxBytes: int64(len(binary))})
+	if err != nil || string(result.Body) != string(binary) {
+		t.Fatalf("binary result = %v err=%v", result.Body, err)
+	}
+	if _, err := f.FetchBytes(context.Background(), srv.URL, ByteOptions{MaxBytes: 2}); err == nil {
+		t.Fatal("expected explicit size error")
+	}
+}
+
 func TestFetchManyUsesOptionsAndShortTTLCache(t *testing.T) {
 	var calls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -39,6 +39,7 @@ func (s *Server) Router() http.Handler {
 	r.Get("/sub/{token}/*", func(w http.ResponseWriter, r *http.Request) {
 		s.handleSubscription(w, r, chi.URLParam(r, "token"), strings.TrimPrefix(chi.URLParam(r, "*"), "/"))
 	})
+	r.Get("/rules/{token}/*", s.handlePublicRuleSet)
 	r.Get("/site.webmanifest", s.handleWebManifest)
 
 	// frontend
@@ -123,6 +124,15 @@ func (s *Server) mountAuthed(r chi.Router) {
 	r.Put("/profiles/{id}", s.handleUpdateProfile)
 	r.Put("/profiles/{id}/subscription-enabled", s.handleSetProfileSubscriptionEnabled)
 	r.Delete("/profiles/{id}", s.handleDeleteProfile)
+
+	r.Get("/rule-sets", s.handleListRuleSets)
+	r.Post("/rule-sets", s.handleCreateRuleSet)
+	r.Post("/rule-sets/bulk-delete", s.handleBulkDeleteRuleSets)
+	r.Get("/rule-sets/{id}", s.handleGetRuleSet)
+	r.Put("/rule-sets/{id}", s.handleUpdateRuleSet)
+	r.Post("/rule-sets/{id}/refresh", s.handleRefreshRuleSet)
+	r.Get("/rule-sets/{id}/export/{format}", s.handleExportRuleSet)
+	r.Delete("/rule-sets/{id}", s.handleDeleteRuleSet)
 
 	r.Post("/generate/preview", s.handlePreview)
 	r.Post("/generate/validate", s.handleValidate)

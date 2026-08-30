@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { post } from '../api/client'
 import { useProfilesStore } from '../stores/profiles'
+import { usePublicTokenStore } from '../stores/publicToken'
 import { useTemplatesStore } from '../stores/templates'
 import { useNodesStore } from '../stores/nodes'
 import { useNodeGroupsStore } from '../stores/nodeGroups'
@@ -16,6 +17,7 @@ import ProfileEditorModal from '../components/profiles/ProfileEditorModal.vue'
 type EditorLaunchMode = 'create' | 'edit' | 'copy'
 
 const store = useProfilesStore()
+const publicToken = usePublicTokenStore()
 const templates = useTemplatesStore()
 const nodes = useNodesStore()
 const nodeGroups = useNodeGroupsStore()
@@ -30,7 +32,7 @@ const viewingConfig = ref('')
 onMounted(async () => {
   try {
     await Promise.all([store.fetchAll(), templates.fetchAll()])
-    void store.fetchSubscriptionToken().catch((e) => ui.error(errMsg(e)))
+    void publicToken.fetchToken().catch((e) => ui.error(errMsg(e)))
     void settings.fetchAppInfo().catch((e) => ui.error(errMsg(e)))
     window.setTimeout(() => {
       prefetchEditorData([], true)

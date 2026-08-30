@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useProfilesStore } from '../../stores/profiles'
+import { usePublicTokenStore } from '../../stores/publicToken'
 import { useTemplatesStore } from '../../stores/templates'
 import { useSettingsStore } from '../../stores/settings'
 import { useUiStore } from '../../stores/ui'
@@ -38,6 +39,7 @@ const emit = defineEmits<{
 }>()
 
 const store = useProfilesStore()
+const publicToken = usePublicTokenStore()
 const templates = useTemplatesStore()
 const settings = useSettingsStore()
 const ui = useUiStore()
@@ -73,7 +75,7 @@ function templateName(id: number) {
 
 function profileLinkText(p: Profile) {
   const base = (tokenHost.value || window.location.origin).replace(/\/+$/, '')
-  return `${base}/sub/${encodeURIComponent(store.subscriptionToken)}/${encodeURIComponent(p.name)}`
+  return `${base}/sub/${encodeURIComponent(publicToken.token)}/${encodeURIComponent(p.name)}`
 }
 
 function compareText(a: string, b: string, dir: SortDir) {
@@ -128,9 +130,9 @@ function profileValidationTitle(profile: Profile) {
 }
 
 async function rotateSharedToken() {
-  if (!confirm('轮换共享 token 后所有订阅链接都会变化，确认？')) return
+  if (!confirm('轮换共享 token 后所有订阅和规则集链接都会变化，确认？')) return
   try {
-    await store.rotateSubscriptionToken()
+    await publicToken.rotate()
     ui.success('token 已轮换')
   } catch (e) {
     ui.error(errMsg(e))
@@ -254,13 +256,13 @@ function onProfileSubscriptionEnabledChange(profile: Profile, event: Event) {
         <div class="flex items-center justify-between gap-3 flex-wrap">
           <div>
             <h2 class="card-title text-base">{{ i18n.t('共享 token') }}</h2>
-            <p class="text-xs opacity-60">{{ i18n.t('所有订阅链接共享同一 token，并按订阅名称区分。') }}</p>
+            <p class="text-xs opacity-60">{{ i18n.t('所有订阅和规则集链接共享同一 token。') }}</p>
           </div>
           <button class="btn btn-sm" @click="rotateSharedToken">
             <ArrowPathIcon class="h-4 w-4" /> {{ i18n.t('轮换共享 token') }}
           </button>
         </div>
-        <div class="mono text-xs bg-base-200 rounded-box px-3 py-2 break-all">{{ store.subscriptionToken || '...' }}</div>
+        <div class="mono text-xs bg-base-200 rounded-box px-3 py-2 break-all">{{ publicToken.token || '...' }}</div>
       </div>
     </div>
 
@@ -285,7 +287,7 @@ function onProfileSubscriptionEnabledChange(profile: Profile, event: Event) {
       <div
         v-for="p in store.profiles"
         :key="p.id"
-        v-memo="[p.id, p.name, p.template_id, p.subscription_enabled, p.updated_at, selectedProfiles.has(p.id), store.subscriptionToken, tokenHost, i18n.locale, profileValidationMemo(p)]"
+        v-memo="[p.id, p.name, p.template_id, p.subscription_enabled, p.updated_at, selectedProfiles.has(p.id), publicToken.token, tokenHost, i18n.locale, profileValidationMemo(p)]"
         class="card bg-base-100 shadow-sm border border-base-300 cursor-pointer transition-colors hover:bg-base-200/60"
         :class="{ 'ring-2 ring-primary': selectedProfiles.has(p.id) }"
         role="button"
@@ -335,7 +337,7 @@ function onProfileSubscriptionEnabledChange(profile: Profile, event: Event) {
               <button type="button" class="btn btn-xs btn-ghost text-error" :title="i18n.t('删除')" @click.stop="remove(p)"><TrashIcon class="h-4 w-4" /></button>
             </div>
           </div>
-          <div v-if="store.subscriptionToken" class="space-y-1" @click.stop @keydown.stop>
+          <div v-if="publicToken.token" class="space-y-1" @click.stop @keydown.stop>
             <div class="flex items-center justify-between gap-2">
               <span class="text-xs opacity-60">{{ i18n.t('订阅链接') }}</span>
               <label class="label cursor-pointer gap-2 p-0">
@@ -350,7 +352,7 @@ function onProfileSubscriptionEnabledChange(profile: Profile, event: Event) {
               </label>
             </div>
             <TokenLinkField
-              :token="store.subscriptionToken"
+              :token="publicToken.token"
               :profile-name="p.name"
               :host-prefix="tokenHost"
             />
@@ -373,7 +375,7 @@ function onProfileSubscriptionEnabledChange(profile: Profile, event: Event) {
           <tr
             v-for="p in sortedProfiles"
             :key="p.id"
-            v-memo="[p.id, p.name, p.template_id, p.subscription_enabled, p.updated_at, selectedProfiles.has(p.id), store.subscriptionToken, tokenHost, i18n.locale, profileValidationMemo(p)]"
+            v-memo="[p.id, p.name, p.template_id, p.subscription_enabled, p.updated_at, selectedProfiles.has(p.id), publicToken.token, tokenHost, i18n.locale, profileValidationMemo(p)]"
             class="cursor-pointer hover:bg-base-200/70"
             :class="{ 'bg-base-200': selectedProfiles.has(p.id) }"
             @click="toggleProfileSelect(p.id)"
@@ -401,10 +403,10 @@ function onProfileSubscriptionEnabledChange(profile: Profile, event: Event) {
             </td>
             <td class="max-w-64 truncate" :title="templateName(p.template_id)">{{ templateName(p.template_id) }}</td>
             <td class="min-w-80" @click.stop>
-              <div v-if="store.subscriptionToken" class="flex items-center gap-2 min-w-0">
+              <div v-if="publicToken.token" class="flex items-center gap-2 min-w-0">
                 <TokenLinkField
                   class="flex-1"
-                  :token="store.subscriptionToken"
+                  :token="publicToken.token"
                   :profile-name="p.name"
                   :host-prefix="tokenHost"
                 />

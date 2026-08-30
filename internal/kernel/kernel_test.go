@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -78,5 +79,32 @@ func TestKernelReal(t *testing.T) {
 	invalid := []byte(`{"outbounds":[{"type":"nonsense-proto","tag":"x"}]}`)
 	if res := k.Check(invalid); res.Status != StatusInvalid {
 		t.Errorf("invalid config check = %s, want invalid", res.Status)
+	}
+}
+
+func TestKernelRealRuleSetRoundTrip(t *testing.T) {
+	path, err := exec.LookPath("sing-box")
+	if err != nil {
+		t.Skip("sing-box not in PATH; skipping real rule-set test")
+	}
+	k := New(path, t.TempDir(), 30*time.Second)
+	source := []byte(`{"version":4,"rules":[{"domain_suffix":["example.com"]}]}`)
+	formatted, err := k.FormatRuleSet(source)
+	if err != nil {
+		t.Fatalf("format rule-set: %v", err)
+	}
+	binary, err := k.CompileRuleSet(formatted)
+	if err != nil {
+		t.Fatalf("compile rule-set: %v", err)
+	}
+	if len(binary) == 0 {
+		t.Fatal("compiled SRS is empty")
+	}
+	decompiled, err := k.DecompileRuleSet(binary)
+	if err != nil {
+		t.Fatalf("decompile rule-set: %v", err)
+	}
+	if !bytes.Contains(decompiled, []byte("example.com")) {
+		t.Fatalf("decompiled content = %s", decompiled)
 	}
 }

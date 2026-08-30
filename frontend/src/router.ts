@@ -5,6 +5,7 @@ const appRouteLoaders = {
   dashboard: () => import('./views/DashboardView.vue'),
   nodes: () => import('./views/NodesView.vue'),
   templates: () => import('./views/TemplatesView.vue'),
+  ruleSets: () => import('./views/RuleSetsView.vue'),
   profiles: () => import('./views/ProfilesView.vue'),
   settings: () => import('./views/SettingsView.vue'),
   users: () => import('./views/UsersView.vue'),
@@ -13,7 +14,7 @@ const appRouteLoaders = {
 type AppRouteName = keyof typeof appRouteLoaders
 
 export async function preloadAppRouteViews(includeAdmin = false): Promise<void> {
-  const names: AppRouteName[] = ['dashboard', 'nodes', 'templates', 'profiles', 'settings']
+  const names: AppRouteName[] = ['dashboard', 'nodes', 'templates', 'ruleSets', 'profiles', 'settings']
   if (includeAdmin) names.push('users')
   for (const name of names) await appRouteLoaders[name]()
 }
@@ -34,6 +35,7 @@ const router = createRouter({
         { path: '', name: 'dashboard', component: appRouteLoaders.dashboard },
         { path: 'nodes', name: 'nodes', component: appRouteLoaders.nodes },
         { path: 'templates', name: 'templates', component: appRouteLoaders.templates },
+        { path: 'rules', name: 'ruleSets', component: appRouteLoaders.ruleSets },
         { path: 'subscriptions', name: 'profiles', component: appRouteLoaders.profiles },
         { path: 'profiles', redirect: { name: 'profiles' } },
         { path: 'preview', redirect: { name: 'profiles' } },

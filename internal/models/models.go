@@ -102,6 +102,43 @@ type NodeGroup struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+// RuleSet is a published sing-box rule-set assembled from ordered manual and
+// remote sources. PublishedJSON and PublishedSRS are served as immutable
+// snapshots until the next successful publish.
+type RuleSet struct {
+	ID            int64            `json:"id"`
+	OwnerUserID   int64            `json:"owner_user_id"`
+	Name          string           `json:"name"`
+	Description   string           `json:"description"`
+	Sources       []*RuleSetSource `json:"sources,omitempty"`
+	SourceCount   int              `json:"source_count"`
+	RuleCount     int              `json:"rule_count"`
+	JSONSize      int64            `json:"json_size"`
+	SRSSize       int64            `json:"srs_size"`
+	JSONSHA256    string           `json:"json_sha256"`
+	SRSSHA256     string           `json:"srs_sha256"`
+	KernelVersion string           `json:"kernel_version"`
+	PublishedJSON []byte           `json:"-"`
+	PublishedSRS  []byte           `json:"-"`
+	PublishedAt   time.Time        `json:"published_at"`
+	LastAttemptAt time.Time        `json:"last_attempt_at"`
+	LastError     string           `json:"last_error,omitempty"`
+	CreatedAt     time.Time        `json:"created_at"`
+	UpdatedAt     time.Time        `json:"updated_at"`
+}
+
+// RuleSetSource is one ordered input to a RuleSet publish. Manual sources are
+// source-format JSON; remote sources may be source JSON or binary SRS.
+type RuleSetSource struct {
+	ID        int64  `json:"id"`
+	RuleSetID int64  `json:"rule_set_id"`
+	Kind      string `json:"kind"`   // manual | remote
+	Format    string `json:"format"` // source | binary
+	URL       string `json:"url,omitempty"`
+	Content   string `json:"content,omitempty"`
+	Position  int    `json:"position"`
+}
+
 type NodeUsage struct {
 	ProfileID    int64  `json:"profile_id"`
 	ProfileName  string `json:"profile_name"`
