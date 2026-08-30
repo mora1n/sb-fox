@@ -206,8 +206,6 @@ const en: Record<string, string> = {
   '规则集已更新': 'Rule set updated',
   '规则集已刷新': 'Rule set refreshed',
   '暂无规则集。': 'No rule sets.',
-  '聚合 sing-box JSON/SRS 规则源并发布稳定下载链接。':
-    'Aggregate sing-box JSON/SRS sources and publish stable download URLs.',
   '规则源': 'Sources',
   '手工 JSON': 'Manual JSON',
   '远程源': 'Remote Source',

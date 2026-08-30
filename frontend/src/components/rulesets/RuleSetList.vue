@@ -119,7 +119,6 @@ function formatBytes(value: number) {
     <div class="flex items-center justify-between gap-2 flex-wrap">
       <div>
         <h1 class="text-2xl font-bold">{{ i18n.t('规则集') }}</h1>
-        <p class="text-sm opacity-60 mt-1">{{ i18n.t('聚合 sing-box JSON/SRS 规则源并发布稳定下载链接。') }}</p>
       </div>
       <div class="flex items-center gap-2">
         <div class="join bg-base-200 p-0.5 rounded-btn">
