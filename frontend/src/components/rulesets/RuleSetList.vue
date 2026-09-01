@@ -15,6 +15,7 @@ import {
   ArrowDownTrayIcon,
   ArrowPathIcon,
   DocumentDuplicateIcon,
+  EyeIcon,
   ListBulletIcon,
   PencilSquareIcon,
   PlusIcon,
@@ -25,7 +26,7 @@ import {
 type ViewMode = 'card' | 'list'
 const VIEW_MODES = ['card', 'list'] as const
 
-const emit = defineEmits<{ create: []; edit: [RuleSet]; copy: [RuleSet] }>()
+const emit = defineEmits<{ create: []; view: [RuleSet]; edit: [RuleSet]; copy: [RuleSet] }>()
 const store = useRuleSetsStore()
 const publicToken = usePublicTokenStore()
 const settings = useSettingsStore()
@@ -117,22 +118,29 @@ function formatBytes(value: number) {
 <template>
   <div class="flex flex-col gap-4">
     <div class="flex items-center justify-between gap-2 flex-wrap">
-      <div>
-        <h1 class="text-2xl font-bold">{{ i18n.t('规则集') }}</h1>
-      </div>
-      <div class="flex items-center gap-2">
-        <div class="join bg-base-200 p-0.5 rounded-btn">
-          <button class="btn btn-sm join-item" :class="{ 'btn-active': viewMode === 'card' }" @click="viewMode = 'card'"><Squares2X2Icon class="h-4 w-4" />{{ i18n.t('卡片') }}</button>
-          <button class="btn btn-sm join-item" :class="{ 'btn-active': viewMode === 'list' }" @click="viewMode = 'list'"><ListBulletIcon class="h-4 w-4" />{{ i18n.t('列表') }}</button>
+      <h1 class="text-2xl font-bold">{{ i18n.t('规则集') }}</h1>
+      <div class="flex items-center gap-2 flex-wrap justify-end">
+        <div class="join bg-base-200 p-0.5 rounded-btn shadow-sm">
+          <button type="button" class="btn btn-sm join-item" :class="{ 'btn-active': viewMode === 'card' }" @click="viewMode = 'card'"><Squares2X2Icon class="h-4 w-4" />{{ i18n.t('卡片') }}</button>
+          <button type="button" class="btn btn-sm join-item" :class="{ 'btn-active': viewMode === 'list' }" @click="viewMode = 'list'"><ListBulletIcon class="h-4 w-4" />{{ i18n.t('列表') }}</button>
         </div>
-        <button class="btn btn-sm btn-primary" @click="emit('create')"><PlusIcon class="h-4 w-4" />{{ i18n.t('新建规则集') }}</button>
+        <button type="button" class="btn btn-sm btn-primary" @click="emit('create')"><PlusIcon class="h-4 w-4" />{{ i18n.t('新建规则集') }}</button>
       </div>
     </div>
 
-    <div v-if="store.ruleSets.length" class="flex items-center gap-2">
-      <label class="label cursor-pointer gap-2"><input type="checkbox" class="checkbox checkbox-sm" :checked="allSelected" @change="toggleAll" />{{ i18n.t('全选') }}</label>
-      <button class="btn btn-sm btn-error btn-outline" :disabled="busy || !selected.size" @click="requestDelete()"><TrashIcon class="h-4 w-4" />{{ i18n.t('删除所选') }}</button>
-      <span class="text-xs opacity-60">{{ i18n.t('已选') }} {{ selected.size }}</span>
+    <div v-if="store.ruleSets.length" class="flex items-center justify-between gap-2 flex-wrap">
+      <div class="flex items-center gap-2">
+        <span class="badge badge-neutral">{{ store.ruleSets.length }}</span>
+        <span v-if="selected.size" class="badge badge-outline">{{ i18n.t('已选') }} {{ selected.size }}</span>
+      </div>
+      <div class="flex items-center gap-2 flex-wrap">
+        <button type="button" class="btn btn-sm" :class="{ 'btn-active': allSelected }" :disabled="!store.ruleSets.length" @click="toggleAll">
+          {{ allSelected ? i18n.t('取消全选') : i18n.t('全选') }}
+        </button>
+        <button type="button" class="btn btn-sm text-error bg-error/10 hover:bg-error/20 border-transparent" :disabled="busy || !selected.size" @click="requestDelete()">
+          <TrashIcon class="h-4 w-4" />{{ i18n.t('删除') }}
+        </button>
+      </div>
     </div>
 
     <div v-if="store.loading && !store.ruleSets.length" class="flex justify-center p-12"><span class="loading loading-spinner loading-lg"></span></div>
@@ -140,24 +148,34 @@ function formatBytes(value: number) {
       <div class="hero-content text-center"><div><h2 class="text-lg font-semibold">{{ i18n.t('暂无规则集。') }}</h2><button class="btn btn-primary btn-sm mt-4" @click="emit('create')">{{ i18n.t('新建规则集') }}</button></div></div>
     </div>
 
-    <div v-else :class="viewMode === 'card' ? 'grid xl:grid-cols-2 gap-4' : 'flex flex-col gap-3'">
-      <article v-for="item in sortedItems" :key="item.id" class="card bg-base-100 border border-base-300 shadow-sm">
+    <div v-else-if="viewMode === 'card'" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      <article
+        v-for="item in sortedItems"
+        :key="item.id"
+        class="card bg-base-100 border border-base-300 shadow-sm cursor-pointer transition-colors hover:bg-base-200/60"
+        :class="{ 'ring-2 ring-primary': selected.has(item.id) }"
+        role="button"
+        tabindex="0"
+        @click="toggle(item.id)"
+        @keydown.enter.prevent="toggle(item.id)"
+        @keydown.space.prevent="toggle(item.id)"
+      >
         <div class="card-body p-4 gap-3">
           <div class="flex items-start gap-3">
-            <input type="checkbox" class="checkbox checkbox-sm mt-1" :checked="selected.has(item.id)" @change="toggle(item.id)" />
+            <input type="checkbox" class="checkbox checkbox-sm mt-1" :checked="selected.has(item.id)" @click.stop @keydown.stop @change="toggle(item.id)" />
             <div class="min-w-0 flex-1">
               <h2 class="font-semibold truncate" :title="item.name">{{ item.name }}</h2>
               <p v-if="item.description" class="text-sm opacity-60 line-clamp-2">{{ item.description }}</p>
             </div>
-            <div class="flex gap-1 flex-wrap justify-end">
-              <button class="btn btn-xs btn-ghost" :title="i18n.t('刷新')" :disabled="refreshing.has(item.id)" @click="refresh(item)"><ArrowPathIcon class="h-4 w-4" :class="{ 'animate-spin': refreshing.has(item.id) }" /></button>
-              <button class="btn btn-xs btn-ghost" :title="i18n.t('编辑')" @click="emit('edit', item)"><PencilSquareIcon class="h-4 w-4" /></button>
-              <button class="btn btn-xs btn-ghost" :title="i18n.t('复制')" @click="emit('copy', item)"><DocumentDuplicateIcon class="h-4 w-4" /></button>
-              <button class="btn btn-xs btn-ghost text-error" :title="i18n.t('删除')" @click="requestDelete(item)"><TrashIcon class="h-4 w-4" /></button>
+            <div class="flex gap-1 flex-none">
+              <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('查看')" @click.stop="emit('view', item)"><EyeIcon class="h-4 w-4" /></button>
+              <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('复制规则集')" @click.stop="emit('copy', item)"><DocumentDuplicateIcon class="h-4 w-4" /></button>
+              <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('编辑规则集')" @click.stop="emit('edit', item)"><PencilSquareIcon class="h-4 w-4" /></button>
+              <button type="button" class="btn btn-xs btn-ghost text-error" :title="i18n.t('删除')" @click.stop="requestDelete(item)"><TrashIcon class="h-4 w-4" /></button>
             </div>
           </div>
 
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+          <div class="grid grid-cols-2 gap-2 text-xs">
             <div class="stat bg-base-200 rounded-box p-2"><div class="stat-title text-xs">{{ i18n.t('规则') }}</div><div class="font-semibold">{{ item.rule_count }}</div></div>
             <div class="stat bg-base-200 rounded-box p-2"><div class="stat-title text-xs">{{ i18n.t('规则源') }}</div><div class="font-semibold">{{ item.source_count }}</div></div>
             <div class="stat bg-base-200 rounded-box p-2"><div class="stat-title text-xs">JSON</div><div class="font-semibold">{{ formatBytes(item.json_size) }}</div></div>
@@ -170,13 +188,79 @@ function formatBytes(value: number) {
           </div>
           <div v-if="item.last_error" class="alert alert-error py-2 text-xs"><span class="break-all">{{ item.last_error }}</span></div>
 
-          <RuleSetLinks v-if="publicToken.token" :item="item" :token="publicToken.token" :host-prefix="settings.subscriptionHostPrefix" />
-          <div class="flex gap-2 justify-end">
-            <button class="btn btn-xs" @click="exportArtifact(item, 'source')"><ArrowDownTrayIcon class="h-4 w-4" />JSON</button>
-            <button class="btn btn-xs" @click="exportArtifact(item, 'binary')"><ArrowDownTrayIcon class="h-4 w-4" />SRS</button>
+          <div v-if="publicToken.token" class="space-y-1" @click.stop @keydown.stop>
+            <span class="text-xs opacity-60">{{ i18n.t('公开下载链接') }}</span>
+            <RuleSetLinks :item="item" :token="publicToken.token" :host-prefix="settings.subscriptionHostPrefix" />
+          </div>
+          <div class="flex gap-2 justify-end" @click.stop @keydown.stop>
+            <button type="button" class="btn btn-xs" :title="i18n.t('刷新')" :disabled="refreshing.has(item.id)" @click="refresh(item)"><ArrowPathIcon class="h-4 w-4" :class="{ 'animate-spin': refreshing.has(item.id) }" />{{ i18n.t('刷新') }}</button>
+            <button type="button" class="btn btn-xs" @click="exportArtifact(item, 'source')"><ArrowDownTrayIcon class="h-4 w-4" />JSON</button>
+            <button type="button" class="btn btn-xs" @click="exportArtifact(item, 'binary')"><ArrowDownTrayIcon class="h-4 w-4" />SRS</button>
           </div>
         </div>
       </article>
+    </div>
+
+    <div v-else class="overflow-x-auto bg-base-100 border border-base-300 rounded-box">
+      <table class="table table-sm">
+        <thead>
+          <tr>
+            <th class="w-10"></th>
+            <th>{{ i18n.t('名称') }}</th>
+            <th>{{ i18n.t('规则') }}</th>
+            <th>{{ i18n.t('规则源') }}</th>
+            <th>{{ i18n.t('产物') }}</th>
+            <th>{{ i18n.t('公开下载链接') }}</th>
+            <th>{{ i18n.t('发布于') }}</th>
+            <th class="text-right">{{ i18n.t('操作') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="item in sortedItems"
+            :key="item.id"
+            class="cursor-pointer hover:bg-base-200/70"
+            :class="{ 'bg-base-200': selected.has(item.id) }"
+            @click="toggle(item.id)"
+          >
+            <td><input type="checkbox" class="checkbox checkbox-sm" :checked="selected.has(item.id)" @click.stop @change="toggle(item.id)" /></td>
+            <td class="max-w-64">
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="font-medium truncate" :title="item.name">{{ item.name }}</span>
+                <span v-if="item.last_error" class="badge badge-error badge-sm shrink-0" :title="item.last_error">{{ i18n.t('失败') }}</span>
+              </div>
+              <div v-if="item.description" class="text-xs opacity-60 truncate" :title="item.description">{{ item.description }}</div>
+            </td>
+            <td>{{ item.rule_count }}</td>
+            <td>{{ item.source_count }}</td>
+            <td class="whitespace-nowrap" @click.stop>
+              <div class="text-xs">JSON · {{ formatBytes(item.json_size) }}</div>
+              <div class="text-xs">SRS · {{ formatBytes(item.srs_size) }}</div>
+              <div class="flex gap-1 mt-1">
+                <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('刷新')" :disabled="refreshing.has(item.id)" @click="refresh(item)"><ArrowPathIcon class="h-4 w-4" :class="{ 'animate-spin': refreshing.has(item.id) }" /></button>
+                <button type="button" class="btn btn-xs btn-ghost" title="JSON" @click="exportArtifact(item, 'source')"><ArrowDownTrayIcon class="h-4 w-4" />JSON</button>
+                <button type="button" class="btn btn-xs btn-ghost" title="SRS" @click="exportArtifact(item, 'binary')"><ArrowDownTrayIcon class="h-4 w-4" />SRS</button>
+              </div>
+            </td>
+            <td class="min-w-80" @click.stop>
+              <RuleSetLinks v-if="publicToken.token" :item="item" :token="publicToken.token" :host-prefix="settings.subscriptionHostPrefix" />
+              <span v-else class="opacity-50">-</span>
+            </td>
+            <td class="whitespace-nowrap text-xs opacity-70">
+              <div>{{ formatDateTime(item.published_at) }}</div>
+              <div :title="item.kernel_version">{{ item.kernel_version }}</div>
+            </td>
+            <td class="text-right" @click.stop>
+              <div class="flex gap-1 justify-end">
+                <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('查看')" @click="emit('view', item)"><EyeIcon class="h-4 w-4" /></button>
+                <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('复制规则集')" @click="emit('copy', item)"><DocumentDuplicateIcon class="h-4 w-4" /></button>
+                <button type="button" class="btn btn-xs btn-ghost" :title="i18n.t('编辑规则集')" @click="emit('edit', item)"><PencilSquareIcon class="h-4 w-4" /></button>
+                <button type="button" class="btn btn-xs btn-ghost text-error" :title="i18n.t('删除')" @click="requestDelete(item)"><TrashIcon class="h-4 w-4" /></button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
 
     <BulkDeleteDialog

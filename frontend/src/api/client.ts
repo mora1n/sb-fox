@@ -89,10 +89,10 @@ export function del<T>(path: string): Promise<T> {
   return request<T>(path, { method: 'DELETE' })
 }
 
-async function downloadError(res: Response): Promise<ApiRequestError> {
+async function rawResponseError(res: Response, fallback: string): Promise<ApiRequestError> {
   const text = await res.text()
   let code = 'http_error'
-  let message = '下载失败 (HTTP ' + res.status + ')'
+  let message = `${fallback} (HTTP ${res.status})`
   let details: ApiErrorDetails | undefined
   if (text) {
     try {
@@ -109,6 +109,23 @@ async function downloadError(res: Response): Promise<ApiRequestError> {
   return new ApiRequestError(message, code, res.status, details)
 }
 
+async function rawGet(path: string, fallback = '请求失败'): Promise<Response> {
+  const res = await fetch(BASE + path, {
+    method: 'GET',
+    credentials: 'include',
+  })
+  if (!res.ok) {
+    const err = await rawResponseError(res, fallback)
+    if (res.status === 401 && onUnauthorized) onUnauthorized()
+    throw err
+  }
+  return res
+}
+
+export async function getText(path: string): Promise<string> {
+  return (await rawGet(path)).text()
+}
+
 // downloadPost triggers a browser file download from a POST endpoint that
 // returns a raw file (not the {data,error} envelope), e.g. export/template.
 export async function downloadPost(path: string, body: unknown, filename: string): Promise<void> {
@@ -119,7 +136,7 @@ export async function downloadPost(path: string, body: unknown, filename: string
     body: JSON.stringify(body),
   })
   if (!res.ok) {
-    const err = await downloadError(res)
+    const err = await rawResponseError(res, '下载失败')
     if (res.status === 401 && onUnauthorized) {
       onUnauthorized()
     }
@@ -137,17 +154,7 @@ export async function downloadPost(path: string, body: unknown, filename: string
 }
 
 export async function downloadGet(path: string, filename: string): Promise<void> {
-  const res = await fetch(BASE + path, {
-    method: 'GET',
-    credentials: 'include',
-  })
-  if (!res.ok) {
-    const err = await downloadError(res)
-    if (res.status === 401 && onUnauthorized) {
-      onUnauthorized()
-    }
-    throw err
-  }
+  const res = await rawGet(path, '下载失败')
   const blob = await res.blob()
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')

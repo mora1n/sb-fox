@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { del, downloadGet, get, post, put } from '../api/client'
+import { del, downloadGet, get, getText, post, put } from '../api/client'
 import type { BulkDeleteResult, RuleSet, RuleSetPayload } from '../api/types'
 
 export const useRuleSetsStore = defineStore('ruleSets', () => {
@@ -62,6 +62,10 @@ export const useRuleSetsStore = defineStore('ruleSets', () => {
     return downloadGet(`/rule-sets/${id}/export/${format}`, `${name}.${extension}`)
   }
 
+  function publishedJSON(id: number): Promise<string> {
+    return getText(`/rule-sets/${id}/export/source`)
+  }
+
   function reset(): void {
     ruleSets.value = []
     loading.value = false
@@ -69,5 +73,5 @@ export const useRuleSetsStore = defineStore('ruleSets', () => {
     inFlight = null
   }
 
-  return { ruleSets, loading, fetchAll, getOne, create, update, refresh, remove, bulkDelete, exportArtifact, reset }
+  return { ruleSets, loading, fetchAll, getOne, create, update, refresh, remove, bulkDelete, exportArtifact, publishedJSON, reset }
 })

@@ -211,10 +211,6 @@ const en: Record<string, string> = {
   '远程源': 'Remote Source',
   '按列表顺序合并；任一源失败会中止整次发布。':
     'Sources are merged in order; any source failure aborts the publish.',
-  '保存会立即抓取、校验并同时发布 JSON 与 SRS；需要有效的活动 sing-box 内核。':
-    'Saving immediately fetches, validates, and publishes JSON and SRS; a valid active sing-box kernel is required.',
-  '保存并发布': 'Save and Publish',
-  '正在发布...': 'Publishing...',
   '请填写规则集名称': 'Enter a rule-set name',
   '至少添加一个规则源': 'Add at least one source',
   '请填写规则集 JSON': 'Enter rule-set JSON',
@@ -223,9 +219,8 @@ const en: Record<string, string> = {
   '公开下载链接': 'Public Download URLs',
   '链接已复制': 'URL copied',
   '复制链接': 'Copy URL',
-  '配置片段已复制': 'Config snippet copied',
-  '复制配置': 'Copy Config',
   '规则': 'Rules',
+  '产物': 'Artifacts',
   '发布于': 'Published',
   '请先选择规则集': 'Select rule sets first',
   '个规则集': 'rule sets',

@@ -205,14 +205,11 @@ async function submit() {
         </section>
       </div>
 
-      <div class="alert mt-4 text-sm">
-        <span>{{ i18n.t('保存会立即抓取、校验并同时发布 JSON 与 SRS；需要有效的活动 sing-box 内核。') }}</span>
-      </div>
       <div class="modal-action">
         <button class="btn" :disabled="busy" @click="emit('close')">{{ i18n.t('取消') }}</button>
         <button class="btn btn-primary" :disabled="busy" @click="submit">
           <span v-if="busy" class="loading loading-spinner loading-sm"></span>
-          {{ busy ? i18n.t('正在发布...') : i18n.t('保存并发布') }}
+          {{ i18n.t('保存') }}
         </button>
       </div>
     </div>
