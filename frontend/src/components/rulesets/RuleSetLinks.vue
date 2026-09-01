@@ -35,7 +35,7 @@ async function copy(value: string, message: string) {
           <span class="truncate">{{ entry.url }}</span>
         </div>
         <button class="btn btn-xs join-item" type="button" @click="copy(entry.url, i18n.t('链接已复制'))">
-          {{ i18n.t('复制链接') }}
+          {{ i18n.t('复制') }}
         </button>
       </div>
     </div>

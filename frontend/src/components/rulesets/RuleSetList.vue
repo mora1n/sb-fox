@@ -189,7 +189,7 @@ function formatBytes(value: number) {
           <div v-if="item.last_error" class="alert alert-error py-2 text-xs"><span class="break-all">{{ item.last_error }}</span></div>
 
           <div v-if="publicToken.token" class="space-y-1" @click.stop @keydown.stop>
-            <span class="text-xs opacity-60">{{ i18n.t('公开下载链接') }}</span>
+            <span class="text-xs opacity-60">{{ i18n.t('下载链接') }}</span>
             <RuleSetLinks :item="item" :token="publicToken.token" :host-prefix="settings.subscriptionHostPrefix" />
           </div>
           <div class="flex gap-2 justify-end" @click.stop @keydown.stop>
@@ -210,7 +210,7 @@ function formatBytes(value: number) {
             <th>{{ i18n.t('规则') }}</th>
             <th>{{ i18n.t('规则源') }}</th>
             <th>{{ i18n.t('产物') }}</th>
-            <th>{{ i18n.t('公开下载链接') }}</th>
+            <th>{{ i18n.t('下载链接') }}</th>
             <th>{{ i18n.t('发布于') }}</th>
             <th class="text-right">{{ i18n.t('操作') }}</th>
           </tr>
