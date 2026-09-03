@@ -234,6 +234,7 @@ func TestParseSnell(t *testing.T) {
 		version    string
 		obfs       string
 		mode       string
+		userKey    string
 		wantServer string
 	}{
 		{
@@ -256,6 +257,13 @@ func TestParseSnell(t *testing.T) {
 			mode:       "unshaped",
 			wantServer: "snell.example.com",
 		},
+		{
+			name:       "v6 userkey and query psk",
+			uri:        "snell://0123456789abcdef0123456789abcdef@snell-v6.example.com:8888?psk=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef&version=6#snell-v6-userkey",
+			version:    "6",
+			userKey:    "0123456789abcdef0123456789abcdef",
+			wantServer: "snell-v6.example.com",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -275,6 +283,9 @@ func TestParseSnell(t *testing.T) {
 			if tt.mode != "" && field(t, out, "mode") != tt.mode {
 				t.Fatalf("mode = %s, want %s", field(t, out, "mode"), tt.mode)
 			}
+			if tt.userKey != "" && field(t, out, "userkey") != tt.userKey {
+				t.Fatalf("userkey = %s, want %s", field(t, out, "userkey"), tt.userKey)
+			}
 		})
 	}
 }
@@ -287,7 +298,7 @@ func TestParseSnellRejectsInvalidVersionsAndParameters(t *testing.T) {
 		"snell://123456789012@snell.example.com:443?version=6&obfs=http",
 		"snell://psk@snell.example.com:443?version=6&mode=bad",
 		"snell://short@snell.example.com:443?version=6",
-		"snell://psk@snell.example.com:443?psk=other&version=4",
+		"snell://key@snell.example.com:443?psk=secret&userkey=other&version=4",
 	} {
 		if _, err := Parse(uri); err == nil {
 			t.Fatalf("Parse(%q) succeeded", uri)

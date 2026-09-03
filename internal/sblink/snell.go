@@ -16,7 +16,7 @@ func parseSnell(uri string) (*merge.OrderedMap, error) {
 	if err != nil {
 		return nil, err
 	}
-	psk, err := snellPSK(p)
+	psk, userKey, err := snellCredentials(p)
 	if err != nil {
 		return nil, err
 	}
@@ -38,7 +38,7 @@ func parseSnell(uri string) (*merge.OrderedMap, error) {
 	out.Set("server_port", p.portN)
 	out.Set("version", intNumber(version))
 	out.Set("psk", psk)
-	setStringIfPresent(out, "userkey", queryFirst(p.query, "userkey", "user-key"))
+	setStringIfPresent(out, "userkey", userKey)
 	if boolQuery(p.query, "reuse") {
 		out.Set("reuse", true)
 	}
@@ -74,22 +74,26 @@ func parseSnell(uri string) (*merge.OrderedMap, error) {
 	return out, nil
 }
 
-func snellPSK(p *uriParts) (string, error) {
+func snellCredentials(p *uriParts) (string, string, error) {
 	userinfo := ""
 	if p.user != nil {
 		userinfo = p.user.Username()
 	}
 	queryPSK := queryFirst(p.query, "psk", "password")
-	if userinfo != "" && queryPSK != "" && userinfo != queryPSK {
-		return "", fmt.Errorf("sblink: snell psk specified twice with different values")
+	userKey := queryFirst(p.query, "userkey", "user-key")
+	if queryPSK != "" {
+		if userinfo != "" {
+			if userKey != "" && userKey != userinfo {
+				return "", "", fmt.Errorf("sblink: snell userkey specified twice with different values")
+			}
+			userKey = userinfo
+		}
+		return queryPSK, userKey, nil
 	}
 	if userinfo == "" {
-		userinfo = queryPSK
+		return "", userKey, fmt.Errorf("sblink: snell missing psk")
 	}
-	if userinfo == "" {
-		return "", fmt.Errorf("sblink: snell missing psk")
-	}
-	return userinfo, nil
+	return userinfo, userKey, nil
 }
 
 func snellVersion(raw string) (int, error) {
