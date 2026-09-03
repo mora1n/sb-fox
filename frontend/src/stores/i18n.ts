@@ -78,6 +78,7 @@ const en: Record<string, string> = {
   '已配置拨号字段': 'Configured Dial Fields',
   '域名解析器': 'Domain Resolver',
   '简单模式': 'Simple',
+  '结构化模式': 'Structured',
   '高级 JSON': 'Advanced JSON',
   '域名解析器标签': 'Resolver tag',
   '域名解析器 JSON': 'Resolver JSON',

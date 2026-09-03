@@ -45,6 +45,8 @@ const PROTOCOLS = [
 ]
 const NETWORK_STRATEGIES = ['default', 'hybrid', 'fallback']
 const NETWORK_TYPES = ['wifi', 'cellular', 'ethernet', 'other']
+const DOMAIN_RESOLVER_STRATEGIES = ['', 'as_is', 'prefer_ipv4', 'prefer_ipv6', 'ipv4_only', 'ipv6_only']
+const SING_BOX_DURATION_PATTERN = /^[-+]?(((\d+(\.\d*)?|\.\d+)(ns|us|µs|μs|ms|s|m|h|d))+|0)$/
 const DIAL_FIELD_KEYS = [
   'detour',
   'bind_interface',
@@ -69,18 +71,15 @@ const DIAL_FIELD_KEYS = [
   'fallback_delay',
 ]
 const HEADERS_ERROR_PREFIX = 'headers JSON 解析失败: '
-const DOMAIN_RESOLVER_ERROR_PREFIX = 'domain_resolver JSON 解析失败: '
+const DOMAIN_RESOLVER_ERROR_PREFIX = 'domain_resolver 配置错误: '
 const NETWORK_TYPE_ERROR_PREFIX = 'network_type'
 const FALLBACK_NETWORK_TYPE_ERROR_PREFIX = 'fallback_network_type'
-const EMPTY_DOMAIN_RESOLVER_DRAFT = '{\n  "server": "",\n  "timeout": ""\n}'
-type DomainResolverMode = 'string' | 'json'
+type DomainResolverMode = 'string' | 'object'
 
 // raw is the authoritative parsed outbound; unknown keys are preserved on save.
 const raw = reactive<Record<string, any>>({})
 const domainResolverMode = ref<DomainResolverMode>('string')
-const domainResolverObjectDraft = ref(EMPTY_DOMAIN_RESOLVER_DRAFT)
 const showDialFields = ref(false)
-let lastDomainResolverObject: Record<string, any> | null = null
 
 // manual country override
 const manualCountry = ref(false)
@@ -103,9 +102,7 @@ function resetFrom(node: Node | null) {
       countryCode.value = node.country_code || ''
     } else {
       Object.assign(raw, { type: 'shadowsocks', tag: '', server: '', server_port: 443 })
-      lastDomainResolverObject = null
       domainResolverMode.value = 'string'
-      domainResolverObjectDraft.value = EMPTY_DOMAIN_RESOLVER_DRAFT
       showDialFields.value = false
       manualCountry.value = false
       countryCode.value = ''
@@ -232,40 +229,42 @@ const domainResolverText = computed({
     clearFieldError(DOMAIN_RESOLVER_ERROR_PREFIX)
   },
 })
-const domainResolverJSON = computed({
-  get: () => {
-    const value = raw.domain_resolver
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      rememberDomainResolverObject(value)
-      try {
-        domainResolverObjectDraft.value = JSON.stringify(value, null, 2)
-      } catch {
-        domainResolverObjectDraft.value = EMPTY_DOMAIN_RESOLVER_DRAFT
-      }
-    }
-    return domainResolverObjectDraft.value
-  },
-  set: (v: string) => {
-    domainResolverObjectDraft.value = v
-    const trimmed = v.trim()
-    if (!trimmed) {
-      delete raw.domain_resolver
-      clearFieldError(DOMAIN_RESOLVER_ERROR_PREFIX)
-      return
-    }
-    try {
-      const parsed = JSON.parse(trimmed)
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        throw new Error(i18n.t('请输入有效 JSON 对象'))
-      }
-      raw.domain_resolver = parsed
-      rememberDomainResolverObject(parsed)
-      clearFieldError(DOMAIN_RESOLVER_ERROR_PREFIX)
-    } catch (e) {
-      parseError.value = DOMAIN_RESOLVER_ERROR_PREFIX + errMsg(e)
-    }
-  },
-})
+function domainResolverObject(): Record<string, any> | null {
+  return objectRecord(raw.domain_resolver)
+}
+function setDomainResolverObjectField(key: string, value: unknown) {
+  const current = { ...(domainResolverObject() ?? {}) }
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (trimmed) current[key] = trimmed
+    else delete current[key]
+  } else if (typeof value === 'boolean') {
+    if (value) current[key] = true
+    else delete current[key]
+  } else if (typeof value === 'number' && Number.isFinite(value)) {
+    current[key] = value
+  } else if (value === undefined || value === null || value === '') {
+    delete current[key]
+  } else {
+    current[key] = value
+  }
+  if (Object.keys(current).length) raw.domain_resolver = current
+  else delete raw.domain_resolver
+  clearFieldError(DOMAIN_RESOLVER_ERROR_PREFIX)
+}
+function domainResolverField(key: string) {
+  return computed({
+    get: () => domainResolverObject()?.[key] ?? '',
+    set: (value: unknown) => setDomainResolverObjectField(key, value),
+  })
+}
+const domainResolverServer = domainResolverField('server')
+const domainResolverTimeout = domainResolverField('timeout')
+const domainResolverStrategy = domainResolverField('strategy')
+const domainResolverRewriteTTL = domainResolverField('rewrite_ttl')
+const domainResolverClientSubnet = domainResolverField('client_subnet')
+const domainResolverDisableCache = domainResolverField('disable_cache')
+const domainResolverDisableOptimisticCache = domainResolverField('disable_optimistic_cache')
 const networkTypeText = computed({
   get: () => listFieldText(raw.network_type),
   set: (v: string) => setListField('network_type', v, NETWORK_TYPES, NETWORK_TYPE_ERROR_PREFIX),
@@ -326,9 +325,7 @@ const configuredDialFieldCount = computed(() => {
 function resetPending() {
   parseError.value = ''
   for (const k of Object.keys(raw)) delete raw[k]
-  lastDomainResolverObject = null
   domainResolverMode.value = 'string'
-  domainResolverObjectDraft.value = EMPTY_DOMAIN_RESOLVER_DRAFT
   showDialFields.value = false
   manualCountry.value = false
   countryCode.value = ''
@@ -349,25 +346,10 @@ function clearFieldError(prefix: string) {
   if (parseError.value.startsWith(prefix)) parseError.value = ''
 }
 
-function rememberDomainResolverObject(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return
-  try {
-    lastDomainResolverObject = JSON.parse(JSON.stringify(value))
-  } catch {
-    lastDomainResolverObject = null
-  }
-}
-
 function syncDomainResolverState() {
   const value = raw.domain_resolver
   if (value && typeof value === 'object' && !Array.isArray(value)) {
-    domainResolverMode.value = 'json'
-    rememberDomainResolverObject(value)
-    try {
-      domainResolverObjectDraft.value = JSON.stringify(value, null, 2)
-    } catch {
-      domainResolverObjectDraft.value = EMPTY_DOMAIN_RESOLVER_DRAFT
-    }
+    domainResolverMode.value = 'object'
     return
   }
   domainResolverMode.value = 'string'
@@ -379,22 +361,10 @@ function syncDomainResolverState() {
 function setDomainResolverMode(next: DomainResolverMode) {
   if (domainResolverMode.value === next) return
   const current = raw.domain_resolver
-  if (next === 'json') {
-    if (current && typeof current === 'object' && !Array.isArray(current)) {
-      rememberDomainResolverObject(current)
-      domainResolverObjectDraft.value = JSON.stringify(current, null, 2)
-    } else if (lastDomainResolverObject) {
-      const nextObj = JSON.parse(JSON.stringify(lastDomainResolverObject))
-      if (typeof current === 'string' && current.trim()) nextObj.server = current.trim()
-      domainResolverObjectDraft.value = JSON.stringify(nextObj, null, 2)
-    } else if (typeof current === 'string' && current.trim()) {
-      domainResolverObjectDraft.value = JSON.stringify({ server: current.trim() }, null, 2)
-    } else {
-      domainResolverObjectDraft.value = EMPTY_DOMAIN_RESOLVER_DRAFT
-    }
+  if (next === 'object') {
+    if (typeof current === 'string' && current.trim()) raw.domain_resolver = { server: current.trim() }
   } else {
     if (current && typeof current === 'object' && !Array.isArray(current)) {
-      rememberDomainResolverObject(current)
       const server = typeof current.server === 'string' ? current.server.trim() : ''
       if (server) raw.domain_resolver = server
       else delete raw.domain_resolver
@@ -408,6 +378,36 @@ function setDomainResolverMode(next: DomainResolverMode) {
   }
   clearFieldError(DOMAIN_RESOLVER_ERROR_PREFIX)
   domainResolverMode.value = next
+}
+
+function validateDomainResolver() {
+  const value = raw.domain_resolver
+  if (value === undefined || value === null || value === '') return
+  if (typeof value === 'string') {
+    if (!value.trim()) throw new Error('domain_resolver 不能为空')
+    return
+  }
+  const resolver = objectRecord(value)
+  if (!resolver) throw new Error('domain_resolver 必须是服务器标签字符串或对象')
+  const allowed = new Set(['server', 'timeout', 'strategy', 'disable_cache', 'disable_optimistic_cache', 'rewrite_ttl', 'client_subnet'])
+  const unknown = Object.keys(resolver).filter((key) => !allowed.has(key))
+  if (unknown.length) throw new Error(`domain_resolver 包含 1.14.0 不支持的字段: ${unknown.join(', ')}`)
+  if (typeof resolver.server !== 'string' || !resolver.server.trim()) throw new Error('domain_resolver.server 不能为空')
+  if (resolver.timeout !== undefined && (typeof resolver.timeout !== 'string' || !SING_BOX_DURATION_PATTERN.test(resolver.timeout.trim()))) {
+    throw new Error('domain_resolver.timeout 必须是持续时间，例如 5s')
+  }
+  if (resolver.strategy !== undefined && !DOMAIN_RESOLVER_STRATEGIES.includes(String(resolver.strategy))) {
+    throw new Error(`domain_resolver.strategy 只能是: ${DOMAIN_RESOLVER_STRATEGIES.filter(Boolean).join(', ')}`)
+  }
+  for (const key of ['disable_cache', 'disable_optimistic_cache']) {
+    if (resolver[key] !== undefined && typeof resolver[key] !== 'boolean') throw new Error(`domain_resolver.${key} 必须是布尔值`)
+  }
+  if (resolver.rewrite_ttl !== undefined && (!Number.isInteger(resolver.rewrite_ttl) || resolver.rewrite_ttl < 0 || resolver.rewrite_ttl > 4294967295)) {
+    throw new Error('domain_resolver.rewrite_ttl 必须是 0 到 4294967295 的整数')
+  }
+  if (resolver.client_subnet !== undefined && typeof resolver.client_subnet !== 'string') {
+    throw new Error('domain_resolver.client_subnet 必须是 CIDR 字符串')
+  }
 }
 
 function listFieldText(value: unknown) {
@@ -493,6 +493,7 @@ async function save() {
       normalizeSnellFields()
       validateSnellFields()
     }
+    validateDomainResolver()
     const payload = {
       raw: JSON.stringify(raw),
       country_code: manualCountry.value ? countryCode.value : undefined,
@@ -1105,14 +1106,14 @@ watch(
             <input type="checkbox" class="toggle toggle-sm" v-model="raw.udp_fragment" />
             <span class="label-text">{{ i18n.t('UDP 分段') }}</span>
           </label>
-          <label class="form-control col-span-2">
+          <div class="form-control col-span-2">
             <span class="label-text mb-1">{{ i18n.t('域名解析器') }}</span>
             <div class="join mb-2">
               <button type="button" class="btn btn-sm join-item" :class="{ 'btn-active': domainResolverMode === 'string' }" @click="setDomainResolverMode('string')">
                 {{ i18n.t('简单模式') }}
               </button>
-              <button type="button" class="btn btn-sm join-item" :class="{ 'btn-active': domainResolverMode === 'json' }" @click="setDomainResolverMode('json')">
-                {{ i18n.t('高级 JSON') }}
+              <button type="button" class="btn btn-sm join-item" :class="{ 'btn-active': domainResolverMode === 'object' }" @click="setDomainResolverMode('object')">
+                {{ i18n.t('结构化模式') }}
               </button>
             </div>
             <input
@@ -1121,13 +1122,41 @@ watch(
               class="input input-bordered input-sm"
               :placeholder="i18n.t('域名解析器标签')"
             />
-            <textarea
-              v-else
-              v-model="domainResolverJSON"
-              class="textarea textarea-bordered textarea-sm font-mono text-xs min-h-24"
-              :placeholder="i18n.t('域名解析器 JSON')"
-            ></textarea>
-          </label>
+            <div v-else class="grid grid-cols-2 gap-3">
+              <label class="form-control col-span-2">
+                <span class="label-text mb-1">server <span class="text-error">*</span></span>
+                <input v-model="domainResolverServer" class="input input-bordered input-sm" placeholder="dns.local" />
+              </label>
+              <label class="form-control">
+                <span class="label-text mb-1">timeout</span>
+                <input v-model="domainResolverTimeout" class="input input-bordered input-sm" placeholder="5s" />
+              </label>
+              <label class="form-control">
+                <span class="label-text mb-1">strategy</span>
+                <select v-model="domainResolverStrategy" class="select select-bordered select-sm">
+                  <option v-for="strategy in DOMAIN_RESOLVER_STRATEGIES" :key="strategy" :value="strategy">
+                    {{ strategy || i18n.t('未指定') }}
+                  </option>
+                </select>
+              </label>
+              <label class="form-control">
+                <span class="label-text mb-1">rewrite_ttl</span>
+                <input v-model.number="domainResolverRewriteTTL" type="number" min="0" max="4294967295" step="1" class="input input-bordered input-sm" placeholder="60" />
+              </label>
+              <label class="form-control">
+                <span class="label-text mb-1">client_subnet</span>
+                <input v-model="domainResolverClientSubnet" class="input input-bordered input-sm" placeholder="192.0.2.0/24" />
+              </label>
+              <label class="label cursor-pointer justify-start gap-2">
+                <input type="checkbox" class="toggle toggle-sm" v-model="domainResolverDisableCache" />
+                <span class="label-text">disable_cache</span>
+              </label>
+              <label class="label cursor-pointer justify-start gap-2">
+                <input type="checkbox" class="toggle toggle-sm" v-model="domainResolverDisableOptimisticCache" />
+                <span class="label-text">disable_optimistic_cache</span>
+              </label>
+            </div>
+          </div>
           <label class="form-control">
             <span class="label-text mb-1">{{ i18n.t('网络策略') }}</span>
             <select v-model="raw.network_strategy" class="select select-bordered select-sm">

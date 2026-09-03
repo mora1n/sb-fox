@@ -611,6 +611,10 @@ proxies:
       server: local
       timeout: 1s
       strategy: prefer_ipv4
+      disable_cache: true
+      disable_optimistic_cache: true
+      rewrite_ttl: 60
+      client_subnet: 192.0.2.0/24
     network-strategy: fallback
     network-type:
       - wifi
@@ -655,6 +659,18 @@ proxies:
 	}
 	if got := field(t, resolver, "strategy"); got != "prefer_ipv4" {
 		t.Fatalf("domain_resolver.strategy = %q", got)
+	}
+	if got := scalarField(t, resolver, "disable_cache"); got != "true" {
+		t.Fatalf("domain_resolver.disable_cache = %q", got)
+	}
+	if got := scalarField(t, resolver, "disable_optimistic_cache"); got != "true" {
+		t.Fatalf("domain_resolver.disable_optimistic_cache = %q", got)
+	}
+	if got := scalarField(t, resolver, "rewrite_ttl"); got != "60" {
+		t.Fatalf("domain_resolver.rewrite_ttl = %q", got)
+	}
+	if got := field(t, resolver, "client_subnet"); got != "192.0.2.0/24" {
+		t.Fatalf("domain_resolver.client_subnet = %q", got)
 	}
 	if got := scalarField(t, node, "network_type"); got != "[wifi ethernet]" {
 		t.Fatalf("network_type = %q", got)
