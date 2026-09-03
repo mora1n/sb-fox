@@ -439,12 +439,9 @@ func TestBulkDeleteNodesPreviewAndDelete(t *testing.T) {
 			t.Fatalf("node %d still exists, get status=%d", id, status)
 		}
 	}
-	var group struct {
-		NodeIDs []int64 `json:"node_ids"`
-	}
-	decodeData(t, c.do(http.MethodGet, "/api/node-groups/"+itoa(groupID), nil), &group)
-	if len(group.NodeIDs) != 0 {
-		t.Fatalf("group node ids after bulk delete = %v", group.NodeIDs)
+	status, _, _ := decodeError(t, c.do(http.MethodGet, "/api/node-groups/"+itoa(groupID), nil))
+	if status != http.StatusNotFound {
+		t.Fatalf("group after bulk delete status = %d, want 404", status)
 	}
 	var saved struct {
 		NodeIDs    []int64 `json:"node_ids"`
@@ -464,7 +461,7 @@ func TestBulkDeleteNodesPreviewAndDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 	selection := options.GroupSelections["Proxy"]
-	if len(selection.NodeIDs) != 0 || !sameInt64s(selection.NodeGroupIDs, []int64{groupID}) {
+	if len(selection.NodeIDs) != 0 || len(selection.NodeGroupIDs) != 0 {
 		t.Fatalf("profile selection after bulk delete = %+v", selection)
 	}
 }

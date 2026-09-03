@@ -252,13 +252,44 @@ func (s *Store) ListNodeUsage(id, ownerUserID int64, allOwners bool) ([]*models.
 
 // DeleteNodesBySource removes all nodes attached to a subscription source.
 func (s *Store) DeleteNodesBySource(sourceRef int64) error {
-	_, err := s.db.Exec(`DELETE FROM nodes WHERE source = 'subscription' AND source_ref = ?`, sourceRef)
+	ids, err := s.nodeIDsBySource(sourceRef, nil)
+	if err != nil {
+		return err
+	}
+	_, err = s.deleteNodesWithReferences(ids, nil)
 	return err
 }
 
 func (s *Store) DeleteNodesBySourceForUser(sourceRef, ownerUserID int64) error {
-	_, err := s.db.Exec(`DELETE FROM nodes WHERE source = 'subscription' AND source_ref = ? AND owner_user_id = ?`, sourceRef, ownerUserID)
+	ids, err := s.nodeIDsBySource(sourceRef, &ownerUserID)
+	if err != nil {
+		return err
+	}
+	_, err = s.deleteNodesWithReferences(ids, &ownerUserID)
 	return err
+}
+
+func (s *Store) nodeIDsBySource(sourceRef int64, ownerUserID *int64) ([]int64, error) {
+	query := `SELECT id FROM nodes WHERE source = 'subscription' AND source_ref = ?`
+	args := []any{sourceRef}
+	if ownerUserID != nil {
+		query += ` AND owner_user_id = ?`
+		args = append(args, *ownerUserID)
+	}
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 func (s *Store) CountNodes(ownerUserID int64) (int, error) {

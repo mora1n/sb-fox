@@ -227,6 +227,74 @@ func TestParseTUIC(t *testing.T) {
 	}
 }
 
+func TestParseSnell(t *testing.T) {
+	tests := []struct {
+		name       string
+		uri        string
+		version    string
+		obfs       string
+		mode       string
+		wantServer string
+	}{
+		{
+			name:       "v4 userinfo",
+			uri:        "snell://my%20psk@snell.example.com:443?version=4&obfs=http&obfs-host=edge.example.com&reuse=true&network=tcp#Snell%204",
+			version:    "4",
+			obfs:       "http",
+			wantServer: "snell.example.com",
+		},
+		{
+			name:       "v5 query psk normalizes to v4",
+			uri:        "snell://snell.example.com:443?psk=secret&version=5",
+			version:    "4",
+			wantServer: "snell.example.com",
+		},
+		{
+			name:       "v6 query psk",
+			uri:        "snell://snell.example.com:443?psk=123456789012&version=6&mode=unshaped",
+			version:    "6",
+			mode:       "unshaped",
+			wantServer: "snell.example.com",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := Parse(tt.uri)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if field(t, out, "type") != "snell" || field(t, out, "server") != tt.wantServer {
+				t.Fatalf("outbound = %+v", out)
+			}
+			if scalarField(t, out, "version") != tt.version {
+				t.Fatalf("version = %s, want %s", scalarField(t, out, "version"), tt.version)
+			}
+			if tt.obfs != "" && field(t, out, "obfs_mode") != tt.obfs {
+				t.Fatalf("obfs_mode = %s, want %s", field(t, out, "obfs_mode"), tt.obfs)
+			}
+			if tt.mode != "" && field(t, out, "mode") != tt.mode {
+				t.Fatalf("mode = %s, want %s", field(t, out, "mode"), tt.mode)
+			}
+		})
+	}
+}
+
+func TestParseSnellRejectsInvalidVersionsAndParameters(t *testing.T) {
+	for _, uri := range []string{
+		"snell://psk@snell.example.com:443#missing-version",
+		"snell://psk@snell.example.com:443?version=3",
+		"snell://psk@snell.example.com:443?version=4&obfs=tls",
+		"snell://123456789012@snell.example.com:443?version=6&obfs=http",
+		"snell://psk@snell.example.com:443?version=6&mode=bad",
+		"snell://short@snell.example.com:443?version=6",
+		"snell://psk@snell.example.com:443?psk=other&version=4",
+	} {
+		if _, err := Parse(uri); err == nil {
+			t.Fatalf("Parse(%q) succeeded", uri)
+		}
+	}
+}
+
 func TestParseNaive(t *testing.T) {
 	uri := "naive+https://user:pass@naive.example.com:443?quic=true&sni=naive.example.com#Naive"
 	out, err := Parse(uri)
@@ -326,14 +394,15 @@ func TestDefaultPortsForCompatibleLinks(t *testing.T) {
 func TestParseManyBase64Blob(t *testing.T) {
 	links := "ss://" + base64.StdEncoding.EncodeToString([]byte("aes-256-gcm:pw")) + "@1.1.1.1:8388#A\n" +
 		"trojan://pw@2.2.2.2:443?security=tls#B\n" +
-		"anytls://pw@3.3.3.3?security=tls#C"
+		"anytls://pw@3.3.3.3?security=tls#C\n" +
+		"snell://snell.example.com:443?psk=secret&version=5#D"
 	blob := base64.StdEncoding.EncodeToString([]byte(links))
 	out, err := ParseMany(blob)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(out) != 3 {
-		t.Fatalf("parsed %d links, want 3", len(out))
+	if len(out) != 4 {
+		t.Fatalf("parsed %d links, want 4", len(out))
 	}
 }
 

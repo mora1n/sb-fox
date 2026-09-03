@@ -61,6 +61,17 @@ func TestRemoveNodeIDsFromProfileOptions(t *testing.T) {
 	if _, _, err := removeNodeIDsFromProfileOptions(`{"groupSelections":{"Proxy":{"nodeIds":"bad"}}}`, map[int64]bool{1: true}); err == nil {
 		t.Fatal("invalid nodeIds should return an error")
 	}
+	withGroups, changed, err := removeIDsFromProfileOptions(input, map[int64]bool{2: true}, map[int64]bool{9: true, 10: true})
+	if err != nil || !changed {
+		t.Fatalf("group cleanup changed=%v err=%v", changed, err)
+	}
+	var cleaned models.ProfileOptions
+	if err := json.Unmarshal([]byte(withGroups), &cleaned); err != nil {
+		t.Fatal(err)
+	}
+	if len(cleaned.GroupSelections["Proxy"].NodeGroupIDs) != 0 || len(cleaned.AutoCountrySelected.NodeGroupIDs) != 0 || len(cleaned.ChainProxySelected.NodeGroupIDs) != 1 {
+		t.Fatalf("group ids after cleanup = %+v", cleaned)
+	}
 }
 
 func TestDeleteNodeCleansRelationalAndOptionReferences(t *testing.T) {
@@ -197,6 +208,86 @@ func TestDeleteNodeRollsBackOnInvalidProfileOptions(t *testing.T) {
 	profile, err := s.GetProfile(profileID)
 	if err != nil || len(profile.NodeIDs) != 1 || profile.NodeIDs[0] != nodeID {
 		t.Fatalf("profile after rollback = %+v err=%v", profile, err)
+	}
+}
+
+func TestDeleteLastNodeRemovesEmptyGroupAndAllProfileGroupReferences(t *testing.T) {
+	s := openTest(t)
+	ownerID := createTestUser(t, s)
+	templateID, err := s.CreateTemplate(&models.Template{OwnerUserID: ownerID, Name: "t", Kind: "user", Content: "{}"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodeID := createReferenceTestNode(t, s, ownerID, "target")
+	groupID, err := s.CreateNodeGroup(&models.NodeGroup{OwnerUserID: ownerID, Name: "g", NodeIDs: []int64{nodeID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := fmt.Sprintf(`{"groupSelections":{"Proxy":{"nodeGroupIds":[%d]}},"autoCountrySelection":{"nodeGroupIds":[%d]},"chainProxySelection":{"nodeGroupIds":[%d]}}`, groupID, groupID, groupID)
+	profileID, err := s.CreateProfile(&models.Profile{OwnerUserID: ownerID, Name: "p", TemplateID: templateID, Options: options, Token: "tok-empty-group"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteNodeForUser(nodeID, ownerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetNodeGroupForUser(groupID, ownerID, false); err != ErrNotFound {
+		t.Fatalf("empty group error = %v, want ErrNotFound", err)
+	}
+	profile, err := s.GetProfile(profileID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got models.ProfileOptions
+	if err := json.Unmarshal([]byte(profile.Options), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.GroupSelections["Proxy"].NodeGroupIDs) != 0 || len(got.AutoCountrySelected.NodeGroupIDs) != 0 || len(got.ChainProxySelected.NodeGroupIDs) != 0 {
+		t.Fatalf("profile group refs after delete = %+v", got)
+	}
+}
+
+func TestDeleteNodesBySourceRemovesEmptyGroups(t *testing.T) {
+	s := openTest(t)
+	ownerID := createTestUser(t, s)
+	templateID, err := s.CreateTemplate(&models.Template{OwnerUserID: ownerID, Name: "t", Kind: "user", Content: "{}"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceID, err := s.CreateSource(ownerID, "source", "https://example.com/sub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := sourceID
+	nodeID, err := s.CreateNode(&models.Node{OwnerUserID: ownerID, Tag: "subscription-node", Type: "shadowsocks", Source: "subscription", SourceRef: &ref, Raw: "{}"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	groupID, err := s.CreateNodeGroup(&models.NodeGroup{OwnerUserID: ownerID, Name: "source-group", NodeIDs: []int64{nodeID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	profileID, err := s.CreateProfile(&models.Profile{OwnerUserID: ownerID, Name: "source-profile", TemplateID: templateID,
+		Options: fmt.Sprintf(`{"groupSelections":{"Proxy":{"nodeGroupIds":[%d]}}}`, groupID), Token: "tok-source-group"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteNodesBySourceForUser(sourceID, ownerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetNodeGroupForUser(groupID, ownerID, false); err != ErrNotFound {
+		t.Fatalf("source group error = %v, want ErrNotFound", err)
+	}
+	profile, err := s.GetProfile(profileID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var options models.ProfileOptions
+	if err := json.Unmarshal([]byte(profile.Options), &options); err != nil {
+		t.Fatal(err)
+	}
+	if len(options.GroupSelections["Proxy"].NodeGroupIDs) != 0 {
+		t.Fatalf("source profile group refs = %v", options.GroupSelections["Proxy"].NodeGroupIDs)
 	}
 }
 

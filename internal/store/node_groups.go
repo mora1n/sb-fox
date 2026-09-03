@@ -174,12 +174,13 @@ func (s *Store) UpdateNodeGroup(g *models.NodeGroup) error {
 }
 
 func (s *Store) DeleteNodeGroup(id int64) error {
-	_, err := s.db.Exec(`DELETE FROM node_groups WHERE id = ?`, id)
+	_, err := s.deleteNodeGroupsWithReferences([]int64{id}, nil)
 	return err
 }
 
 func (s *Store) DeleteNodeGroupForUser(id, ownerUserID int64) error {
-	return requireRowsAffected(s.db.Exec(`DELETE FROM node_groups WHERE id = ? AND owner_user_id = ?`, id, ownerUserID))
+	_, err := s.deleteNodeGroupsWithReferences([]int64{id}, &ownerUserID)
+	return err
 }
 
 func (s *Store) nodeGroupNodeIDs(groupID int64) ([]int64, error) {

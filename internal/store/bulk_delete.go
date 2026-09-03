@@ -9,7 +9,7 @@ func (s *Store) DeleteNodesByIDs(ids []int64) (int, error) {
 }
 
 func (s *Store) DeleteNodeGroupsByIDs(ids []int64) (int, error) {
-	return s.deleteByIDs("node_groups", ids, "")
+	return s.deleteNodeGroupsWithReferences(ids, nil)
 }
 
 func (s *Store) DeleteTemplatesByIDs(ids []int64) (int, error) {

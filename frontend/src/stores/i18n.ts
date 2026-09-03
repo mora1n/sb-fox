@@ -245,6 +245,7 @@ const en: Record<string, string> = {
   '已选节点': 'Selected Nodes',
   '已选组合节点': 'Selected Node Groups',
   '组合节点列表': 'Node Group List',
+  '空组合节点不可选': 'Empty node groups cannot be selected',
   '卡片': 'Cards',
   '列表': 'List',
   '新建组合': 'New Group',

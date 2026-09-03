@@ -167,7 +167,7 @@ func TestDeleteNodeCleansProfileReferencesAndReportsEmptySelection(t *testing.T)
 	}
 }
 
-func TestDeleteNodeKeepsEmptyNodeGroupWithoutDanglingValidation(t *testing.T) {
+func TestDeleteNodeRemovesEmptyNodeGroupAndSubscriptionReference(t *testing.T) {
 	_, ts := testServer(t)
 	c := newClient(t, ts.URL)
 	c.http.Jar = login(t, ts.URL)
@@ -192,13 +192,9 @@ func TestDeleteNodeKeepsEmptyNodeGroupWithoutDanglingValidation(t *testing.T) {
 	}), &profile)
 
 	decodeData(t, c.do(http.MethodDelete, "/api/nodes/"+itoa(nodeID), nil), nil)
-	var group struct {
-		ID      int64   `json:"id"`
-		NodeIDs []int64 `json:"node_ids"`
-	}
-	decodeData(t, c.do(http.MethodGet, "/api/node-groups/"+itoa(groupID), nil), &group)
-	if group.ID != groupID || len(group.NodeIDs) != 0 {
-		t.Fatalf("group after node delete = %+v", group)
+	status, _, _ := decodeError(t, c.do(http.MethodGet, "/api/node-groups/"+itoa(groupID), nil))
+	if status != http.StatusNotFound {
+		t.Fatalf("group after node delete status = %d, want 404", status)
 	}
 
 	var got struct {
@@ -213,12 +209,55 @@ func TestDeleteNodeKeepsEmptyNodeGroupWithoutDanglingValidation(t *testing.T) {
 	if !got.Validation.Valid || got.Validation.MissingTemplate || len(got.Validation.MissingNodeIDs) != 0 || len(got.Validation.MissingNodeGroupIDs) != 0 {
 		t.Fatalf("validation = %+v", got.Validation)
 	}
+	var savedOptions struct {
+		Options string `json:"options"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/profiles/"+itoa(profile.ID), nil), &savedOptions)
+	var options models.ProfileOptions
+	if err := json.Unmarshal([]byte(savedOptions.Options), &options); err != nil {
+		t.Fatal(err)
+	}
+	if len(options.GroupSelections["Proxy"].NodeGroupIDs) != 0 {
+		t.Fatalf("group selection after node delete = %v", options.GroupSelections["Proxy"].NodeGroupIDs)
+	}
 
 	status, code, msg := decodeError(t, c.do(http.MethodPost, "/api/generate/preview", map[string]any{
 		"profile_id": profile.ID,
 	}))
 	if status != http.StatusUnprocessableEntity || code != "generate_error" || !strings.Contains(msg, "no selected nodes") {
 		t.Fatalf("preview status=%d code=%q msg=%q", status, code, msg)
+	}
+}
+
+func TestProfileRejectsEmptyNodeGroupSelection(t *testing.T) {
+	_, ts := testServer(t)
+	c := newClient(t, ts.URL)
+	c.http.Jar = login(t, ts.URL)
+	templateID := createPreviewOrderTemplate(t, c)
+	groupID := createPreviewOrderGroup(t, c, "empty-group", nil)
+	requests := []map[string]any{
+		{
+			"name":        "nested-empty",
+			"template_id": templateID,
+			"options": map[string]any{
+				"autoCountryGroups": false,
+				"groupSelections": map[string]any{
+					"Proxy": map[string]any{"nodeGroupIds": []int64{groupID}},
+				},
+			},
+		},
+		{
+			"name":           "top-level-empty",
+			"template_id":    templateID,
+			"node_group_ids": []int64{groupID},
+			"options":        map[string]any{"autoCountryGroups": false},
+		},
+	}
+	for _, request := range requests {
+		status, code, msg := decodeError(t, c.do(http.MethodPost, "/api/profiles", request))
+		if status != http.StatusBadRequest || code != "bad_request" || msg != "node group is empty" {
+			t.Fatalf("empty group response = status %d code %q message %q", status, code, msg)
+		}
 	}
 }
 

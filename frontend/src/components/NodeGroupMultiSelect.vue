@@ -12,6 +12,7 @@ const dragIndex = ref<number | null>(null)
 const pressedIndex = ref<number | null>(null)
 const insertIndex = ref<number | null>(null)
 const groupsByID = computed(() => new Map(props.groups.map((group) => [group.id, group])))
+const selectableGroups = computed(() => props.groups.filter((group) => group.node_ids.length > 0))
 const selectedSet = computed(() => new Set(props.modelValue))
 const selectedItems = computed(() => {
   return props.modelValue.map((id) => ({ id, group: groupsByID.value.get(id) }))
@@ -19,13 +20,15 @@ const selectedItems = computed(() => {
 
 function toggle(id: number) {
   if (props.disabled) return
+  const group = groupsByID.value.get(id)
+  if (!group || group.node_ids.length === 0) return
   if (selectedSet.value.has(id)) emit('update:modelValue', props.modelValue.filter((item) => item !== id))
   else emit('update:modelValue', uniqueIDs([...props.modelValue, id]))
 }
 
 function selectAll() {
   if (props.disabled) return
-  emit('update:modelValue', uniqueIDs([...props.modelValue, ...props.groups.map((group) => group.id)]))
+  emit('update:modelValue', uniqueIDs([...props.modelValue, ...selectableGroups.value.map((group) => group.id)]))
 }
 
 function clearAll() {
@@ -194,14 +197,15 @@ function dropSelected(event: DragEvent) {
       <label
         v-for="g in groups"
         :key="g.id"
-        class="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-base-200"
-        :class="{ 'opacity-60': disabled }"
+        class="flex items-center gap-2 px-3 py-2 hover:bg-base-200"
+        :class="{ 'cursor-pointer': !disabled && g.node_ids.length > 0, 'opacity-60': disabled || g.node_ids.length === 0 }"
+        :title="g.node_ids.length === 0 ? i18n.t('空组合节点不可选') : undefined"
       >
         <input
           type="checkbox"
           class="checkbox checkbox-sm"
           :checked="selectedSet.has(g.id)"
-          :disabled="disabled"
+          :disabled="disabled || g.node_ids.length === 0"
           @change="toggle(g.id)"
         />
         <span class="truncate flex-1 text-sm">{{ g.name }}</span>

@@ -2,6 +2,8 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -316,7 +318,7 @@ func TestNodeGroupAndProfileMembership(t *testing.T) {
 		OwnerUserID:  ownerID,
 		Name:         "p1",
 		TemplateID:   tid,
-		Options:      "{}",
+		Options:      fmt.Sprintf(`{"groupSelections":{"Proxy":{"nodeGroupIds":[%d]}}}`, gid),
 		Token:        "tok-groups",
 		NodeIDs:      []int64{nodeIDs[1]},
 		NodeGroupIDs: []int64{gid},
@@ -340,6 +342,13 @@ func TestNodeGroupAndProfileMembership(t *testing.T) {
 	}
 	if len(profile.NodeGroupIDs) != 0 {
 		t.Fatalf("group cascade failed: %v", profile.NodeGroupIDs)
+	}
+	var options models.ProfileOptions
+	if err := json.Unmarshal([]byte(profile.Options), &options); err != nil {
+		t.Fatal(err)
+	}
+	if len(options.GroupSelections["Proxy"].NodeGroupIDs) != 0 {
+		t.Fatalf("profile option group refs = %v", options.GroupSelections["Proxy"].NodeGroupIDs)
 	}
 }
 

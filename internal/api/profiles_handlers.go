@@ -445,11 +445,16 @@ func (s *Server) validateNodeGroupAccess(w http.ResponseWriter, u *models.User, 
 
 func (s *Server) validateNodeGroupAccessForOwner(w http.ResponseWriter, ownerUserID int64, allOwners bool, groupIDs []int64) bool {
 	for _, id := range groupIDs {
-		if _, err := s.Store.GetNodeGroupForUser(id, ownerUserID, allOwners); err == store.ErrNotFound {
+		group, err := s.Store.GetNodeGroupForUser(id, ownerUserID, allOwners)
+		if err == store.ErrNotFound {
 			respondError(w, http.StatusBadRequest, "bad_request", "node group not found")
 			return false
 		} else if err != nil {
 			respondError(w, http.StatusInternalServerError, "internal", err.Error())
+			return false
+		}
+		if len(group.NodeIDs) == 0 {
+			respondError(w, http.StatusBadRequest, "bad_request", "node group is empty")
 			return false
 		}
 	}

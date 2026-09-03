@@ -38,6 +38,8 @@ func Parse(uri string) (*merge.OrderedMap, error) {
 		return parseHysteria(uri)
 	case strings.HasPrefix(uri, "tuic://"):
 		return parseTUIC(uri)
+	case strings.HasPrefix(uri, "snell://"):
+		return parseSnell(uri)
 	case strings.HasPrefix(uri, "naive://"), strings.HasPrefix(uri, "naive+"):
 		return parseNaive(uri)
 	case strings.HasPrefix(uri, "socks://"), strings.HasPrefix(uri, "socks5://"), strings.HasPrefix(uri, "socks4://"), strings.HasPrefix(uri, "socks4a://"):
@@ -147,7 +149,7 @@ func anyLooksLikeLink(lines []string) bool {
 }
 
 func looksLikeLink(ln string) bool {
-	for _, p := range []string{"ss://", "ssr://", "vmess://", "vless://", "trojan://", "anytls://", "shadowtls://", "hysteria://", "hy://", "hysteria2://", "hy2://", "tuic://", "naive://", "naive+", "socks://", "socks5://", "socks4://", "socks4a://", "wireguard://", "wg://"} {
+	for _, p := range []string{"ss://", "ssr://", "vmess://", "vless://", "trojan://", "anytls://", "shadowtls://", "hysteria://", "hy://", "hysteria2://", "hy2://", "tuic://", "snell://", "naive://", "naive+", "socks://", "socks5://", "socks4://", "socks4a://", "wireguard://", "wg://"} {
 		if strings.HasPrefix(ln, p) {
 			return true
 		}
