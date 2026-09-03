@@ -36,6 +36,7 @@ const PROTOCOLS = [
   'hysteria',
   'hysteria2',
   'tuic',
+  'snell',
   'anytls',
   'shadowtls',
   'naive',
@@ -273,6 +274,21 @@ const fallbackNetworkTypeText = computed({
   get: () => listFieldText(raw.fallback_network_type),
   set: (v: string) => setListField('fallback_network_type', v, NETWORK_TYPES, FALLBACK_NETWORK_TYPE_ERROR_PREFIX),
 })
+const snellNetworkText = computed({
+  get: () => (Array.isArray(raw.network) ? raw.network.join(', ') : String(raw.network ?? '')),
+  set: (v: string) => {
+    const input = v.trim()
+    const values = input ? input.split(',').map((item) => item.trim()) : []
+    const invalid = values.filter((item) => !['tcp', 'udp'].includes(item))
+    if (invalid.length) {
+      parseError.value = `${i18n.t('Snell 网络')} ${i18n.t('仅支持以下值')}: tcp, udp`
+      return
+    }
+    if (values.length === 0) delete raw.network
+    else raw.network = [...new Set(values)]
+    if (parseError.value.startsWith(i18n.t('Snell 网络'))) parseError.value = ''
+  },
+})
 
 const countryOptions = computed(() => sortCountryOptions(COUNTRY_CODES, settings.countryHeatOrder))
 const currentMode = computed<NodeFormMode>(() => props.mode ?? (props.node ? 'edit' : props.copyFrom ? 'copy' : 'create'))
@@ -415,6 +431,50 @@ function setListField(field: string, rawValue: string, allowed: string[], prefix
   clearFieldError(prefix)
 }
 
+function normalizeSnellFields(defaultVersion = false) {
+  if (raw.type !== 'snell') return
+  const version = Number(raw.version)
+  if (version !== 4 && version !== 6) {
+    if (!defaultVersion) return
+    raw.version = 4
+  }
+  delete raw.tls
+  if (typeof raw.network === 'string' && !raw.network.trim()) delete raw.network
+  if (Array.isArray(raw.network) && raw.network.length === 0) delete raw.network
+  if (raw.mode === '') delete raw.mode
+  if (raw.obfs_mode === '') delete raw.obfs_mode
+  if (Number(raw.version) === 6) {
+    delete raw.obfs_mode
+    delete raw.obfs_host
+  } else {
+    delete raw.mode
+  }
+}
+
+function validateSnellFields() {
+  const version = Number(raw.version)
+  if (version !== 4 && version !== 6) throw new Error('Snell version 只能是 4 或 6')
+  const psk = String(raw.psk ?? '').trim()
+  if (!psk) throw new Error('Snell PSK 不能为空')
+  const pskBytes = new TextEncoder().encode(psk).length
+  if (version === 6 && (pskBytes < 12 || pskBytes > 255)) {
+    throw new Error('Snell v6 PSK 长度必须为 12-255 字节')
+  }
+  const networkRaw = String(raw.network ?? '').trim()
+  const network = Array.isArray(raw.network) ? raw.network : networkRaw ? networkRaw.split(',').map((item) => item.trim()) : []
+  if (network.some((item: unknown) => !['tcp', 'udp'].includes(String(item).trim()))) {
+    throw new Error('Snell network 只能是 tcp 或 udp')
+  }
+  if (version === 6 && raw.obfs_mode) throw new Error('Snell obfs_mode 仅适用于 version 4')
+  if (version === 4 && raw.mode) throw new Error('Snell mode 仅适用于 version 6')
+  if (version === 4 && raw.obfs_mode && !['none', 'http'].includes(raw.obfs_mode)) {
+    throw new Error('Snell obfs_mode 只能是 none 或 http')
+  }
+  if (version === 6 && raw.mode && !['default', 'unshaped', 'unsafe-raw'].includes(raw.mode)) {
+    throw new Error('Snell mode 只能是 default、unshaped 或 unsafe-raw')
+  }
+}
+
 async function save() {
   if (
     props.loading ||
@@ -428,6 +488,10 @@ async function save() {
   try {
     if (props.copyFrom && String(raw.tag ?? '').trim() === props.copyFrom.tag.trim()) {
       throw new Error(i18n.t('复制节点需要修改标签后保存'))
+    }
+    if (raw.type === 'snell') {
+      normalizeSnellFields()
+      validateSnellFields()
     }
     const payload = {
       raw: JSON.stringify(raw),
@@ -462,7 +526,26 @@ watch(
     if (!raw.server_port || raw.server_port === defaultPortFor(prev || '')) {
       raw.server_port = defaultPortFor(next)
     }
+    if (next === 'snell') normalizeSnellFields(true)
     if (defaultTLSEnabled(next)) tls().enabled = true
+  },
+)
+watch(
+  () => raw.version,
+  () => {
+    if (!hydrating.value && raw.type === 'snell') normalizeSnellFields()
+  },
+)
+watch(
+  () => raw.mode,
+  (next) => {
+    if (!hydrating.value && raw.type === 'snell' && next === '') delete raw.mode
+  },
+)
+watch(
+  () => raw.obfs_mode,
+  (next) => {
+    if (!hydrating.value && raw.type === 'snell' && next === '') delete raw.obfs_mode
   },
 )
 </script>
@@ -649,6 +732,60 @@ watch(
             <label class="form-control">
               <span class="label-text mb-1">heartbeat</span>
               <input v-model="raw.heartbeat" class="input input-bordered input-sm" placeholder="10s" />
+            </label>
+          </div>
+        </div>
+
+        <!-- snell -->
+        <div v-else-if="raw.type === 'snell'" class="flex flex-col gap-3">
+          <div class="grid grid-cols-2 gap-3">
+            <label class="form-control">
+              <span class="label-text mb-1">PSK</span>
+              <input v-model="raw.psk" class="input input-bordered input-sm" />
+            </label>
+            <label class="form-control">
+              <span class="label-text mb-1">userkey</span>
+              <input v-model="raw.userkey" class="input input-bordered input-sm" />
+            </label>
+            <label class="form-control">
+              <span class="label-text mb-1">version</span>
+              <select v-model.number="raw.version" class="select select-bordered select-sm">
+                <option :value="4">4</option>
+                <option :value="6">6</option>
+              </select>
+            </label>
+            <label class="form-control">
+              <span class="label-text mb-1">network</span>
+              <input v-model="snellNetworkText" class="input input-bordered input-sm" placeholder="tcp, udp" />
+            </label>
+            <label class="label cursor-pointer justify-start gap-2">
+              <input type="checkbox" class="toggle toggle-sm" v-model="raw.reuse" />
+              <span class="label-text">reuse</span>
+            </label>
+          </div>
+          <div v-if="Number(raw.version) === 6" class="grid grid-cols-2 gap-3">
+            <label class="form-control">
+              <span class="label-text mb-1">mode</span>
+              <select v-model="raw.mode" class="select select-bordered select-sm">
+                <option value="">{{ i18n.t('未指定') }}</option>
+                <option value="default">default</option>
+                <option value="unshaped">unshaped</option>
+                <option value="unsafe-raw">unsafe-raw</option>
+              </select>
+            </label>
+          </div>
+          <div v-else class="grid grid-cols-2 gap-3">
+            <label class="form-control">
+              <span class="label-text mb-1">obfs_mode</span>
+              <select v-model="raw.obfs_mode" class="select select-bordered select-sm">
+                <option value="">{{ i18n.t('未指定') }}</option>
+                <option value="none">none</option>
+                <option value="http">http</option>
+              </select>
+            </label>
+            <label v-if="raw.obfs_mode === 'http'" class="form-control">
+              <span class="label-text mb-1">obfs_host</span>
+              <input v-model="raw.obfs_host" class="input input-bordered input-sm" />
             </label>
           </div>
         </div>

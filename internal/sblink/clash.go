@@ -84,6 +84,8 @@ func clashProxyOutbound(p map[string]any) (*merge.OrderedMap, error) {
 		out, err = clashHysteria2(p)
 	case "tuic":
 		out, err = clashTUIC(p)
+	case "snell":
+		out, err = clashSnell(p)
 	case "anytls":
 		out, err = clashAnyTLS(p)
 	case "shadowtls":
@@ -114,7 +116,7 @@ func clashBase(p map[string]any, typ string) (*merge.OrderedMap, error) {
 
 func clashBaseWithDefault(p map[string]any, typ string, defaultPort int) (*merge.OrderedMap, error) {
 	server := cleanServer(clashString(p, "server"))
-	port := clashString(p, "port")
+	port := clashStringAny(p, "port", "server-port", "server_port")
 	if port == "" && defaultPort > 0 {
 		port = strconv.Itoa(defaultPort)
 	}
@@ -352,6 +354,90 @@ func clashTUIC(p map[string]any) (*merge.OrderedMap, error) {
 		out.Set("tls", tls)
 	}
 	return out, nil
+}
+
+func clashSnell(p map[string]any) (*merge.OrderedMap, error) {
+	out, err := clashBase(p, "snell")
+	if err != nil {
+		return nil, err
+	}
+	psk := clashStringAny(p, "psk", "password")
+	if psk == "" {
+		return nil, fmt.Errorf("snell missing psk")
+	}
+	version, err := snellVersion(clashString(p, "version"))
+	if err != nil {
+		return nil, err
+	}
+	out.Set("version", intNumber(version))
+	out.Set("psk", psk)
+	if version == 6 && (len([]byte(psk)) < 12 || len([]byte(psk)) > 255) {
+		return nil, fmt.Errorf("snell v6 psk must be 12-255 bytes")
+	}
+	setStringIfPresent(out, "userkey", clashStringAny(p, "userkey", "user-key"))
+	if _, ok := p["reuse"]; ok && clashBool(p, "reuse", false) {
+		out.Set("reuse", true)
+	}
+	if network, err := clashSnellNetwork(clashAny(p, "network")); err != nil {
+		return nil, err
+	} else if network != "" {
+		if err := validateSnellNetwork(network); err != nil {
+			return nil, err
+		}
+		out.Set("network", snellNetworkValue(network))
+	} else if _, ok := p["udp"]; ok {
+		if clashBool(p, "udp", false) {
+			out.Set("network", []any{"tcp", "udp"})
+		} else {
+			out.Set("network", "tcp")
+		}
+	}
+	obfs := clashMap(p, "obfs-opts")
+	obfsMode := strings.ToLower(strings.TrimSpace(clashStringAny(obfs, "mode", "obfs_mode", "obfs-mode")))
+	if obfsMode == "" {
+		obfsMode = strings.ToLower(strings.TrimSpace(clashStringAny(p, "obfs", "obfs_mode", "obfs-mode")))
+	}
+	if version == 6 {
+		if obfsMode != "" {
+			return nil, fmt.Errorf("snell obfs is only valid for version 4")
+		}
+		if mode := strings.TrimSpace(clashString(p, "mode")); mode != "" {
+			if mode != "default" && mode != "unshaped" && mode != "unsafe-raw" {
+				return nil, fmt.Errorf("unsupported snell v6 mode %q", mode)
+			}
+			out.Set("mode", mode)
+		}
+		return out, nil
+	}
+	if obfsMode != "" && obfsMode != "none" && obfsMode != "http" {
+		return nil, fmt.Errorf("unsupported snell v4 obfs mode %q", obfsMode)
+	}
+	if obfsMode == "http" {
+		out.Set("obfs_mode", obfsMode)
+		obfsHost := clashStringAny(obfs, "host", "obfs-host", "obfs_host")
+		if obfsHost == "" {
+			obfsHost = clashStringAny(p, "obfs-host", "obfs_host", "obfs-hostname")
+		}
+		setStringIfPresent(out, "obfs_host", obfsHost)
+	}
+	if mode := strings.TrimSpace(clashString(p, "mode")); mode != "" {
+		return nil, fmt.Errorf("snell mode is only valid for version 6")
+	}
+	return out, nil
+}
+
+func clashSnellNetwork(value any) (string, error) {
+	switch value := value.(type) {
+	case []any:
+		items := clashStringSlice(value)
+		return strings.Join(items, ","), nil
+	case []string:
+		return strings.Join(value, ","), nil
+	case nil:
+		return "", nil
+	default:
+		return strings.TrimSpace(anyToString(value)), nil
+	}
 }
 
 func clashAnyTLS(p map[string]any) (*merge.OrderedMap, error) {

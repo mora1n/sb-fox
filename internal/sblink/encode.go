@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/mora1n/sb-fox/internal/merge"
 )
@@ -33,6 +34,8 @@ func Encode(out *merge.OrderedMap) (string, error) {
 		return encodeHysteria2(out)
 	case "tuic":
 		return encodeTUIC(out)
+	case "snell":
+		return encodeSnell(out)
 	case "naive":
 		return encodeNaive(out)
 	case "http":
@@ -224,6 +227,72 @@ func encodeTUIC(out *merge.OrderedMap) (string, error) {
 		return "", err
 	}
 	return linkURL("tuic", url.UserPassword(uuid, password), server, port, q, out.GetString("tag")), nil
+}
+
+func encodeSnell(out *merge.OrderedMap) (string, error) {
+	server, port, err := requiredEndpoint(out)
+	if err != nil {
+		return "", err
+	}
+	psk, err := requiredString(out, "psk")
+	if err != nil {
+		return "", err
+	}
+	versionValue, ok := out.Get("version")
+	if !ok {
+		return "", fmt.Errorf("sblink: missing version")
+	}
+	version, err := snellVersion(scalarString(versionValue))
+	if err != nil {
+		return "", err
+	}
+	if version == 6 && (len([]byte(psk)) < 12 || len([]byte(psk)) > 255) {
+		return "", fmt.Errorf("sblink: snell v6 psk must be 12-255 bytes")
+	}
+	q := url.Values{}
+	q.Set("psk", psk)
+	q.Set("version", fmt.Sprintf("%d", version))
+	if userkey := out.GetString("userkey"); userkey != "" {
+		q.Set("userkey", userkey)
+	}
+	if truthyField(out, "reuse") {
+		q.Set("reuse", "true")
+	}
+	network := out.GetString("network")
+	if values := stringListField(out, "network"); len(values) > 0 {
+		network = strings.Join(values, ",")
+	}
+	if network != "" {
+		if err := validateSnellNetwork(network); err != nil {
+			return "", err
+		}
+		q.Set("network", network)
+	}
+	if version == 6 {
+		if obfsMode := out.GetString("obfs_mode"); obfsMode != "" {
+			return "", fmt.Errorf("sblink: snell obfs is only valid for version 4")
+		}
+		if mode := out.GetString("mode"); mode != "" {
+			if mode != "default" && mode != "unshaped" && mode != "unsafe-raw" {
+				return "", fmt.Errorf("sblink: unsupported snell v6 mode %q", mode)
+			}
+			q.Set("mode", mode)
+		}
+	} else {
+		if mode := out.GetString("mode"); mode != "" {
+			return "", fmt.Errorf("sblink: snell mode is only valid for version 6")
+		}
+		if obfsMode := out.GetString("obfs_mode"); obfsMode != "" {
+			if obfsMode != "none" && obfsMode != "http" {
+				return "", fmt.Errorf("sblink: unsupported snell v4 obfs mode %q", obfsMode)
+			}
+			q.Set("obfs", obfsMode)
+		}
+		if obfsHost := out.GetString("obfs_host"); obfsHost != "" {
+			q.Set("obfs-host", obfsHost)
+		}
+	}
+	return linkURL("snell", nil, server, port, q, out.GetString("tag")), nil
 }
 
 func encodeNaive(out *merge.OrderedMap) (string, error) {

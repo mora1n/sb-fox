@@ -46,7 +46,7 @@ func parseSnell(uri string) (*merge.OrderedMap, error) {
 		if err := validateSnellNetwork(network); err != nil {
 			return nil, err
 		}
-		out.Set("network", network)
+		out.Set("network", snellNetworkValue(network))
 	}
 	if version == 6 {
 		if obfs := queryFirst(p.query, "obfs", "obfs_mode", "obfs-mode"); obfs != "" {
@@ -122,4 +122,16 @@ func validateSnellNetwork(network string) error {
 		}
 	}
 	return nil
+}
+
+func snellNetworkValue(network string) any {
+	items := strings.Split(network, ",")
+	if len(items) == 1 {
+		return strings.TrimSpace(items[0])
+	}
+	values := make([]any, 0, len(items))
+	for _, item := range items {
+		values = append(values, strings.TrimSpace(item))
+	}
+	return values
 }

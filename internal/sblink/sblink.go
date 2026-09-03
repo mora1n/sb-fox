@@ -56,8 +56,9 @@ func Parse(uri string) (*merge.OrderedMap, error) {
 }
 
 // ParseMany splits text into individual links and parses each. If the whole
-// input does not look like links, it tries base64-decoding first. Blank lines
-// are skipped. It errors only when every candidate line fails.
+// input does not look like links, it tries base64-decoding first, then accepts
+// SIP008, Mihomo/Clash YAML and Surge profiles. Blank lines are skipped. It
+// errors only when every candidate line fails.
 func ParseMany(text string) ([]*merge.OrderedMap, error) {
 	out, _, err := ParseManyWithWarnings(text)
 	return out, err
@@ -108,6 +109,15 @@ func parseManyWithWarnings(text string, depth int) ([]*merge.OrderedMap, []strin
 		return sip, warnings, nil
 	} else if err != nil {
 		lastErr = err
+	}
+	if looksLikeSurgeProfile(text) {
+		if surge, surgeWarnings, err := parseSurgeProfile(text); err == nil && len(surge) > 0 {
+			warnings = append(warnings, surgeWarnings...)
+			return surge, warnings, nil
+		} else if err != nil {
+			warnings = append(warnings, surgeWarnings...)
+			lastErr = err
+		}
 	}
 	if clash, clashWarnings, err := parseClashYAML(text); err == nil && len(clash) > 0 {
 		warnings = append(warnings, clashWarnings...)

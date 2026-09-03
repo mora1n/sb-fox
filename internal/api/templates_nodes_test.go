@@ -896,6 +896,47 @@ func TestImportPreviewSubscriptionDoesNotCreateSource(t *testing.T) {
 	}
 }
 
+func TestImportPreviewSubscriptionParsesMihomoAndSurge(t *testing.T) {
+	srv, ts := testServer(t)
+	srv.Fetcher.AllowPrivate = true
+	c := newClient(t, ts.URL)
+	c.http.Jar = login(t, ts.URL)
+	psk := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	sub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/mihomo":
+			_, _ = w.Write([]byte("proxies:\n  - name: Mihomo Snell\n    type: snell\n    server: mihomo.example.com\n    port: 17851\n    psk: " + psk + "\n    version: 6\n"))
+		case "/surge":
+			_, _ = w.Write([]byte("[Proxy]\nSurge Snell = snell, surge.example.com, 17851, psk=" + psk + ", version=6\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(sub.Close)
+	for _, tc := range []struct {
+		path string
+		tag  string
+	}{
+		{path: "/mihomo", tag: "Mihomo Snell"},
+		{path: "/surge", tag: "Surge Snell"},
+	} {
+		var preview struct {
+			Parsed     int `json:"parsed"`
+			Importable int `json:"importable"`
+			Nodes      []struct {
+				Type string `json:"type"`
+				Tag  string `json:"tag"`
+			} `json:"nodes"`
+		}
+		decodeData(t, c.do(http.MethodPost, "/api/nodes/import/subscription/preview", map[string]string{
+			"url": sub.URL + tc.path,
+		}), &preview)
+		if preview.Parsed != 1 || preview.Importable != 1 || len(preview.Nodes) != 1 || preview.Nodes[0].Type != "snell" || preview.Nodes[0].Tag != tc.tag {
+			t.Fatalf("%s preview = %+v", tc.path, preview)
+		}
+	}
+}
+
 func TestImportPreviewSubscriptionMultiURLPartialSuccess(t *testing.T) {
 	srv, ts := testServer(t)
 	srv.Fetcher.AllowPrivate = true

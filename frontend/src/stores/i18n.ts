@@ -43,6 +43,7 @@ const en: Record<string, string> = {
   '服务器': 'Server',
   '端口': 'Port',
   '协议参数': 'Protocol Options',
+  'Snell 网络': 'Snell Network',
   '认证': 'Authentication',
   '会话': 'Session',
   '请求': 'Request',
@@ -158,8 +159,8 @@ const en: Record<string, string> = {
   '导入节点': 'Import Nodes',
   '分享链接': 'Share Links',
   '订阅 URL': 'Subscription URL',
-  '每行一个 ss/vmess/vless/trojan/hysteria/hysteria2/tuic/anytls/shadowtls/naive/socks/http 链接，或粘贴 base64、SIP008、Clash/Mihomo 订阅内容。':
-    'One ss/vmess/vless/trojan/hysteria/hysteria2/tuic/anytls/shadowtls/naive/socks/http link per line, or paste base64, SIP008, Clash/Mihomo subscription content.',
+  '每行一个 ss/vmess/vless/trojan/hysteria/hysteria2/tuic/snell/anytls/shadowtls/naive/socks/http 链接，或粘贴 base64、SIP008、Mihomo/Clash YAML、Surge 配置。':
+    'One ss/vmess/vless/trojan/hysteria/hysteria2/tuic/snell/anytls/shadowtls/naive/socks/http link per line, or paste base64, SIP008, Mihomo/Clash YAML, or a Surge profile.',
   '名称': 'Name',
   '我的订阅': 'My Subscription',
   '每行一个订阅 URL，可使用 #noCache、#insecure、#ua=...、#headers=...、#cacheTtl=秒 参数。':

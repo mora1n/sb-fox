@@ -475,6 +475,15 @@ proxies:
     server: socks.example.com
     username: user
     password: pass
+  - name: Snell v6
+    type: snell
+    server: snell.example.com
+    port: 17851
+    psk: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    userkey: 0123456789abcdef0123456789abcdef
+    version: 6
+    udp: true
+    mode: unshaped
   - name: OldSSR
     type: ssr
     server: ssr.example.com
@@ -484,8 +493,8 @@ proxies:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(out) != 5 {
-		t.Fatalf("parsed %d outbounds, want 5", len(out))
+	if len(out) != 6 {
+		t.Fatalf("parsed %d outbounds, want 6", len(out))
 	}
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "ssr") {
 		t.Fatalf("warnings = %+v", warnings)
@@ -510,6 +519,77 @@ proxies:
 	}
 	if field(t, out[4], "type") != "socks" || scalarField(t, out[4], "server_port") != "1080" {
 		t.Fatalf("socks outbound = %+v", out[4])
+	}
+	if field(t, out[5], "type") != "snell" || scalarField(t, out[5], "version") != "6" || field(t, out[5], "userkey") != "0123456789abcdef0123456789abcdef" {
+		t.Fatalf("snell outbound = %+v", out[5])
+	}
+	if got := stringListField(out[5], "network"); len(got) != 2 || got[0] != "tcp" || got[1] != "udp" {
+		t.Fatalf("snell network = %v", got)
+	}
+}
+
+func TestParseManySurgeProfile(t *testing.T) {
+	text := `
+[General]
+loglevel = notify
+
+[Proxy]
+"Snell, V6" = snell, snell.example.com, 17851, psk=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef, version=6, userkey=0123456789abcdef0123456789abcdef, mode=unshaped, reuse=true, network="tcp,udp"
+Snell V5 = snell, snell-v5.example.com, 443, psk=snell-v5-secret, version=5, obfs=http, obfs-host=edge.example.com
+SS = ss, ss.example.com, 8388, encrypt-method=aes-256-gcm, password=ss-secret
+DIRECT = direct
+
+[Proxy Group]
+Proxy = select, Snell, DIRECT
+`
+	out, warnings, err := ParseManyWithWarnings(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 0 || len(out) != 3 {
+		t.Fatalf("warnings=%v out=%d", warnings, len(out))
+	}
+	if got := field(t, out[0], "tag"); got != "Snell, V6" {
+		t.Fatalf("quoted tag = %q", got)
+	}
+	if field(t, out[0], "type") != "snell" || scalarField(t, out[0], "version") != "6" {
+		t.Fatalf("snell v6 outbound = %+v", out[0])
+	}
+	if got := stringListField(out[0], "network"); len(got) != 2 || got[0] != "tcp" || got[1] != "udp" {
+		t.Fatalf("snell v6 network = %v", got)
+	}
+	if field(t, out[1], "type") != "snell" || scalarField(t, out[1], "version") != "4" || field(t, out[1], "obfs_mode") != "http" {
+		t.Fatalf("snell v5 outbound = %+v", out[1])
+	}
+	if field(t, out[2], "type") != "shadowsocks" || field(t, out[2], "method") != "aes-256-gcm" {
+		t.Fatalf("shadowsocks outbound = %+v", out[2])
+	}
+}
+
+func TestEncodeSnell(t *testing.T) {
+	out := merge.NewOrderedMap()
+	out.Set("type", "snell")
+	out.Set("tag", "Snell v6")
+	out.Set("server", "snell.example.com")
+	out.Set("server_port", json.Number("17851"))
+	out.Set("version", json.Number("6"))
+	out.Set("psk", "0123456789abcdef0123456789abcdef")
+	out.Set("userkey", "0123456789abcdef0123456789abcdef")
+	out.Set("network", []any{"tcp", "udp"})
+	out.Set("mode", "unshaped")
+	link, err := Encode(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := Parse(link)
+	if err != nil {
+		t.Fatalf("parse encoded link %q: %v", link, err)
+	}
+	if field(t, parsed, "type") != "snell" || scalarField(t, parsed, "version") != "6" || field(t, parsed, "psk") != "0123456789abcdef0123456789abcdef" || field(t, parsed, "userkey") != "0123456789abcdef0123456789abcdef" || field(t, parsed, "mode") != "unshaped" {
+		t.Fatalf("parsed encoded Snell = %+v", parsed)
+	}
+	if got := stringListField(parsed, "network"); len(got) != 2 || got[0] != "tcp" || got[1] != "udp" {
+		t.Fatalf("parsed encoded Snell network = %v", got)
 	}
 }
 
@@ -682,6 +762,7 @@ func TestEncodeRoundTripLinks(t *testing.T) {
 		"hysteria://hy1.example.com?auth=secret&upmbps=20&downmbps=30&sni=hy1.example.com#HY1",
 		"hysteria2://pass123@hy2.example.com:8443?sni=hy2.example.com&obfs=salamander&obfs-password=obfspw#HY2",
 		"tuic://uuid-9:password9@tuic.example.com:443?congestion_control=bbr&sni=tuic.example.com#TUIC",
+		"snell://snell.example.com:17851?psk=0123456789abcdef0123456789abcdef&version=6&userkey=0123456789abcdef0123456789abcdef&network=tcp%2Cudp&mode=unshaped#Snell",
 		"naive+https://user:pass@naive.example.com:443?quic=true&sni=naive.example.com#Naive",
 		"https://user:pass@http.example.com:443/proxy?sni=http.example.com#HTTP",
 		"socks5://user:pass@socks.example.com:1080?network=tcp#Socks",
@@ -790,6 +871,12 @@ func assertProtocolRoundTrip(t *testing.T, want, got *merge.OrderedMap) {
 				t.Fatalf("%s = %q, want %q", key, field(t, got, key), field(t, want, key))
 			}
 		}
+	case "snell":
+		for _, key := range []string{"version", "psk", "userkey", "mode", "network"} {
+			if scalarField(t, got, key) != scalarField(t, want, key) {
+				t.Fatalf("%s = %q, want %q", key, scalarField(t, got, key), scalarField(t, want, key))
+			}
+		}
 	case "naive":
 		for _, key := range []string{"username", "password"} {
 			if field(t, got, key) != field(t, want, key) {
@@ -838,6 +925,7 @@ func TestParsedOutboundsValidateWithKernel(t *testing.T) {
 		"hysteria://hy1.example.com?auth=secret&sni=hy1.example.com&upmbps=20&downmbps=30#HY1",
 		"hysteria2://pw@hy.example.com:8443?sni=hy.example.com#HY",
 		"tuic://b831381d-6324-4d53-ad4f-8cda48b30811:p@tu.example.com:443?sni=tu.example.com&congestion_control=bbr#TU",
+		"snell://snell.example.com:17851?psk=0123456789abcdef0123456789abcdef&version=6&mode=unshaped#SNELL",
 	}
 
 	outbounds := []any{}
