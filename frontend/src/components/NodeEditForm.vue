@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/vue/24/outline'
 import type { Node, NodeSummary } from '../api/types'
 import { useNodesStore } from '../stores/nodes'
@@ -115,6 +115,42 @@ const domainResolverMode = ref<DomainResolverMode>('string')
 const showDialFields = ref(false)
 const showRawJSON = ref(false)
 const rawJSONDraft = ref('')
+const formScroller = ref<HTMLElement | null>(null)
+
+type ScrollSnapshot = {
+  formTop: number
+  modalTop: number
+  activeElement: HTMLElement | null
+}
+
+function captureScrollSnapshot(): ScrollSnapshot {
+  const form = formScroller.value
+  const modal = form?.closest<HTMLElement>('.modal-box')
+  const activeElement = document.activeElement
+  return {
+    formTop: form?.scrollTop ?? 0,
+    modalTop: modal?.scrollTop ?? 0,
+    activeElement: activeElement instanceof HTMLElement ? activeElement : null,
+  }
+}
+
+async function restoreScrollSnapshot(snapshot: ScrollSnapshot) {
+  await nextTick()
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+  const form = formScroller.value
+  const modal = form?.closest<HTMLElement>('.modal-box')
+  if (form) form.scrollTop = snapshot.formTop
+  if (modal) modal.scrollTop = snapshot.modalTop
+  if (snapshot.activeElement?.isConnected && document.activeElement !== snapshot.activeElement) {
+    snapshot.activeElement.focus({ preventScroll: true })
+  }
+}
+
+function preserveScroll(action: () => void) {
+  const snapshot = captureScrollSnapshot()
+  action()
+  void restoreScrollSnapshot(snapshot)
+}
 
 // manual country override
 const manualCountry = ref(false)
@@ -282,8 +318,10 @@ function applyRawJSONDraft() {
   }
 }
 function toggleRawJSON() {
-  if (!showRawJSON.value) syncRawJSONDraft()
-  showRawJSON.value = !showRawJSON.value
+  preserveScroll(() => {
+    if (!showRawJSON.value) syncRawJSONDraft()
+    showRawJSON.value = !showRawJSON.value
+  })
 }
 function transportHeaders(): Record<string, any> {
   const t = transport()
@@ -664,24 +702,32 @@ function syncDomainResolverState() {
 
 function setDomainResolverMode(next: DomainResolverMode) {
   if (domainResolverMode.value === next) return
-  const current = raw.domain_resolver
-  if (next === 'object') {
-    if (typeof current === 'string' && current.trim()) raw.domain_resolver = { server: current.trim() }
-  } else {
-    if (current && typeof current === 'object' && !Array.isArray(current)) {
-      const server = typeof current.server === 'string' ? current.server.trim() : ''
-      if (server) raw.domain_resolver = server
-      else delete raw.domain_resolver
-    } else if (typeof current === 'string') {
-      const trimmed = current.trim()
-      if (trimmed) raw.domain_resolver = trimmed
-      else delete raw.domain_resolver
+  preserveScroll(() => {
+    const current = raw.domain_resolver
+    if (next === 'object') {
+      if (typeof current === 'string' && current.trim()) raw.domain_resolver = { server: current.trim() }
     } else {
-      delete raw.domain_resolver
+      if (current && typeof current === 'object' && !Array.isArray(current)) {
+        const server = typeof current.server === 'string' ? current.server.trim() : ''
+        if (server) raw.domain_resolver = server
+        else delete raw.domain_resolver
+      } else if (typeof current === 'string') {
+        const trimmed = current.trim()
+        if (trimmed) raw.domain_resolver = trimmed
+        else delete raw.domain_resolver
+      } else {
+        delete raw.domain_resolver
+      }
     }
-  }
-  clearFieldError(DOMAIN_RESOLVER_ERROR_PREFIX)
-  domainResolverMode.value = next
+    clearFieldError(DOMAIN_RESOLVER_ERROR_PREFIX)
+    domainResolverMode.value = next
+  })
+}
+
+function toggleDialFields() {
+  preserveScroll(() => {
+    showDialFields.value = !showDialFields.value
+  })
 }
 
 function domainResolverWarnings() {
@@ -941,10 +987,12 @@ async function save() {
 watch(
   () => [props.node, props.copyFrom, props.loading, currentMode.value, props.summary?.id],
   () => {
-    const full = props.node ?? props.copyFrom ?? null
-    if (full) resetFrom(full)
-    else if (currentMode.value === 'create') resetFrom(null)
-    else resetPending()
+    preserveScroll(() => {
+      const full = props.node ?? props.copyFrom ?? null
+      if (full) resetFrom(full)
+      else if (currentMode.value === 'create') resetFrom(null)
+      else resetPending()
+    })
   },
   { immediate: true },
 )
@@ -981,7 +1029,7 @@ watch(
 watch(
   raw,
   () => {
-    if (!hydrating.value) collectSchemaWarnings()
+    if (!hydrating.value) preserveScroll(() => collectSchemaWarnings())
   },
   { deep: true },
 )
@@ -1012,7 +1060,7 @@ watch(
         </span>
       </div>
 
-      <fieldset class="flex flex-col gap-3 max-h-[65vh] overflow-y-auto pr-1" :disabled="loading" :class="{ 'opacity-60': loading }">
+      <fieldset ref="formScroller" class="flex flex-col gap-3 max-h-[65vh] overflow-y-auto pr-1" :disabled="loading" :class="{ 'opacity-60': loading }">
         <!-- header: type / tag / server / port -->
         <div class="grid grid-cols-2 gap-3">
           <label class="form-control">
@@ -1732,7 +1780,7 @@ watch(
 
         <div class="divider my-0 text-xs opacity-60">
           <span>{{ i18n.t('拨号字段') }}</span>
-          <button type="button" class="btn btn-xs btn-ghost btn-square" :title="i18n.t('拨号字段')" @click="showDialFields = !showDialFields">
+          <button type="button" class="btn btn-xs btn-ghost btn-square" :title="i18n.t('拨号字段')" @click="toggleDialFields">
             <ChevronUpIcon v-if="showDialFields" class="h-3 w-3" />
             <ChevronDownIcon v-else class="h-3 w-3" />
           </button>
@@ -1810,10 +1858,10 @@ watch(
           <div class="form-control col-span-2">
             <span class="label-text mb-1">{{ i18n.t('域名解析器') }}</span>
             <div class="join mb-2">
-              <button type="button" class="btn btn-sm join-item" :class="{ 'btn-active': domainResolverMode === 'string' }" @click="setDomainResolverMode('string')">
+              <button type="button" class="btn btn-sm join-item" :class="domainResolverMode === 'string' ? 'btn-primary' : 'btn-ghost'" @click="setDomainResolverMode('string')">
                 {{ i18n.t('简单模式') }}
               </button>
-              <button type="button" class="btn btn-sm join-item" :class="{ 'btn-active': domainResolverMode === 'object' }" @click="setDomainResolverMode('object')">
+              <button type="button" class="btn btn-sm join-item" :class="domainResolverMode === 'object' ? 'btn-primary' : 'btn-ghost'" @click="setDomainResolverMode('object')">
                 {{ i18n.t('结构化模式') }}
               </button>
             </div>
