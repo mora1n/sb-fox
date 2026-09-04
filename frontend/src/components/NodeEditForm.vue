@@ -1892,7 +1892,7 @@ watch(
         <select v-if="manualCountry" v-model="countryCode" class="select select-bordered select-sm">
           <option value="">{{ i18n.t('未指定') }}</option>
           <option v-for="c in countryOptions" :key="c.code" :value="c.code">
-            {{ countryFlagEmoji(c.code) }} {{ c.code }} — {{ c.name }}
+            {{ countryFlagEmoji(c.code) }}{{ c.code }} — {{ c.name }}
           </option>
         </select>
       </fieldset>
