@@ -22,6 +22,7 @@ func parseTrojan(uri string) (*merge.OrderedMap, error) {
 	out.Set("server", p.server)
 	out.Set("server_port", p.portN)
 	out.Set("password", password)
+	setStringIfPresent(out, "network", queryFirst(p.query, "network"))
 
 	tls := buildTLS(tlsParams{
 		enabled:     true,

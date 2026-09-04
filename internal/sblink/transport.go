@@ -38,6 +38,10 @@ func buildTransport(network, path, host, serviceName string) *merge.OrderedMap {
 			t.Set("path", path)
 		}
 		return t
+	case "quic":
+		t := merge.NewOrderedMap()
+		t.Set("type", "quic")
+		return t
 	case "httpupgrade":
 		t := merge.NewOrderedMap()
 		t.Set("type", "httpupgrade")

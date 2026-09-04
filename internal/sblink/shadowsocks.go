@@ -17,6 +17,14 @@ func parseShadowsocks(uri string) (*merge.OrderedMap, error) {
 		fragment = body[i+1:]
 		body = body[:i]
 	}
+	query := url.Values{}
+	if i := strings.Index(body, "?"); i >= 0 {
+		parsed, err := url.ParseQuery(body[i+1:])
+		if err != nil {
+			return nil, fmt.Errorf("sblink: ss query: %w", err)
+		}
+		query = parsed
+	}
 
 	// Legacy form: the entire tail (before #) is base64 of
 	// "method:password@host:port". Detect by absence of '@'.
@@ -58,6 +66,17 @@ func parseShadowsocks(uri string) (*merge.OrderedMap, error) {
 		if pluginOpts != "" {
 			out.Set("plugin_opts", pluginOpts)
 		}
+	}
+	setStringIfPresent(out, "network", queryFirst(query, "network"))
+	if value := queryFirst(query, "uot", "udp_over_tcp", "udp-over-tcp"); value != "" || boolQuery(query, "uot", "udp_over_tcp", "udp-over-tcp") {
+		setUDPOverTCP(out, value)
+	}
+	if rawMultiplex := query.Get("multiplex"); rawMultiplex != "" {
+		multiplex, err := merge.ParseOrdered([]byte(rawMultiplex))
+		if err != nil {
+			return nil, fmt.Errorf("sblink: shadowsocks multiplex JSON: %w", err)
+		}
+		out.Set("multiplex", multiplex)
 	}
 	return out, nil
 }

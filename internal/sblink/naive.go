@@ -58,6 +58,23 @@ func parseNaive(uri string) (*merge.OrderedMap, error) {
 	if cc := q.Get("quic_congestion_control"); cc != "" {
 		out.Set("quic_congestion_control", cc)
 	}
+	if err := setIntIfPresent(out, "insecure_concurrency", queryFirst(q, "insecure_concurrency", "insecure-concurrency")); err != nil {
+		return nil, err
+	}
+	setStringIfPresent(out, "stream_receive_window", queryFirst(q, "stream_receive_window", "stream-receive-window"))
+	setStringIfPresent(out, "quic_session_receive_window", queryFirst(q, "quic_session_receive_window", "quic-session-receive-window"))
+	if rawHeaders := q.Get("extra_headers"); rawHeaders != "" {
+		headers, err := parseHeadersObject(rawHeaders)
+		if err != nil {
+			return nil, err
+		}
+		if headers != nil {
+			out.Set("extra_headers", headers)
+		}
+	}
+	if value := queryFirst(q, "udp_over_tcp", "udp-over-tcp"); value != "" || boolQuery(q, "udp_over_tcp", "udp-over-tcp") {
+		setUDPOverTCP(out, value)
+	}
 	tls := buildTLS(tlsParams{
 		enabled:    u.Scheme == "https" || u.Scheme == "quic" || q.Get("security") == "tls",
 		serverName: queryFirst(q, "sni", "peer"),

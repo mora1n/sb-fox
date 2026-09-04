@@ -1,6 +1,7 @@
 package sblink
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -185,12 +186,33 @@ func setStringListField(out *merge.OrderedMap, key string, value any) {
 	}
 }
 
+func setNetworkField(out *merge.OrderedMap, value any) {
+	values := clashStringSlice(value)
+	if len(values) == 0 {
+		return
+	}
+	items := make([]any, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(strings.ToLower(value))
+		if value == "tcp" || value == "udp" {
+			if _, ok := seen[value]; !ok {
+				items = append(items, value)
+				seen[value] = struct{}{}
+			}
+		}
+	}
+	if len(items) > 0 {
+		out.Set("network", items)
+	}
+}
+
 func setDomainResolverField(out *merge.OrderedMap, value any) {
 	switch v := value.(type) {
 	case string:
 		setStringIfPresent(out, "domain_resolver", v)
 	case map[string]any:
-		if resolver := orderedFromMap(v); resolver != nil {
+		if resolver := orderedFromMap(normalizeDomainResolverMap(v)); resolver != nil {
 			out.Set("domain_resolver", resolver)
 		}
 	case map[any]any:
@@ -198,9 +220,103 @@ func setDomainResolverField(out *merge.OrderedMap, value any) {
 		for key, item := range v {
 			m[anyToString(key)] = item
 		}
-		if resolver := orderedFromMap(m); resolver != nil {
+		if resolver := orderedFromMap(normalizeDomainResolverMap(m)); resolver != nil {
 			out.Set("domain_resolver", resolver)
 		}
+	}
+}
+
+func normalizeDomainResolverMap(value map[string]any) map[string]any {
+	if len(value) == 0 {
+		return nil
+	}
+	allowed := map[string]struct{}{
+		"server": {}, "strategy": {}, "disable_cache": {}, "rewrite_ttl": {}, "client_subnet": {},
+	}
+	result := make(map[string]any, len(value))
+	for key, item := range value {
+		key = strings.ReplaceAll(strings.TrimSpace(key), "-", "_")
+		if _, ok := allowed[key]; !ok {
+			continue
+		}
+		result[key] = item
+	}
+	return result
+}
+
+func setClashJSONField(out *merge.OrderedMap, key string, value any) {
+	if value == nil {
+		return
+	}
+	switch v := value.(type) {
+	case string:
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" {
+			return
+		}
+		var parsed any
+		if err := json.Unmarshal([]byte(trimmed), &parsed); err == nil {
+			out.Set(key, orderedAny(parsed))
+			return
+		}
+		out.Set(key, trimmed)
+	default:
+		switch v := v.(type) {
+		case map[string]any, map[any]any:
+			if ordered := orderedAny(v); ordered != nil {
+				out.Set(key, ordered)
+			}
+		default:
+			out.Set(key, v)
+		}
+	}
+}
+
+func setClashUDPOverTCP(out *merge.OrderedMap, value any) {
+	if value == nil {
+		return
+	}
+	if text := strings.TrimSpace(anyToString(value)); text != "" {
+		if boolParam(text) {
+			out.Set("udp_over_tcp", true)
+			return
+		}
+		if version, err := strconv.Atoi(text); err == nil && version > 0 {
+			uot := merge.NewOrderedMap()
+			uot.Set("enabled", true)
+			uot.Set("version", intNumber(version))
+			out.Set("udp_over_tcp", uot)
+			return
+		}
+	}
+	setClashJSONField(out, "udp_over_tcp", value)
+}
+
+func setClashMultiplex(out *merge.OrderedMap, value any) {
+	if value == nil {
+		return
+	}
+	switch v := value.(type) {
+	case bool:
+		if !v {
+			return
+		}
+		multiplex := merge.NewOrderedMap()
+		multiplex.Set("enabled", true)
+		out.Set("multiplex", multiplex)
+	case string:
+		if boolParam(strings.TrimSpace(v)) {
+			multiplex := merge.NewOrderedMap()
+			multiplex.Set("enabled", true)
+			out.Set("multiplex", multiplex)
+			return
+		}
+		if strings.EqualFold(strings.TrimSpace(v), "false") {
+			return
+		}
+		setClashJSONField(out, "multiplex", value)
+	default:
+		setClashJSONField(out, "multiplex", value)
 	}
 }
 
@@ -215,6 +331,11 @@ func clashShadowsocks(p map[string]any) (*merge.OrderedMap, error) {
 	}
 	out.Set("method", method)
 	out.Set("password", clashString(p, "password"))
+	setStringIfPresent(out, "plugin", clashStringAny(p, "plugin"))
+	setStringIfPresent(out, "plugin_opts", clashStringAny(p, "plugin-opts", "plugin_opts"))
+	setNetworkField(out, clashAny(p, "network"))
+	setClashUDPOverTCP(out, clashAny(p, "udp-over-tcp", "udp_over_tcp", "uot"))
+	setClashMultiplex(out, clashAny(p, "multiplex"))
 	return out, nil
 }
 
@@ -228,6 +349,11 @@ func clashVMess(p map[string]any) (*merge.OrderedMap, error) {
 	if security := clashString(p, "cipher"); security != "" {
 		out.Set("security", security)
 	}
+	setNetworkField(out, clashAny(p, "network"))
+	setStringIfPresent(out, "packet_encoding", clashStringAny(p, "packet-encoding", "packet_encoding"))
+	setBoolIfPresent(out, p, "global_padding", "global-padding", "global_padding")
+	setBoolIfPresent(out, p, "authenticated_length", "authenticated-length", "authenticated_length")
+	setClashMultiplex(out, clashAny(p, "multiplex"))
 	if tls := clashTLS(p, clashBool(p, "tls", false)); tls != nil {
 		out.Set("tls", tls)
 	}
@@ -246,6 +372,9 @@ func clashVLESS(p map[string]any) (*merge.OrderedMap, error) {
 	if flow := clashString(p, "flow"); flow != "" {
 		out.Set("flow", flow)
 	}
+	setNetworkField(out, clashAny(p, "network"))
+	setStringIfPresent(out, "packet_encoding", clashStringAny(p, "packet-encoding", "packet_encoding"))
+	setClashMultiplex(out, clashAny(p, "multiplex"))
 	if tls := clashTLS(p, clashBool(p, "tls", false) || clashMap(p, "reality-opts") != nil); tls != nil {
 		out.Set("tls", tls)
 	}
@@ -261,6 +390,8 @@ func clashTrojan(p map[string]any) (*merge.OrderedMap, error) {
 		return nil, err
 	}
 	out.Set("password", clashString(p, "password"))
+	setNetworkField(out, clashAny(p, "network"))
+	setClashMultiplex(out, clashAny(p, "multiplex"))
 	if tls := clashTLS(p, true); tls != nil {
 		out.Set("tls", tls)
 	}
@@ -289,7 +420,7 @@ func clashHysteria(p map[string]any) (*merge.OrderedMap, error) {
 	}
 	setStringIfPresent(out, "obfs", clashStringAny(p, "obfs", "obfs-param", "obfsParam"))
 	setStringIfPresent(out, "auth_str", clashStringAny(p, "auth-str", "auth_str", "auth", "password"))
-	setStringIfPresent(out, "network", clashStringAny(p, "network", "protocol"))
+	setNetworkField(out, clashAny(p, "network", "protocol"))
 	if recv := clashIntAny(p, 0, "recv-window-conn", "recv_window_conn"); recv > 0 {
 		out.Set("recv_window_conn", intNumber(recv))
 	}
@@ -321,6 +452,8 @@ func clashHysteria2(p map[string]any) (*merge.OrderedMap, error) {
 	if down := clashIntAny(p, 0, "down-mbps", "down_mbps", "downmbps"); down > 0 {
 		out.Set("down_mbps", intNumber(down))
 	}
+	setBoolIfPresent(out, p, "brutal_debug", "brutal-debug", "brutal_debug")
+	setNetworkField(out, clashAny(p, "network"))
 	if obfs := clashString(p, "obfs"); obfs != "" {
 		o := merge.NewOrderedMap()
 		o.Set("type", obfs)
@@ -349,7 +482,9 @@ func clashTUIC(p map[string]any) (*merge.OrderedMap, error) {
 		out.Set("udp_relay_mode", mode)
 	}
 	setStringIfPresent(out, "heartbeat", clashStringAny(p, "heartbeat", "heartbeat-interval", "heartbeat_interval"))
-	setStringIfPresent(out, "network", clashString(p, "network"))
+	setNetworkField(out, clashAny(p, "network"))
+	setBoolIfPresent(out, p, "udp_over_stream", "udp-over-stream", "udp_over_stream")
+	setBoolIfPresent(out, p, "zero_rtt_handshake", "zero-rtt-handshake", "zero_rtt_handshake")
 	if tls := clashTLS(p, true); tls != nil {
 		out.Set("tls", tls)
 	}
@@ -409,10 +544,10 @@ func clashSnell(p map[string]any) (*merge.OrderedMap, error) {
 		}
 		return out, nil
 	}
-	if obfsMode != "" && obfsMode != "none" && obfsMode != "http" {
+	if obfsMode != "" && obfsMode != "none" && obfsMode != "http" && obfsMode != "tls" {
 		return nil, fmt.Errorf("unsupported snell v4 obfs mode %q", obfsMode)
 	}
-	if obfsMode == "http" {
+	if obfsMode == "http" || obfsMode == "tls" {
 		out.Set("obfs_mode", obfsMode)
 		obfsHost := clashStringAny(obfs, "host", "obfs-host", "obfs_host")
 		if obfsHost == "" {
@@ -458,6 +593,7 @@ func clashAnyTLS(p map[string]any) (*merge.OrderedMap, error) {
 	if minIdle := clashIntAny(p, -1, "min-idle-session", "min_idle_session"); minIdle >= 0 {
 		out.Set("min_idle_session", intNumber(minIdle))
 	}
+	setStringIfPresent(out, "client_metadata", clashStringAny(p, "client-metadata", "client_metadata"))
 	if tls := clashTLS(p, true); tls != nil {
 		out.Set("tls", tls)
 	}
@@ -470,6 +606,9 @@ func clashShadowTLS(p map[string]any) (*merge.OrderedMap, error) {
 		return nil, err
 	}
 	if version := clashInt(p, "version", 0); version > 0 {
+		if version > 3 {
+			return nil, fmt.Errorf("unsupported shadowtls version %d", version)
+		}
 		out.Set("version", intNumber(version))
 	}
 	setStringIfPresent(out, "password", clashString(p, "password"))
@@ -515,10 +654,8 @@ func clashSOCKS(p map[string]any, typ string) (*merge.OrderedMap, error) {
 	out.Set("version", version)
 	setStringIfPresent(out, "username", clashString(p, "username"))
 	setStringIfPresent(out, "password", clashString(p, "password"))
-	setStringIfPresent(out, "network", clashString(p, "network"))
-	if clashBoolAny(p, false, "udp-over-tcp", "udp_over_tcp", "uot") {
-		out.Set("udp_over_tcp", true)
-	}
+	setNetworkField(out, clashAny(p, "network"))
+	setClashUDPOverTCP(out, clashAny(p, "udp-over-tcp", "udp_over_tcp", "uot"))
 	return out, nil
 }
 
@@ -533,9 +670,17 @@ func clashNaive(p map[string]any) (*merge.OrderedMap, error) {
 	if password := clashString(p, "password"); password != "" {
 		out.Set("password", password)
 	}
+	if concurrency := clashIntAny(p, -1, "insecure-concurrency", "insecure_concurrency"); concurrency >= 0 {
+		out.Set("insecure_concurrency", intNumber(concurrency))
+	}
+	setClashJSONField(out, "extra_headers", clashAny(p, "extra-headers", "extra_headers"))
+	setStringIfPresent(out, "stream_receive_window", clashStringAny(p, "stream-receive-window", "stream_receive_window"))
 	if clashBool(p, "quic", false) {
 		out.Set("quic", true)
 	}
+	setStringIfPresent(out, "quic_congestion_control", clashStringAny(p, "quic-congestion-control", "quic_congestion_control"))
+	setClashUDPOverTCP(out, clashAny(p, "udp-over-tcp", "udp_over_tcp"))
+	setStringIfPresent(out, "quic_session_receive_window", clashStringAny(p, "quic-session-receive-window", "quic_session_receive_window"))
 	if tls := clashTLS(p, true); tls != nil {
 		out.Set("tls", tls)
 	}
@@ -544,8 +689,27 @@ func clashNaive(p map[string]any) (*merge.OrderedMap, error) {
 
 func clashTLS(p map[string]any, enabled bool) *merge.OrderedMap {
 	reality := clashMap(p, "reality-opts")
+	if reality == nil {
+		reality = clashMap(p, "reality")
+	}
 	if reality != nil {
 		enabled = true
+	}
+	if clashMap(p, "utls") != nil {
+		enabled = true
+	}
+	for _, key := range []string{
+		"disable-sni", "disable_sni", "min-version", "min_version", "max-version", "max_version",
+		"cipher-suites", "cipher_suites", "curve-preferences", "curve_preferences", "certificate", "certificate-path", "certificate_path",
+		"certificate-public-key-sha256", "certificate_public_key_sha256", "client-certificate", "client_certificate",
+		"client-certificate-path", "client_certificate_path", "client-key", "client_key", "client-key-path", "client_key_path",
+		"fragment", "fragment-fallback-delay", "fragment_fallback_delay", "record-fragment", "record_fragment",
+		"kernel-tx", "kernel_tx", "kernel-rx", "kernel_rx", "ech",
+	} {
+		if _, ok := p[key]; ok {
+			enabled = true
+			break
+		}
 	}
 	serverName := clashString(p, "servername")
 	if serverName == "" {
@@ -555,6 +719,7 @@ func clashTLS(p map[string]any, enabled bool) *merge.OrderedMap {
 	if fingerprint == "" {
 		fingerprint = clashString(p, "fingerprint")
 	}
+	fingerprint = normalizeUTLSFingerprint(fingerprint)
 	params := tlsParams{
 		enabled:     enabled,
 		serverName:  serverName,
@@ -566,36 +731,114 @@ func clashTLS(p map[string]any, enabled bool) *merge.OrderedMap {
 		params.realityPbk = clashString(reality, "public-key")
 		params.realitySid = clashString(reality, "short-id")
 	}
-	return buildTLS(params)
+	tls := buildTLS(params)
+	if tls == nil {
+		return nil
+	}
+	setBoolIfPresent(tls, p, "disable_sni", "disable-sni", "disable_sni")
+	setStringIfPresent(tls, "min_version", clashStringAny(p, "min-version", "min_version"))
+	setStringIfPresent(tls, "max_version", clashStringAny(p, "max-version", "max_version"))
+	setStringListField(tls, "cipher_suites", clashAny(p, "cipher-suites", "cipher_suites"))
+	setStringListField(tls, "curve_preferences", clashAny(p, "curve-preferences", "curve_preferences"))
+	setStringListField(tls, "certificate", clashAny(p, "certificate"))
+	setStringIfPresent(tls, "certificate_path", clashStringAny(p, "certificate-path", "certificate_path"))
+	setStringListField(tls, "certificate_public_key_sha256", clashAny(p, "certificate-public-key-sha256", "certificate_public_key_sha256"))
+	setStringListField(tls, "client_certificate", clashAny(p, "client-certificate", "client_certificate"))
+	setStringIfPresent(tls, "client_certificate_path", clashStringAny(p, "client-certificate-path", "client_certificate_path"))
+	setStringListField(tls, "client_key", clashAny(p, "client-key", "client_key"))
+	setStringIfPresent(tls, "client_key_path", clashStringAny(p, "client-key-path", "client_key_path"))
+	setBoolIfPresent(tls, p, "fragment", "fragment")
+	setStringIfPresent(tls, "fragment_fallback_delay", clashStringAny(p, "fragment-fallback-delay", "fragment_fallback_delay"))
+	setBoolIfPresent(tls, p, "record_fragment", "record-fragment", "record_fragment")
+	setBoolIfPresent(tls, p, "kernel_tx", "kernel-tx", "kernel_tx")
+	setBoolIfPresent(tls, p, "kernel_rx", "kernel-rx", "kernel_rx")
+	setClashJSONField(tls, "ech", clashAny(p, "ech"))
+	setClashJSONField(tls, "utls", clashAny(p, "utls"))
+	setClashJSONField(tls, "reality", clashAny(p, "reality"))
+	return tls
+}
+
+func normalizeUTLSFingerprint(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "chrome_psk", "chrome_psk_shuffle", "chrome_padding_psk_shuffle", "chrome_pq", "chrome_pq_psk":
+		return "chrome"
+	default:
+		return strings.TrimSpace(value)
+	}
 }
 
 func clashTransport(p map[string]any) *merge.OrderedMap {
-	network := strings.ToLower(clashString(p, "network"))
+	network := strings.ToLower(strings.TrimSpace(clashString(p, "network")))
 	switch network {
 	case "ws":
-		opts := clashMap(p, "ws-opts")
-		path := clashString(opts, "path")
-		host := clashString(opts, "host")
+		options := clashMap(p, "ws-opts")
+		host := clashString(options, "host")
 		if host == "" {
-			headers := clashMap(opts, "headers")
-			host = clashString(headers, "Host")
-			if host == "" {
-				host = clashString(headers, "host")
-			}
+			headers := clashMap(options, "headers")
+			host = clashStringAny(headers, "Host", "host")
 		}
-		return buildTransport("ws", path, host, "")
+		transport := buildTransport("ws", clashString(options, "path"), host, "")
+		setStringIfPresent(transport, "early_data_header_name", clashStringAny(options, "early-data-header-name", "early_data_header_name"))
+		if maxEarly := clashIntAny(options, 0, "max-early-data", "max_early_data"); maxEarly > 0 {
+			transport.Set("max_early_data", intNumber(maxEarly))
+		}
+		setTransportHeaders(transport, options)
+		return transport
 	case "grpc":
-		opts := clashMap(p, "grpc-opts")
-		return buildTransport("grpc", "", "", clashString(opts, "grpc-service-name"))
-	case "h2", "http":
-		opts := clashMap(p, "h2-opts")
-		return buildTransport("http", clashString(opts, "path"), firstString(clashStringSlice(opts["host"])), "")
+		options := clashMap(p, "grpc-opts")
+		transport := buildTransport("grpc", "", "", clashStringAny(options, "grpc-service-name", "service-name", "service_name"))
+		setTransportKeepalive(transport, options)
+		setBoolIfPresent(transport, options, "permit_without_stream", "permit-without-stream", "permit_without_stream")
+		return transport
+	case "h2":
+		options := clashMap(p, "h2-opts")
+		transport := buildTransport("http", clashString(options, "path"), firstString(clashStringSlice(options["host"])), "")
+		setTransportHTTPFields(transport, options)
+		return transport
+	case "http":
+		options := clashMap(p, "http-opts")
+		if options == nil {
+			options = clashMap(p, "h2-opts")
+		}
+		transport := buildTransport("http", clashString(options, "path"), firstString(clashStringSlice(options["host"])), "")
+		setTransportHTTPFields(transport, options)
+		return transport
 	case "httpupgrade":
-		opts := clashMap(p, "http-opts")
-		return buildTransport("httpupgrade", clashString(opts, "path"), clashString(opts, "host"), "")
+		options := clashMap(p, "http-opts")
+		transport := buildTransport("httpupgrade", clashString(options, "path"), clashString(options, "host"), "")
+		setTransportHeaders(transport, options)
+		return transport
+	case "quic":
+		return buildTransport("quic", "", "", "")
 	default:
 		return nil
 	}
+}
+
+func setTransportHeaders(transport *merge.OrderedMap, options map[string]any) {
+	if headers := orderedFromMap(clashMap(options, "headers")); headers != nil {
+		if existing, ok := orderedField(transport, "headers"); ok {
+			for _, key := range existing.Keys() {
+				if !headers.Has(key) {
+					if value, ok := existing.Get(key); ok {
+						headers.Set(key, value)
+					}
+				}
+			}
+		}
+		transport.Set("headers", headers)
+	}
+}
+
+func setTransportKeepalive(transport *merge.OrderedMap, options map[string]any) {
+	setStringIfPresent(transport, "idle_timeout", clashStringAny(options, "idle-timeout", "idle_timeout"))
+	setStringIfPresent(transport, "ping_timeout", clashStringAny(options, "ping-timeout", "ping_timeout"))
+}
+
+func setTransportHTTPFields(transport *merge.OrderedMap, options map[string]any) {
+	setStringIfPresent(transport, "method", clashStringAny(options, "method"))
+	setTransportKeepalive(transport, options)
+	setTransportHeaders(transport, options)
 }
 
 func clashString(m map[string]any, key string) string {

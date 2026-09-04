@@ -69,6 +69,17 @@ func encodeShadowsocks(out *merge.OrderedMap) (string, error) {
 		}
 		q.Set("plugin", value)
 	}
+	if network := firstStringField(out, "network"); network != "" {
+		q.Set("network", network)
+	}
+	addUDPOverTCPQuery(q, out)
+	if multiplex, ok := orderedField(out, "multiplex"); ok {
+		if raw, err := multiplex.MarshalJSON(); err != nil {
+			return "", fmt.Errorf("sblink: shadowsocks multiplex JSON: %w", err)
+		} else {
+			q.Set("multiplex", string(raw))
+		}
+	}
 	return linkURL("ss", url.User(userinfo), server, port, q, out.GetString("tag")), nil
 }
 
@@ -95,6 +106,14 @@ func encodeVMess(out *merge.OrderedMap) (string, error) {
 	}
 	if security := out.GetString("security"); security != "" {
 		v.Scy = security
+	}
+	v.GlobalPadding = truthyField(out, "global_padding")
+	v.AuthenticatedLength = truthyField(out, "authenticated_length")
+	if encoding := out.GetString("packet_encoding"); encoding != "" {
+		v.PacketEncoding = encoding
+	}
+	if network := firstStringField(out, "network"); network != "" {
+		v.Network = network
 	}
 	if tls, ok := orderedField(out, "tls"); ok && tlsEnabled(tls) {
 		v.TLS = "tls"
@@ -126,6 +145,9 @@ func encodeVLESS(out *merge.OrderedMap) (string, error) {
 	if flow := out.GetString("flow"); flow != "" {
 		q.Set("flow", flow)
 	}
+	if network := firstStringField(out, "network"); network != "" {
+		q.Set("network", network)
+	}
 	if enc := out.GetString("packet_encoding"); enc != "" {
 		q.Set("packetEncoding", enc)
 	}
@@ -149,6 +171,9 @@ func encodeTrojan(out *merge.OrderedMap) (string, error) {
 	}
 	q := url.Values{}
 	q.Set("security", "tls")
+	if network := firstStringField(out, "network"); network != "" {
+		q.Set("network", network)
+	}
 	if err := addTLSQuery(q, out, false, true); err != nil {
 		return "", err
 	}
@@ -182,6 +207,12 @@ func encodeHysteria2(out *merge.OrderedMap) (string, error) {
 		if value, ok := out.Get(item.field); ok {
 			q.Set(item.query, scalarString(value))
 		}
+	}
+	if network := firstStringField(out, "network"); network != "" {
+		q.Set("network", network)
+	}
+	if truthyField(out, "brutal_debug") {
+		q.Set("brutal_debug", "true")
 	}
 	if obfs, ok := orderedField(out, "obfs"); ok {
 		if typ := obfs.GetString("type"); typ != "" {
@@ -220,8 +251,14 @@ func encodeTUIC(out *merge.OrderedMap) (string, error) {
 	if heartbeat := out.GetString("heartbeat"); heartbeat != "" {
 		q.Set("heartbeat", heartbeat)
 	}
-	if network := out.GetString("network"); network != "" {
+	if network := firstStringField(out, "network"); network != "" {
 		q.Set("network", network)
+	}
+	if truthyField(out, "udp_over_stream") {
+		q.Set("udp_over_stream", "true")
+	}
+	if truthyField(out, "zero_rtt_handshake") {
+		q.Set("zero_rtt_handshake", "true")
 	}
 	if err := addTLSQuery(q, out, false, false); err != nil {
 		return "", err
@@ -283,7 +320,7 @@ func encodeSnell(out *merge.OrderedMap) (string, error) {
 			return "", fmt.Errorf("sblink: snell mode is only valid for version 6")
 		}
 		if obfsMode := out.GetString("obfs_mode"); obfsMode != "" {
-			if obfsMode != "none" && obfsMode != "http" {
+			if obfsMode != "none" && obfsMode != "http" && obfsMode != "tls" {
 				return "", fmt.Errorf("sblink: unsupported snell v4 obfs mode %q", obfsMode)
 			}
 			q.Set("obfs", obfsMode)
@@ -306,6 +343,26 @@ func encodeNaive(out *merge.OrderedMap) (string, error) {
 	}
 	if cc := out.GetString("quic_congestion_control"); cc != "" {
 		q.Set("quic_congestion_control", cc)
+	}
+	for _, item := range []struct {
+		field string
+		query string
+	}{
+		{"insecure_concurrency", "insecure_concurrency"},
+		{"stream_receive_window", "stream_receive_window"},
+		{"quic_session_receive_window", "quic_session_receive_window"},
+	} {
+		if value, ok := out.Get(item.field); ok {
+			q.Set(item.query, scalarString(value))
+		}
+	}
+	if headers, ok := orderedField(out, "extra_headers"); ok {
+		if raw, err := headers.MarshalJSON(); err == nil {
+			q.Set("extra_headers", string(raw))
+		}
+	}
+	if value, ok := out.Get("udp_over_tcp"); ok && truthy(value) {
+		q.Set("udp_over_tcp", "1")
 	}
 	if err := addTLSQuery(q, out, false, false); err != nil {
 		return "", err

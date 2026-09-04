@@ -12,18 +12,22 @@ import (
 // json.RawMessage-friendly types via a custom decode below because port/aid may
 // appear as either strings or numbers in the wild.
 type vmessLink struct {
-	PS   string `json:"ps"`
-	Add  string `json:"add"`
-	Port any    `json:"port"`
-	ID   string `json:"id"`
-	Aid  any    `json:"aid"`
-	Scy  string `json:"scy"`
-	Net  string `json:"net"`
-	Type string `json:"type"`
-	Host string `json:"host"`
-	Path string `json:"path"`
-	TLS  string `json:"tls"`
-	SNI  string `json:"sni"`
+	PS                  string `json:"ps"`
+	Add                 string `json:"add"`
+	Port                any    `json:"port"`
+	ID                  string `json:"id"`
+	Aid                 any    `json:"aid"`
+	Scy                 string `json:"scy"`
+	Net                 string `json:"net"`
+	Type                string `json:"type"`
+	Host                string `json:"host"`
+	Path                string `json:"path"`
+	TLS                 string `json:"tls"`
+	SNI                 string `json:"sni"`
+	GlobalPadding       bool   `json:"global_padding"`
+	AuthenticatedLength bool   `json:"authenticated_length"`
+	PacketEncoding      string `json:"packet_encoding"`
+	Network             string `json:"network"`
 }
 
 // parseVMess decodes the base64 JSON payload and maps it to a sing-box vmess
@@ -56,6 +60,18 @@ func parseVMess(uri string) (*merge.OrderedMap, error) {
 	if v.Scy != "" {
 		out.Set("security", v.Scy)
 	}
+	if v.GlobalPadding {
+		out.Set("global_padding", true)
+	}
+	if v.AuthenticatedLength {
+		out.Set("authenticated_length", true)
+	}
+	if v.PacketEncoding != "" && v.PacketEncoding != "none" {
+		out.Set("packet_encoding", v.PacketEncoding)
+	}
+	if v.Network != "" {
+		out.Set("network", v.Network)
+	}
 	// Note: vmess `net` (ws/grpc/h2/tcp) selects the sing-box TRANSPORT, not the
 	// outbound `network` field (which only accepts tcp/udp/tcpudp). The transport
 	// is emitted below; do not set `network` here.
@@ -85,6 +101,8 @@ func vmessTransport(v vmessLink) *merge.OrderedMap {
 		return buildTransport("grpc", "", "", v.Path)
 	case "h2":
 		return buildTransport("h2", v.Path, v.Host, "")
+	case "quic":
+		return buildTransport("quic", "", "", "")
 	default:
 		return nil
 	}

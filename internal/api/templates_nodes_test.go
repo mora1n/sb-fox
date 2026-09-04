@@ -615,7 +615,7 @@ func TestCreateAndUpdateHTTPNodePreservesDialFields(t *testing.T) {
   "tcp_keep_alive":"5m",
   "tcp_keep_alive_interval":"75s",
   "udp_fragment":true,
-  "domain_resolver":{"server":"hosts","timeout":"1s","strategy":"prefer_ipv4","disable_cache":true,"disable_optimistic_cache":true,"rewrite_ttl":60,"client_subnet":"192.0.2.0/24"},
+  "domain_resolver":{"server":"hosts","strategy":"prefer_ipv4","disable_cache":true,"rewrite_ttl":60,"client_subnet":"192.0.2.0/24"},
   "network_strategy":"fallback",
   "network_type":["wifi"],
   "fallback_network_type":["cellular"],
@@ -635,7 +635,7 @@ func TestCreateAndUpdateHTTPNodePreservesDialFields(t *testing.T) {
 	if created.Type != "http" || created.Tag != "⚪ Po0" || created.Server != "console.po0.com" || created.ServerPort != 443 {
 		t.Fatalf("created node = %+v", created)
 	}
-	if created.Detour != "Proxy" || !strings.Contains(created.Raw, `"domain_resolver":{"server":"hosts","timeout":"1s","strategy":"prefer_ipv4","disable_cache":true,"disable_optimistic_cache":true,"rewrite_ttl":60,"client_subnet":"192.0.2.0/24"}`) {
+	if created.Detour != "Proxy" || !strings.Contains(created.Raw, `"domain_resolver":{"server":"hosts","strategy":"prefer_ipv4","disable_cache":true,"rewrite_ttl":60,"client_subnet":"192.0.2.0/24"}`) {
 		t.Fatalf("created raw = %s", created.Raw)
 	}
 	for _, want := range []string{

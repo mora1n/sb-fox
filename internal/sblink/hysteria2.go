@@ -37,7 +37,10 @@ func parseHysteria2(body string) (*merge.OrderedMap, error) {
 	if err := setIntIfPresent(out, "down_mbps", queryFirst(p.query, "down_mbps", "down-mbps", "downmbps")); err != nil {
 		return nil, err
 	}
-
+	setStringIfPresent(out, "network", queryFirst(p.query, "network", "protocol"))
+	if boolQuery(p.query, "brutal_debug", "brutal-debug") {
+		out.Set("brutal_debug", true)
+	}
 	if obfs := p.query.Get("obfs"); obfs != "" {
 		o := merge.NewOrderedMap()
 		o.Set("type", obfs)

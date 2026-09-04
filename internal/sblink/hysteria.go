@@ -69,13 +69,15 @@ func encodeHysteria(out *merge.OrderedMap) (string, error) {
 		{"down_mbps", "down_mbps"},
 		{"obfs", "obfs"},
 		{"auth_str", "auth"},
-		{"network", "protocol"},
 		{"recv_window_conn", "recv-window-conn"},
 		{"recv_window", "recv-window"},
 	} {
 		if value, ok := out.Get(item.field); ok {
 			q.Set(item.query, scalarString(value))
 		}
+	}
+	if network := firstStringField(out, "network"); network != "" {
+		q.Set("protocol", network)
 	}
 	if truthyField(out, "disable_mtu_discovery") {
 		q.Set("disable-mtu-discovery", "1")

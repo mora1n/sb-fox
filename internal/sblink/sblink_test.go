@@ -86,6 +86,30 @@ func TestParseShadowsocksSIP002(t *testing.T) {
 	}
 }
 
+func TestShadowsocksOptionalFieldsRoundTrip(t *testing.T) {
+	out, err := Parse("ss://" + base64.RawURLEncoding.EncodeToString([]byte("aes-256-gcm:pw")) + "@ss.example.com:443?network=tcp%2Cudp&uot=2&multiplex=%7B%22enabled%22%3Atrue%7D#SS")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := scalarField(t, out, "network"); got != "tcp,udp" {
+		t.Fatalf("network = %q", got)
+	}
+	if got := scalarField(t, nested(t, out, "udp_over_tcp"), "version"); got != "2" {
+		t.Fatalf("udp_over_tcp.version = %q", got)
+	}
+	link, err := Encode(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	round, err := Parse(link)
+	if err != nil {
+		t.Fatalf("parse encoded link %q: %v", link, err)
+	}
+	if got := scalarField(t, nested(t, round, "multiplex"), "enabled"); got != "true" {
+		t.Fatalf("multiplex.enabled = %q", got)
+	}
+}
+
 func TestParseVMessWSTLS(t *testing.T) {
 	vmessJSON := map[string]any{
 		"v": "2", "ps": "JP-WS", "add": "jp.example.com", "port": "443",
@@ -213,6 +237,74 @@ func TestParseHysteria2(t *testing.T) {
 	}
 }
 
+func TestParseHysteriaUsesSingBox14FieldNames(t *testing.T) {
+	uri := "hysteria://hy.example.com:443?auth_str=secret&recv_window_conn=1000&recv_window=2000&disable_mtu_discovery=true&protocol=udp#HY"
+	out, err := Parse(uri)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]string{
+		"auth_str":              "secret",
+		"recv_window_conn":      "1000",
+		"recv_window":           "2000",
+		"disable_mtu_discovery": "true",
+		"network":               "udp",
+	} {
+		if got := scalarField(t, out, key); got != want {
+			t.Fatalf("%s = %q, want %q", key, got, want)
+		}
+	}
+	for _, key := range []string{"connection_receive_window", "stream_receive_window", "disable_path_mtu_discovery"} {
+		if _, ok := out.Get(key); ok {
+			t.Fatalf("unexpected obsolete field %q in %+v", key, out)
+		}
+	}
+}
+
+func TestParseNaiveMemoryFields(t *testing.T) {
+	uri := "naive+https://user:pass@naive.example.com:443?stream_receive_window=16MB&quic_session_receive_window=8MB#Naive"
+	out, err := Parse(uri)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := field(t, out, "stream_receive_window"); got != "16MB" {
+		t.Fatalf("stream_receive_window = %q", got)
+	}
+	if got := field(t, out, "quic_session_receive_window"); got != "8MB" {
+		t.Fatalf("quic_session_receive_window = %q", got)
+	}
+}
+
+func TestVMessQUICTransportRoundTrip(t *testing.T) {
+	raw := map[string]any{
+		"ps": "VMess QUIC", "add": "vm.example.com", "port": "443", "id": "00000000-0000-0000-0000-000000000001",
+		"aid": "0", "scy": "auto", "net": "quic", "type": "none",
+	}
+	body, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := Parse("vmess://" + base64.StdEncoding.EncodeToString(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := nested(t, out, "transport")
+	if got := field(t, transport, "type"); got != "quic" {
+		t.Fatalf("transport.type = %q", got)
+	}
+	link, err := Encode(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	round, err := Parse(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := field(t, nested(t, round, "transport"), "type"); got != "quic" {
+		t.Fatalf("roundtrip transport.type = %q", got)
+	}
+}
+
 func TestParseTUIC(t *testing.T) {
 	uri := "tuic://uuid-9:password9@tuic.example.com:443?congestion_control=bbr&sni=tuic.example.com#TUIC"
 	out, err := Parse(uri)
@@ -294,7 +386,6 @@ func TestParseSnellRejectsInvalidVersionsAndParameters(t *testing.T) {
 	for _, uri := range []string{
 		"snell://psk@snell.example.com:443#missing-version",
 		"snell://psk@snell.example.com:443?version=3",
-		"snell://psk@snell.example.com:443?version=4&obfs=tls",
 		"snell://123456789012@snell.example.com:443?version=6&obfs=http",
 		"snell://psk@snell.example.com:443?version=6&mode=bad",
 		"snell://short@snell.example.com:443?version=6",
@@ -303,6 +394,19 @@ func TestParseSnellRejectsInvalidVersionsAndParameters(t *testing.T) {
 		if _, err := Parse(uri); err == nil {
 			t.Fatalf("Parse(%q) succeeded", uri)
 		}
+	}
+}
+
+func TestParseSnellV4TLSObfs(t *testing.T) {
+	out, err := Parse("snell://psk@snell.example.com:443?version=4&obfs=tls&obfs-host=example.com#Snell")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := field(t, out, "obfs_mode"); got != "tls" {
+		t.Fatalf("obfs_mode = %q, want tls", got)
+	}
+	if got := field(t, out, "obfs_host"); got != "example.com" {
+		t.Fatalf("obfs_host = %q, want example.com", got)
 	}
 }
 
@@ -609,12 +713,10 @@ proxies:
     udp-fragment: false
     domain-resolver:
       server: local
-      timeout: 1s
       strategy: prefer_ipv4
-      disable_cache: true
-      disable_optimistic_cache: true
+      disable-cache: true
       rewrite_ttl: 60
-      client_subnet: 192.0.2.0/24
+      client-subnet: 192.0.2.0/24
     network-strategy: fallback
     network-type:
       - wifi
@@ -654,17 +756,11 @@ proxies:
 	if got := field(t, resolver, "server"); got != "local" {
 		t.Fatalf("domain_resolver.server = %q", got)
 	}
-	if got := field(t, resolver, "timeout"); got != "1s" {
-		t.Fatalf("domain_resolver.timeout = %q", got)
-	}
 	if got := field(t, resolver, "strategy"); got != "prefer_ipv4" {
 		t.Fatalf("domain_resolver.strategy = %q", got)
 	}
 	if got := scalarField(t, resolver, "disable_cache"); got != "true" {
 		t.Fatalf("domain_resolver.disable_cache = %q", got)
-	}
-	if got := scalarField(t, resolver, "disable_optimistic_cache"); got != "true" {
-		t.Fatalf("domain_resolver.disable_optimistic_cache = %q", got)
 	}
 	if got := scalarField(t, resolver, "rewrite_ttl"); got != "60" {
 		t.Fatalf("domain_resolver.rewrite_ttl = %q", got)
@@ -702,6 +798,139 @@ proxies:
 	}
 	if _, ok := out[0].Get("domain_strategy"); ok {
 		t.Fatalf("unexpected domain_strategy = %+v", out[0])
+	}
+}
+
+func TestParseClashYAMLMapsSingBox14ProtocolFields(t *testing.T) {
+	text := `
+proxies:
+  - name: SS14
+    type: ss
+    server: ss.example.com
+    port: 443
+    cipher: aes-256-gcm
+    password: pw
+    plugin: obfs-local
+    plugin-opts: obfs=http
+    network: [tcp, udp]
+    udp-over-tcp:
+      enabled: true
+      version: 2
+    multiplex:
+      enabled: true
+      protocol: smux
+  - name: VM14
+    type: vmess
+    server: vm.example.com
+    port: 443
+    uuid: 00000000-0000-0000-0000-000000000001
+    cipher: auto
+    network: ws
+    ws-opts:
+      path: /vm-ws
+      headers:
+        Host: vm.example.com
+    packet-encoding: xudp
+    global-padding: true
+    authenticated-length: true
+  - name: HY214
+    type: hysteria2
+    server: hy2.example.com
+    port: 443
+    password: pw
+    network: udp
+    brutal-debug: true
+  - name: TU14
+    type: tuic
+    server: tu.example.com
+    port: 443
+    uuid: 00000000-0000-0000-0000-000000000002
+    password: pw
+    network: udp
+    udp-over-stream: true
+    zero-rtt-handshake: true
+  - name: ANY14
+    type: anytls
+    server: any.example.com
+    port: 443
+    password: pw
+    client-metadata: test-meta
+  - name: NV14
+    type: naive
+    server: naive.example.com
+    port: 443
+    username: user
+    password: pw
+    insecure-concurrency: 2
+    extra-headers:
+      User-Agent: test
+    stream-receive-window: 1000000
+    quic: true
+    quic-congestion-control: bbr
+    quic-session-receive-window: 2000000
+  - name: TLS14
+    type: http
+    server: tls.example.com
+    port: 443
+    tls: true
+    disable-sni: true
+    min-version: "1.2"
+    max-version: "1.3"
+    cipher-suites: [TLS_AES_128_GCM_SHA256]
+    curve-preferences: [X25519]
+    fragment: true
+    fragment-fallback-delay: 500ms
+    record-fragment: true
+    client-fingerprint: chrome
+`
+	out, warnings, err := ParseManyWithWarnings(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 0 || len(out) != 7 {
+		t.Fatalf("warnings=%v out=%d", warnings, len(out))
+	}
+	ss := out[0]
+	if field(t, ss, "plugin") != "obfs-local" || field(t, ss, "plugin_opts") != "obfs=http" {
+		t.Fatalf("shadowsocks plugin fields = %+v", ss)
+	}
+	if scalarField(t, ss, "network") != "[tcp udp]" {
+		t.Fatalf("shadowsocks network = %q", scalarField(t, ss, "network"))
+	}
+	if scalarField(t, nested(t, ss, "udp_over_tcp"), "version") != "2" {
+		t.Fatalf("shadowsocks udp_over_tcp = %+v", nested(t, ss, "udp_over_tcp"))
+	}
+	vm := out[1]
+	if field(t, vm, "packet_encoding") != "xudp" || scalarField(t, vm, "global_padding") != "true" || scalarField(t, vm, "authenticated_length") != "true" {
+		t.Fatalf("vmess 1.14 fields = %+v", vm)
+	}
+	if _, ok := vm.Get("network"); ok {
+		t.Fatalf("vmess transport network leaked into outbound network: %+v", vm)
+	}
+	if transport := nested(t, vm, "transport"); field(t, transport, "type") != "ws" || field(t, transport, "path") != "/vm-ws" {
+		t.Fatalf("vmess transport = %+v", transport)
+	}
+	hy2 := out[2]
+	if scalarField(t, hy2, "brutal_debug") != "true" {
+		t.Fatalf("hysteria2 1.14 fields = %+v", hy2)
+	}
+	tu := out[3]
+	if scalarField(t, tu, "udp_over_stream") != "true" || scalarField(t, tu, "zero_rtt_handshake") != "true" {
+		t.Fatalf("tuic 1.14 fields = %+v", tu)
+	}
+	if field(t, out[4], "client_metadata") != "test-meta" {
+		t.Fatalf("anytls client_metadata = %q", field(t, out[4], "client_metadata"))
+	}
+	nv := out[5]
+	if scalarField(t, nv, "insecure_concurrency") != "2" || scalarField(t, nv, "quic_session_receive_window") != "2000000" {
+		t.Fatalf("naive 1.14 fields = %+v", nv)
+	}
+	tls := nested(t, out[6], "tls")
+	if scalarField(t, tls, "disable_sni") != "true" || field(t, tls, "min_version") != "1.2" {
+		t.Fatalf("TLS 1.14 fields = %+v", tls)
+	}
+	if scalarField(t, tls, "fragment") != "true" || scalarField(t, tls, "record_fragment") != "true" {
+		t.Fatalf("TLS advanced fields = %+v", tls)
 	}
 }
 

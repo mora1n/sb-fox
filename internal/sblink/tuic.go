@@ -34,7 +34,12 @@ func parseTUIC(uri string) (*merge.OrderedMap, error) {
 	}
 	setStringIfPresent(out, "heartbeat", queryFirst(p.query, "heartbeat", "heartbeat_interval", "heartbeat-interval"))
 	setStringIfPresent(out, "network", queryFirst(p.query, "network"))
-
+	if boolQuery(p.query, "udp_over_stream", "udp-over-stream") {
+		out.Set("udp_over_stream", true)
+	}
+	if boolQuery(p.query, "zero_rtt_handshake", "zero-rtt-handshake") {
+		out.Set("zero_rtt_handshake", true)
+	}
 	tls := buildTLS(tlsParams{
 		enabled:    true,
 		serverName: queryFirst(p.query, "sni", "peer"),

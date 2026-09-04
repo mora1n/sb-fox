@@ -34,6 +34,7 @@ func parseAnyTLS(uri string) (*merge.OrderedMap, error) {
 	if err := setIntIfPresent(out, "min_idle_session", queryFirst(p.query, "min_idle_session", "min-idle-session")); err != nil {
 		return nil, err
 	}
+	setStringIfPresent(out, "client_metadata", queryFirst(p.query, "client_metadata", "client-metadata"))
 	tls, err := tlsFromQuery(p.query, true, true)
 	if err != nil {
 		return nil, err
@@ -52,7 +53,7 @@ func encodeAnyTLS(out *merge.OrderedMap) (string, error) {
 		return "", err
 	}
 	q := url.Values{}
-	for _, key := range []string{"idle_session_check_interval", "idle_session_timeout", "min_idle_session"} {
+	for _, key := range []string{"idle_session_check_interval", "idle_session_timeout", "min_idle_session", "client_metadata"} {
 		if value, ok := out.Get(key); ok {
 			q.Set(key, scalarString(value))
 		}

@@ -147,7 +147,7 @@ func encodeSOCKS(out *merge.OrderedMap) (string, error) {
 		scheme = "socks4a"
 	}
 	q := url.Values{}
-	if network := out.GetString("network"); network != "" {
+	if network := firstStringField(out, "network"); network != "" {
 		q.Set("network", network)
 	}
 	addUDPOverTCPQuery(q, out)

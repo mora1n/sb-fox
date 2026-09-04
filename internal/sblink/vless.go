@@ -73,6 +73,7 @@ func parseVLESS(uri string) (*merge.OrderedMap, error) {
 	if flow := p.query.Get("flow"); flow != "" {
 		out.Set("flow", flow)
 	}
+	setStringIfPresent(out, "network", queryFirst(p.query, "network"))
 
 	if tls := vlessTLS(p.query); tls != nil {
 		out.Set("tls", tls)

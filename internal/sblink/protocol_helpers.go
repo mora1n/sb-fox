@@ -90,9 +90,30 @@ func orderedFromMap(m map[string]any) *merge.OrderedMap {
 	}
 	out := merge.NewOrderedMap()
 	for key, value := range m {
-		out.Set(key, value)
+		out.Set(key, orderedAny(value))
 	}
 	return out
+}
+
+func orderedAny(value any) any {
+	switch value := value.(type) {
+	case map[string]any:
+		return orderedFromMap(value)
+	case map[any]any:
+		converted := make(map[string]any, len(value))
+		for key, item := range value {
+			converted[anyToString(key)] = item
+		}
+		return orderedFromMap(converted)
+	case []any:
+		items := make([]any, len(value))
+		for i, item := range value {
+			items[i] = orderedAny(item)
+		}
+		return items
+	default:
+		return value
+	}
 }
 
 func tlsFromQuery(q url.Values, enabled bool, allowReality bool) (*merge.OrderedMap, error) {

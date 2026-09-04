@@ -61,10 +61,10 @@ func parseSnell(uri string) (*merge.OrderedMap, error) {
 		return out, nil
 	}
 	obfsMode := strings.ToLower(strings.TrimSpace(queryFirst(p.query, "obfs", "obfs_mode", "obfs-mode")))
-	if obfsMode != "" && obfsMode != "none" && obfsMode != "http" {
+	if obfsMode != "" && obfsMode != "none" && obfsMode != "http" && obfsMode != "tls" {
 		return nil, fmt.Errorf("sblink: unsupported snell v4 obfs mode %q", obfsMode)
 	}
-	if obfsMode == "http" {
+	if obfsMode == "http" || obfsMode == "tls" {
 		out.Set("obfs_mode", obfsMode)
 		setStringIfPresent(out, "obfs_host", queryFirst(p.query, "obfs-host", "obfs_host"))
 	}

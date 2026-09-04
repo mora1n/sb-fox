@@ -26,6 +26,8 @@ func applyVMessTransport(v *vmessLink, transport *merge.OrderedMap) error {
 		v.Net = "h2"
 		v.Path = transport.GetString("path")
 		v.Host = firstStringField(transport, "host")
+	case "quic":
+		v.Net = "quic"
 	default:
 		return fmt.Errorf("sblink: vmess transport %q cannot be exported", typ)
 	}
@@ -97,6 +99,8 @@ func addTransportQuery(q url.Values, out *merge.OrderedMap) error {
 		if host := firstStringField(transport, "host"); host != "" {
 			q.Set("host", host)
 		}
+	case "quic":
+		q.Set("type", "quic")
 	case "httpupgrade":
 		q.Set("type", "httpupgrade")
 		if path := transport.GetString("path"); path != "" {
