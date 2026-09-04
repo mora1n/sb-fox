@@ -159,7 +159,7 @@ func TestStripEmoji(t *testing.T) {
 	cases := map[string]string{
 		"🚀 Proxy":      "Proxy",
 		"🏠 Mainland":   "Mainland",
-		"🏳️‍🌈 Others":  "Others",
+		"🏳️‍🌈Others":   "Others",
 		"Plain":        "Plain",
 		"  Trimmed  ":  "Trimmed",
 		"🇭🇰 Hong Kong": "Hong Kong",

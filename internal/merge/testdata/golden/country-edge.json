@@ -91,30 +91,30 @@
       "tag": "🚀 Proxy",
       "outbounds": [
         "🎯 Direct",
-        "🇯🇵 Japan",
-        "🇭🇰 Hong Kong",
-        "🇺🇸 United States",
-        "🇩🇪 Germany",
-        "🏳️‍🌈 Others"
+        "🇯🇵Japan",
+        "🇭🇰Hong Kong",
+        "🇺🇸United States",
+        "🇩🇪Germany",
+        "🏳️‍🌈Others"
       ]
     },
     {
       "type": "selector",
-      "tag": "🇯🇵 Japan",
+      "tag": "🇯🇵Japan",
       "outbounds": [
         "Tokyo JP 01"
       ]
     },
     {
       "type": "selector",
-      "tag": "🇭🇰 Hong Kong",
+      "tag": "🇭🇰Hong Kong",
       "outbounds": [
         "HongKong HK"
       ]
     },
     {
       "type": "selector",
-      "tag": "🇺🇸 United States",
+      "tag": "🇺🇸United States",
       "outbounds": [
         "US-Relay",
         "CN2-US"
@@ -122,14 +122,14 @@
     },
     {
       "type": "selector",
-      "tag": "🇩🇪 Germany",
+      "tag": "🇩🇪Germany",
       "outbounds": [
         "Germany-US"
       ]
     },
     {
       "type": "selector",
-      "tag": "🏳️‍🌈 Others",
+      "tag": "🏳️‍🌈Others",
       "outbounds": [
         "HKHK"
       ]

@@ -33,7 +33,7 @@ type Options struct {
 	ChainProxyTag string
 }
 
-const ChainProxyTag = "📤 Chain Proxy"
+const ChainProxyTag = "📤Chain Proxy"
 
 // DefaultOptions returns options matching merge.js defaults.
 func DefaultOptions() Options {
@@ -106,7 +106,7 @@ func Generate(config *OrderedMap, nodes []*Node, opts Options) (*OrderedMap, err
 	if len(countryInfo.unrecognizedTags) > 0 {
 		othersSelector = NewOrderedMap()
 		othersSelector.Set("type", "selector")
-		othersSelector.Set("tag", "🏳️‍🌈 Others")
+		othersSelector.Set("tag", "🏳️‍🌈Others")
 		othersSelector.Set("outbounds", toAnySlice(countryInfo.unrecognizedTags))
 	}
 

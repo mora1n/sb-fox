@@ -91,28 +91,28 @@
       "tag": "🚀 Proxy",
       "outbounds": [
         "🎯 Direct",
-        "🇺🇸 United States",
-        "🇸🇬 Singapore",
-        "🏳️‍🌈 Others"
+        "🇺🇸United States",
+        "🇸🇬Singapore",
+        "🏳️‍🌈Others"
       ]
     },
     {
       "type": "selector",
-      "tag": "🇺🇸 United States",
+      "tag": "🇺🇸United States",
       "outbounds": [
         "Detour-US-1"
       ]
     },
     {
       "type": "selector",
-      "tag": "🇸🇬 Singapore",
+      "tag": "🇸🇬Singapore",
       "outbounds": [
         "Singapore-1"
       ]
     },
     {
       "type": "selector",
-      "tag": "🏳️‍🌈 Others",
+      "tag": "🏳️‍🌈Others",
       "outbounds": [
         "Others-1"
       ]

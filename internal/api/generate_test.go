@@ -135,10 +135,10 @@ func TestGenerateConfigChainProxyUsesAutoCountryUpstreams(t *testing.T) {
 	if got := outbounds["📥chain-node"]["detour"]; got != merge.ChainProxyTag {
 		t.Fatalf("chain-node detour = %v, want %q", got, merge.ChainProxyTag)
 	}
-	if got := stringSliceValue(t, outbounds["Proxy"]["outbounds"]); !sameStrings(got, []string{"🇺🇸 United States"}) {
+	if got := stringSliceValue(t, outbounds["Proxy"]["outbounds"]); !sameStrings(got, []string{"🇺🇸United States"}) {
 		t.Fatalf("Proxy outbounds = %v", got)
 	}
-	if got := stringSliceValue(t, outbounds["🇭🇰 Hong Kong"]["outbounds"]); !sameStrings(got, []string{"📥chain-node"}) {
+	if got := stringSliceValue(t, outbounds["🇭🇰Hong Kong"]["outbounds"]); !sameStrings(got, []string{"📥chain-node"}) {
 		t.Fatalf("HK selector outbounds = %v", got)
 	}
 	if got := stringSliceValue(t, outbounds[merge.ChainProxyTag]["outbounds"]); !sameStrings(got, []string{"proxy-node", "auto-a", "auto-b"}) {
@@ -199,10 +199,10 @@ func TestGenerateConfigChainProxyReplacesAutoCountrySelectedNodeRefs(t *testing.
 	if got := outbounds["📥👼 BWH.MINIBOX"]["detour"]; got != merge.ChainProxyTag {
 		t.Fatalf("chain node detour = %v, want %q", got, merge.ChainProxyTag)
 	}
-	if got := stringSliceValue(t, outbounds["🇭🇰 Hong Kong"]["outbounds"]); !sameStrings(got, []string{"📥👼 BWH.MINIBOX"}) {
+	if got := stringSliceValue(t, outbounds["🇭🇰Hong Kong"]["outbounds"]); !sameStrings(got, []string{"📥👼 BWH.MINIBOX"}) {
 		t.Fatalf("HK selector outbounds = %v", got)
 	}
-	if got := stringSliceValue(t, outbounds["Proxy"]["outbounds"]); !sameStrings(got, []string{"🇭🇰 Hong Kong"}) {
+	if got := stringSliceValue(t, outbounds["Proxy"]["outbounds"]); !sameStrings(got, []string{"🇭🇰Hong Kong"}) {
 		t.Fatalf("Proxy outbounds = %v", got)
 	}
 }
@@ -551,16 +551,16 @@ func TestGenerateConfigWithGroupSelectionAutoCountryGroups(t *testing.T) {
 	}
 
 	outbounds := generatedOutboundMap(t, config)
-	if got := stringSliceValue(t, outbounds["Proxy"]["outbounds"]); !sameStrings(got, []string{"🇺🇸 United States"}) {
+	if got := stringSliceValue(t, outbounds["Proxy"]["outbounds"]); !sameStrings(got, []string{"🇺🇸United States"}) {
 		t.Fatalf("Proxy outbounds = %v", got)
 	}
 	if got := stringSliceValue(t, outbounds["Fallback"]["outbounds"]); !sameStrings(got, []string{"fallback-node"}) {
 		t.Fatalf("Fallback outbounds = %v", got)
 	}
-	if got := stringSliceValue(t, outbounds["🇺🇸 United States"]["outbounds"]); !sameStrings(got, []string{"proxy-node"}) {
+	if got := stringSliceValue(t, outbounds["🇺🇸United States"]["outbounds"]); !sameStrings(got, []string{"proxy-node"}) {
 		t.Fatalf("US selector outbounds = %v", got)
 	}
-	if got := stringSliceValue(t, outbounds["🇸🇬 Singapore"]["outbounds"]); !sameStrings(got, []string{"source-node"}) {
+	if got := stringSliceValue(t, outbounds["🇸🇬Singapore"]["outbounds"]); !sameStrings(got, []string{"source-node"}) {
 		t.Fatalf("SG selector outbounds = %v", got)
 	}
 }
@@ -597,7 +597,7 @@ func TestGenerateConfigWithGroupSelectionAutoCountrySourceFillsUnselectedGroups(
 	}
 
 	outbounds := generatedOutboundMap(t, config)
-	countryRefs := []string{"🇯🇵 Japan", "🇺🇸 United States"}
+	countryRefs := []string{"🇯🇵Japan", "🇺🇸United States"}
 	if got := stringSliceValue(t, outbounds["Proxy"]["outbounds"]); !sameStrings(got, append([]string{"Direct"}, countryRefs...)) {
 		t.Fatalf("Proxy outbounds = %v", got)
 	}
@@ -607,10 +607,10 @@ func TestGenerateConfigWithGroupSelectionAutoCountrySourceFillsUnselectedGroups(
 	if got := stringSliceValue(t, outbounds["Skip"]["outbounds"]); !sameStrings(got, []string{"Direct"}) {
 		t.Fatalf("Skip outbounds = %v", got)
 	}
-	if got := stringSliceValue(t, outbounds["🇯🇵 Japan"]["outbounds"]); !sameStrings(got, []string{"jp-node"}) {
+	if got := stringSliceValue(t, outbounds["🇯🇵Japan"]["outbounds"]); !sameStrings(got, []string{"jp-node"}) {
 		t.Fatalf("JP selector outbounds = %v", got)
 	}
-	if got := stringSliceValue(t, outbounds["🇺🇸 United States"]["outbounds"]); !sameStrings(got, []string{"us-node"}) {
+	if got := stringSliceValue(t, outbounds["🇺🇸United States"]["outbounds"]); !sameStrings(got, []string{"us-node"}) {
 		t.Fatalf("US selector outbounds = %v", got)
 	}
 }
@@ -636,10 +636,10 @@ func TestGenerateConfigWithGroupSelectionAutoCountrySourceFillsFinalGroup(t *tes
 	}
 
 	outbounds := generatedOutboundMap(t, config)
-	if got := stringSliceValue(t, outbounds["Proxy"]["outbounds"]); !sameStrings(got, []string{"🇺🇸 United States"}) {
+	if got := stringSliceValue(t, outbounds["Proxy"]["outbounds"]); !sameStrings(got, []string{"🇺🇸United States"}) {
 		t.Fatalf("Proxy outbounds = %v", got)
 	}
-	if got := stringSliceValue(t, outbounds["🇺🇸 United States"]["outbounds"]); !sameStrings(got, []string{"us-node"}) {
+	if got := stringSliceValue(t, outbounds["🇺🇸United States"]["outbounds"]); !sameStrings(got, []string{"us-node"}) {
 		t.Fatalf("US selector outbounds = %v", got)
 	}
 }
@@ -665,10 +665,10 @@ func TestGenerateConfigWithGroupSelectionAutoCountrySourceFillsEmojiFinalGroup(t
 	}
 
 	outbounds := generatedOutboundMap(t, config)
-	if got := stringSliceValue(t, outbounds["🚀 Proxy"]["outbounds"]); !sameStrings(got, []string{"🇯🇵 Japan"}) {
+	if got := stringSliceValue(t, outbounds["🚀 Proxy"]["outbounds"]); !sameStrings(got, []string{"🇯🇵Japan"}) {
 		t.Fatalf("Proxy outbounds = %v", got)
 	}
-	if got := stringSliceValue(t, outbounds["🇯🇵 Japan"]["outbounds"]); !sameStrings(got, []string{"jp-node"}) {
+	if got := stringSliceValue(t, outbounds["🇯🇵Japan"]["outbounds"]); !sameStrings(got, []string{"jp-node"}) {
 		t.Fatalf("JP selector outbounds = %v", got)
 	}
 }
@@ -690,10 +690,10 @@ func TestGenerateConfigUsesStoredAutoCountryForGrouping(t *testing.T) {
 	}
 
 	outbounds := generatedOutboundMap(t, config)
-	if got := stringSliceValue(t, outbounds["🇯🇵 Japan"]["outbounds"]); !sameStrings(got, []string{"plain-node"}) {
+	if got := stringSliceValue(t, outbounds["🇯🇵Japan"]["outbounds"]); !sameStrings(got, []string{"plain-node"}) {
 		t.Fatalf("JP selector outbounds = %v", got)
 	}
-	if _, ok := outbounds["🏳️‍🌈 Others"]; ok {
+	if _, ok := outbounds["🏳️‍🌈Others"]; ok {
 		t.Fatalf("plain-node with stored country should not be placed in Others")
 	}
 }
@@ -731,7 +731,7 @@ func TestGenerateConfigWithGroupSelectionSkipCountryGroups(t *testing.T) {
 	if got := stringSliceValue(t, outbounds["Proxy"]["outbounds"]); !sameStrings(got, []string{"proxy-node"}) {
 		t.Fatalf("Proxy outbounds = %v", got)
 	}
-	if got := stringSliceValue(t, outbounds["Fallback"]["outbounds"]); !sameStrings(got, []string{"🇯🇵 Japan"}) {
+	if got := stringSliceValue(t, outbounds["Fallback"]["outbounds"]); !sameStrings(got, []string{"🇯🇵Japan"}) {
 		t.Fatalf("Fallback outbounds = %v", got)
 	}
 }

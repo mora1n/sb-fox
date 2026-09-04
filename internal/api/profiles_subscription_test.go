@@ -807,7 +807,7 @@ func TestFullFlow(t *testing.T) {
 	config := buf.Bytes()
 
 	// the generated config must contain the country groups
-	if !bytes.Contains(config, []byte("🇭🇰 Hong Kong")) || !bytes.Contains(config, []byte("🇯🇵 Japan")) {
+	if !bytes.Contains(config, []byte("🇭🇰Hong Kong")) || !bytes.Contains(config, []byte("🇯🇵Japan")) {
 		t.Errorf("generated config missing country groups")
 	}
 

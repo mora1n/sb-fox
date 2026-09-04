@@ -143,7 +143,7 @@ func TestCountryHeatOrderOption(t *testing.T) {
 		}
 		indexes[group.GetString("tag")] = i
 	}
-	want := []string{"🇺🇸 United States", "🇸🇬 Singapore", "🇨🇳 China"}
+	want := []string{"🇺🇸United States", "🇸🇬Singapore", "🇨🇳China"}
 	for _, tag := range want {
 		if _, ok := indexes[tag]; !ok {
 			t.Fatalf("missing selector %s in %v", tag, indexes)
@@ -174,7 +174,7 @@ func TestExtendedCountrySelector(t *testing.T) {
 	}
 	for _, outbound := range outbounds {
 		group, ok := outbound.(*OrderedMap)
-		if ok && group.GetString("tag") == "🇧🇴 Bolivia" && group.GetString("type") == "selector" {
+		if ok && group.GetString("tag") == "🇧🇴Bolivia" && group.GetString("type") == "selector" {
 			return
 		}
 	}

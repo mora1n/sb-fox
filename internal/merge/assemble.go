@@ -120,7 +120,7 @@ func createCountrySelectors(info *nodeInfo, countryHeatOrder []string) []*Ordere
 		}
 		sel := NewOrderedMap()
 		sel.Set("type", "selector")
-		sel.Set("tag", group.emoji+" "+group.name)
+		sel.Set("tag", group.emoji+group.name)
 		tags := make([]any, len(group.tags))
 		for i, t := range group.tags {
 			tags[i] = t

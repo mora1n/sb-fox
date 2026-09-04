@@ -91,22 +91,22 @@
       "tag": "🚀 Proxy",
       "outbounds": [
         "🎯 Direct",
-        "🇨🇳 China",
-        "🇺🇸 United States",
-        "🇸🇬 Singapore",
-        "🏳️‍🌈 Others"
+        "🇨🇳China",
+        "🇺🇸United States",
+        "🇸🇬Singapore",
+        "🏳️‍🌈Others"
       ]
     },
     {
       "type": "selector",
-      "tag": "🇨🇳 China",
+      "tag": "🇨🇳China",
       "outbounds": [
         "CN Relay 1"
       ]
     },
     {
       "type": "selector",
-      "tag": "🇺🇸 United States",
+      "tag": "🇺🇸United States",
       "outbounds": [
         "US Node",
         "Detour-US-1"
@@ -114,14 +114,14 @@
     },
     {
       "type": "selector",
-      "tag": "🇸🇬 Singapore",
+      "tag": "🇸🇬Singapore",
       "outbounds": [
         "Singapore-1"
       ]
     },
     {
       "type": "selector",
-      "tag": "🏳️‍🌈 Others",
+      "tag": "🏳️‍🌈Others",
       "outbounds": [
         "Tokyo-1",
         "Mystery-1",
