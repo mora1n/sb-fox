@@ -318,6 +318,8 @@ export interface NodeUsage {
 
 export interface BulkDeleteResult {
   deleted: number
+  deleted_nodes?: number
+  deleted_node_ids?: number[]
 }
 
 export interface BulkNodeUsage extends NodeUsage {

@@ -247,6 +247,120 @@ func TestDeleteLastNodeRemovesEmptyGroupAndAllProfileGroupReferences(t *testing.
 	}
 }
 
+func TestDeleteNodeGroupWithNodesCleansAllReferences(t *testing.T) {
+	s := openTest(t)
+	ownerID := createTestUser(t, s)
+	templateID, err := s.CreateTemplate(&models.Template{OwnerUserID: ownerID, Name: "t", Kind: "user", Content: "{}"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodeIDs := []int64{
+		createReferenceTestNode(t, s, ownerID, "target-a"),
+		createReferenceTestNode(t, s, ownerID, "target-b"),
+		createReferenceTestNode(t, s, ownerID, "keep"),
+	}
+	groupID, err := s.CreateNodeGroup(&models.NodeGroup{OwnerUserID: ownerID, Name: "selected", NodeIDs: nodeIDs[:2]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sharedGroupID, err := s.CreateNodeGroup(&models.NodeGroup{OwnerUserID: ownerID, Name: "shared", NodeIDs: []int64{nodeIDs[0]}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := fmt.Sprintf(`{"chainProxyNodeIds":[%d,%d,%d],"groupSelections":{"Proxy":{"nodeIds":[%d,%d,%d],"nodeGroupIds":[%d,%d]}},"autoCountrySelection":{"nodeIds":[%d],"nodeGroupIds":[%d]},"chainProxySelection":{"nodeIds":[%d],"nodeGroupIds":[%d]}}`,
+		nodeIDs[0], nodeIDs[1], nodeIDs[2], nodeIDs[0], nodeIDs[1], nodeIDs[2], groupID, sharedGroupID,
+		nodeIDs[0], sharedGroupID, nodeIDs[1], groupID)
+	profileID, err := s.CreateProfile(&models.Profile{
+		OwnerUserID:  ownerID,
+		Name:         "p",
+		TemplateID:   templateID,
+		Options:      options,
+		Token:        "tok-group-nodes",
+		NodeIDs:      nodeIDs,
+		NodeGroupIDs: []int64{groupID, sharedGroupID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := s.DeleteNodeGroupsByIDsWithNodes([]int64{groupID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.DeletedGroups != 2 || result.DeletedNodes != 2 {
+		t.Fatalf("delete result = %+v, want 2 groups and 2 nodes", result)
+	}
+	if fmt.Sprint(result.DeletedNodeIDs) != fmt.Sprint(nodeIDs[:2]) {
+		t.Fatalf("deleted node ids = %v, want %v", result.DeletedNodeIDs, nodeIDs[:2])
+	}
+	for _, id := range nodeIDs[:2] {
+		if _, err := s.GetNode(id); err != ErrNotFound {
+			t.Fatalf("deleted node %d error = %v, want ErrNotFound", id, err)
+		}
+	}
+	if _, err := s.GetNode(nodeIDs[2]); err != nil {
+		t.Fatalf("surviving node error = %v", err)
+	}
+	for _, id := range []int64{groupID, sharedGroupID} {
+		if _, err := s.GetNodeGroupForUser(id, ownerID, false); err != ErrNotFound {
+			t.Fatalf("deleted group %d error = %v, want ErrNotFound", id, err)
+		}
+	}
+	profile, err := s.GetProfile(profileID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(profile.NodeIDs) != 1 || profile.NodeIDs[0] != nodeIDs[2] || len(profile.NodeGroupIDs) != 0 {
+		t.Fatalf("profile memberships after delete = nodes %v groups %v", profile.NodeIDs, profile.NodeGroupIDs)
+	}
+	var cleaned models.ProfileOptions
+	if err := json.Unmarshal([]byte(profile.Options), &cleaned); err != nil {
+		t.Fatal(err)
+	}
+	selection := cleaned.GroupSelections["Proxy"]
+	if len(cleaned.ChainProxyNodeIDs) != 1 || cleaned.ChainProxyNodeIDs[0] != nodeIDs[2] ||
+		len(selection.NodeIDs) != 1 || selection.NodeIDs[0] != nodeIDs[2] || len(selection.NodeGroupIDs) != 0 ||
+		len(cleaned.AutoCountrySelected.NodeIDs) != 0 || len(cleaned.AutoCountrySelected.NodeGroupIDs) != 0 ||
+		len(cleaned.ChainProxySelected.NodeIDs) != 0 || len(cleaned.ChainProxySelected.NodeGroupIDs) != 0 {
+		t.Fatalf("profile options after delete = %+v", cleaned)
+	}
+}
+
+func TestDeleteNodeGroupWithNodesRollsBackOnInvalidProfileOptions(t *testing.T) {
+	s := openTest(t)
+	ownerID := createTestUser(t, s)
+	nodeID := createReferenceTestNode(t, s, ownerID, "target")
+	groupID, err := s.CreateNodeGroup(&models.NodeGroup{OwnerUserID: ownerID, Name: "g", NodeIDs: []int64{nodeID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	templateID, err := s.CreateTemplate(&models.Template{OwnerUserID: ownerID, Name: "t", Kind: "user", Content: "{}"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateProfile(&models.Profile{
+		OwnerUserID: ownerID,
+		Name:        "broken",
+		TemplateID:  templateID,
+		Options:     `{"groupSelections":{"Proxy":{"nodeIds":"bad"}}}`,
+		Token:       "tok-group-rollback",
+		NodeIDs:     []int64{nodeID},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.DeleteNodeGroupsByIDsWithNodes([]int64{groupID}); err == nil {
+		t.Fatal("delete should fail for invalid profile options")
+	}
+	if _, err := s.GetNode(nodeID); err != nil {
+		t.Fatalf("node should remain after rollback: %v", err)
+	}
+	group, err := s.GetNodeGroupForUser(groupID, ownerID, false)
+	if err != nil || len(group.NodeIDs) != 1 || group.NodeIDs[0] != nodeID {
+		t.Fatalf("group after rollback = %+v err=%v", group, err)
+	}
+}
+
 func TestDeleteNodesBySourceRemovesEmptyGroups(t *testing.T) {
 	s := openTest(t)
 	ownerID := createTestUser(t, s)

@@ -289,6 +289,7 @@ export const useNodesStore = defineStore('nodes', () => {
     remove,
     previewBulkDelete,
     bulkDelete,
+    removeManyFromLoadedState,
     usage,
     importLinks,
     previewImportLinks,

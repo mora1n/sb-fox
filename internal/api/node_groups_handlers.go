@@ -114,6 +114,11 @@ func (s *Server) handleUpdateNodeGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteNodeGroup(w http.ResponseWriter, r *http.Request) {
+	deleteNodes, err := parseOptionalBool(r.URL.Query().Get("delete_nodes"))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "bad_request", "delete_nodes must be true or false")
+		return
+	}
 	ownerID, allOwners := ownerScope(r)
 	g, err := s.Store.GetNodeGroupForUser(pathID(r), ownerID, allOwners)
 	if err == store.ErrNotFound {
@@ -121,6 +126,24 @@ func (s *Server) handleDeleteNodeGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	} else if err != nil {
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	if deleteNodes {
+		result, err := s.Store.DeleteNodeGroupAndNodesForUser(g.ID, g.OwnerUserID)
+		if err == store.ErrNotFound {
+			respondError(w, http.StatusNotFound, "not_found", "node group not found")
+			return
+		}
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "internal", err.Error())
+			return
+		}
+		respondJSON(w, http.StatusOK, map[string]any{
+			"ok":               true,
+			"deleted":          result.DeletedGroups,
+			"deleted_nodes":    result.DeletedNodes,
+			"deleted_node_ids": result.DeletedNodeIDs,
+		})
 		return
 	}
 	if err := s.Store.DeleteNodeGroupForUser(g.ID, g.OwnerUserID); err != nil {

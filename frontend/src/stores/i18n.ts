@@ -295,6 +295,9 @@ const en: Record<string, string> = {
   '删除模板': 'Delete Templates',
   '删除订阅': 'Delete Subscriptions',
   '确认删除': 'Confirm deleting',
+  '同时删除组合中的单节点': 'Also delete individual nodes in the selected groups',
+  '勾选后将删除所选组合中的全部单节点，其他组合和订阅中的相关引用也会自动清理。':
+    'Checking this will delete all individual nodes in the selected groups; related references in other groups and subscriptions will also be cleaned up.',
   '正在检查引用...': 'Checking references...',
   '节点引用将从组合节点和以下订阅中自动清理': 'Node references will be removed from node groups and these subscriptions',
   '此操作不可撤销。': 'This action cannot be undone.',

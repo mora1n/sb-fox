@@ -12,6 +12,10 @@ func (s *Store) DeleteNodeGroupsByIDs(ids []int64) (int, error) {
 	return s.deleteNodeGroupsWithReferences(ids, nil)
 }
 
+func (s *Store) DeleteNodeGroupsByIDsWithNodes(ids []int64) (NodeGroupDeleteResult, error) {
+	return s.deleteNodeGroupsWithNodes(ids, nil)
+}
+
 func (s *Store) DeleteTemplatesByIDs(ids []int64) (int, error) {
 	return s.deleteByIDs("templates", ids, " AND kind = 'user'")
 }

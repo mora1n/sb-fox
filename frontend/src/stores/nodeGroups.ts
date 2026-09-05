@@ -46,26 +46,29 @@ export const useNodeGroupsStore = defineStore('nodeGroups', () => {
     return g
   }
 
-  async function remove(id: number): Promise<void> {
-    await del('/node-groups/' + id)
+  async function remove(id: number, deleteNodes = false): Promise<BulkDeleteResult> {
+    const suffix = deleteNodes ? '?delete_nodes=true' : ''
+    const result = await del<BulkDeleteResult & { ok?: boolean }>('/node-groups/' + id + suffix)
     groups.value = groups.value.filter((g) => g.id !== id)
     loaded.value = true
+    return result
   }
 
-  async function bulkDelete(ids: number[]): Promise<number> {
-    const r = await post<BulkDeleteResult>('/node-groups/bulk-delete', { ids })
+  async function bulkDelete(ids: number[], deleteNodes = false): Promise<BulkDeleteResult> {
+    const r = await post<BulkDeleteResult>('/node-groups/bulk-delete', { ids, delete_nodes: deleteNodes })
     const idSet = new Set(ids)
     groups.value = groups.value.filter((g) => !idSet.has(g.id))
     loaded.value = true
-    return r.deleted
+    return r
   }
 
   function removeNodeIDs(ids: number[]): void {
     const idSet = new Set(ids)
-    groups.value = groups.value.map((group) => ({
-      ...group,
-      node_ids: group.node_ids.filter((id) => !idSet.has(id)),
-    }))
+    groups.value = groups.value.flatMap((group) => {
+      const nodeIDs = group.node_ids.filter((id) => !idSet.has(id))
+      if (group.node_ids.length > 0 && nodeIDs.length === 0) return []
+      return [{ ...group, node_ids: nodeIDs }]
+    })
   }
 
   function reset(): void {

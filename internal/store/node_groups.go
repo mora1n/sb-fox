@@ -183,6 +183,10 @@ func (s *Store) DeleteNodeGroupForUser(id, ownerUserID int64) error {
 	return err
 }
 
+func (s *Store) DeleteNodeGroupAndNodesForUser(id, ownerUserID int64) (NodeGroupDeleteResult, error) {
+	return s.deleteNodeGroupsWithNodes([]int64{id}, &ownerUserID)
+}
+
 func (s *Store) nodeGroupNodeIDs(groupID int64) ([]int64, error) {
 	rows, err := s.db.Query(`SELECT node_id FROM node_group_nodes WHERE group_id = ? ORDER BY position`, groupID)
 	if err != nil {

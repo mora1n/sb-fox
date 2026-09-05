@@ -2,6 +2,8 @@ package api
 
 import (
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/mora1n/sb-fox/internal/models"
 	"github.com/mora1n/sb-fox/internal/store"
@@ -11,8 +13,15 @@ type bulkIDsRequest struct {
 	IDs []int64 `json:"ids"`
 }
 
+type bulkNodeGroupDeleteRequest struct {
+	IDs         []int64 `json:"ids"`
+	DeleteNodes bool    `json:"delete_nodes"`
+}
+
 type bulkDeleteResponse struct {
-	Deleted int `json:"deleted"`
+	Deleted        int     `json:"deleted"`
+	DeletedNodes   int     `json:"deleted_nodes,omitempty"`
+	DeletedNodeIDs []int64 `json:"deleted_node_ids,omitempty"`
 }
 
 type bulkNodeUsageResponse struct {
@@ -51,6 +60,26 @@ func normalizeBulkIDs(ids []int64) []int64 {
 		out = append(out, id)
 	}
 	return out
+}
+
+func decodeBulkNodeGroupDelete(w http.ResponseWriter, r *http.Request) ([]int64, bool, bool) {
+	var req bulkNodeGroupDeleteRequest
+	if !decodeJSON(w, r, &req) {
+		return nil, false, false
+	}
+	ids := normalizeBulkIDs(req.IDs)
+	if len(ids) == 0 {
+		respondError(w, http.StatusBadRequest, "no_ids", "no items selected")
+		return nil, false, false
+	}
+	return ids, req.DeleteNodes, true
+}
+
+func parseOptionalBool(value string) (bool, error) {
+	if strings.TrimSpace(value) == "" {
+		return false, nil
+	}
+	return strconv.ParseBool(value)
 }
 
 func (s *Server) handlePreviewBulkDeleteNodes(w http.ResponseWriter, r *http.Request) {
@@ -133,7 +162,7 @@ func (s *Server) handleBulkDeleteNodes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleBulkDeleteNodeGroups(w http.ResponseWriter, r *http.Request) {
-	ids, ok := decodeBulkIDs(w, r)
+	ids, deleteNodes, ok := decodeBulkNodeGroupDelete(w, r)
 	if !ok {
 		return
 	}
@@ -146,6 +175,23 @@ func (s *Server) handleBulkDeleteNodeGroups(w http.ResponseWriter, r *http.Reque
 			respondError(w, http.StatusInternalServerError, "internal", err.Error())
 			return
 		}
+	}
+	if deleteNodes {
+		result, err := s.Store.DeleteNodeGroupsByIDsWithNodes(ids)
+		if err == store.ErrNotFound {
+			respondError(w, http.StatusNotFound, "not_found", "node group not found")
+			return
+		}
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "internal", err.Error())
+			return
+		}
+		respondJSON(w, http.StatusOK, bulkDeleteResponse{
+			Deleted:        result.DeletedGroups,
+			DeletedNodes:   result.DeletedNodes,
+			DeletedNodeIDs: result.DeletedNodeIDs,
+		})
+		return
 	}
 	deleted, err := s.Store.DeleteNodeGroupsByIDs(ids)
 	if err == store.ErrNotFound {

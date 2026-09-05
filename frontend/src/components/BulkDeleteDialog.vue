@@ -11,12 +11,15 @@ const props = defineProps<{
   loadingPreview?: boolean
   previewError?: string
   affectedNames?: string[]
+  deleteNodes?: boolean
+  deleteNodeCount?: number
   busy?: boolean
 }>()
 
 const emit = defineEmits<{
   close: []
   confirm: []
+  'update:deleteNodes': [boolean]
 }>()
 
 const i18n = useI18nStore()
@@ -36,6 +39,22 @@ const confirmDisabled = computed(() => props.busy || props.loadingPreview || !!p
           {{ i18n.t('确认删除') }} <span class="font-semibold">{{ count }}</span> {{ itemLabel }}？
         </template>
       </p>
+
+      <label v-if="deleteNodeCount" class="label cursor-pointer justify-start gap-2 py-1">
+        <input
+          type="checkbox"
+          class="toggle toggle-sm"
+          :checked="deleteNodes"
+          :disabled="busy"
+          @change="emit('update:deleteNodes', ($event.target as HTMLInputElement).checked)"
+        />
+        <span class="label-text">
+          {{ i18n.t('同时删除组合中的单节点') }}（{{ deleteNodeCount }} {{ i18n.t('个节点') }}）
+        </span>
+      </label>
+      <div v-if="deleteNodes && deleteNodeCount" class="alert alert-warning text-sm">
+        <span>{{ i18n.t('勾选后将删除所选组合中的全部单节点，其他组合和订阅中的相关引用也会自动清理。') }}</span>
+      </div>
 
       <div v-if="loadingPreview" class="alert bg-base-200 border border-base-300">
         <span class="loading loading-spinner loading-sm"></span>

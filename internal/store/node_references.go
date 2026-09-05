@@ -12,6 +12,13 @@ type profileOptionsUpdate struct {
 	options string
 }
 
+// NodeGroupDeleteResult reports the resources removed by a group deletion.
+type NodeGroupDeleteResult struct {
+	DeletedGroups  int
+	DeletedNodes   int
+	DeletedNodeIDs []int64
+}
+
 func (s *Store) deleteNodesWithReferences(ids []int64, ownerUserID *int64) (int, error) {
 	if len(ids) == 0 {
 		return 0, nil
@@ -138,6 +145,140 @@ func (s *Store) deleteNodeGroupsWithReferences(ids []int64, ownerUserID *int64) 
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, err
+	}
+	return int(affected), nil
+}
+
+func (s *Store) deleteNodeGroupsWithNodes(ids []int64, ownerUserID *int64) (NodeGroupDeleteResult, error) {
+	result := NodeGroupDeleteResult{}
+	if len(ids) == 0 {
+		return result, nil
+	}
+	query, args := scopedIDOwnerQuery("node_groups", ids, ownerUserID)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return result, err
+	}
+	owners, err := nodeOwners(tx, query, args, len(ids))
+	if err != nil {
+		_ = tx.Rollback()
+		return result, err
+	}
+	memberIDs, err := nodeGroupNodeIDsByIDsTx(tx, ids)
+	if err != nil {
+		_ = tx.Rollback()
+		return result, err
+	}
+	emptyGroups, err := emptyNodeGroups(tx, memberIDs, ownerUserID)
+	if err != nil {
+		_ = tx.Rollback()
+		return result, err
+	}
+	deletedGroupIDs := appendUniqueInt64(ids, emptyGroups)
+	updates, err := cleanProfileReferences(tx, owners, memberIDs, deletedGroupIDs)
+	if err != nil {
+		_ = tx.Rollback()
+		return result, err
+	}
+	if err := applyProfileOptionsUpdates(tx, updates); err != nil {
+		_ = tx.Rollback()
+		return result, err
+	}
+	deletedGroups, err := deleteIDsInTx(tx, "node_groups", deletedGroupIDs, ownerUserID)
+	if err != nil {
+		_ = tx.Rollback()
+		return result, err
+	}
+	deletedNodes, err := deleteIDsInTx(tx, "nodes", memberIDs, ownerUserID)
+	if err != nil {
+		_ = tx.Rollback()
+		return result, err
+	}
+	if err := tx.Commit(); err != nil {
+		return result, err
+	}
+	result.DeletedGroups = deletedGroups
+	result.DeletedNodes = deletedNodes
+	result.DeletedNodeIDs = memberIDs
+	return result, nil
+}
+
+func scopedIDOwnerQuery(table string, ids []int64, ownerUserID *int64) (string, []any) {
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(ids)), ",")
+	query := `SELECT id, owner_user_id FROM ` + table + ` WHERE id IN (` + placeholders + `)`
+	args := int64Args(ids)
+	if ownerUserID != nil {
+		query += ` AND owner_user_id = ?`
+		args = append(args, *ownerUserID)
+	}
+	return query, args
+}
+
+func nodeGroupNodeIDsByIDsTx(tx *sql.Tx, groupIDs []int64) ([]int64, error) {
+	if len(groupIDs) == 0 {
+		return nil, nil
+	}
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(groupIDs)), ",")
+	rows, err := tx.Query(`SELECT DISTINCT node_id FROM node_group_nodes WHERE group_id IN (`+placeholders+`) ORDER BY node_id`, int64Args(groupIDs)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func appendUniqueInt64(base, extra []int64) []int64 {
+	seen := int64Set(base)
+	out := append([]int64{}, base...)
+	for _, id := range extra {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
+}
+
+func applyProfileOptionsUpdates(tx *sql.Tx, updates []profileOptionsUpdate) error {
+	for _, update := range updates {
+		if err := requireRowsAffected(tx.Exec(`UPDATE profiles SET options = ?, updated_at = ? WHERE id = ?`,
+			update.options, now(), update.id)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func deleteIDsInTx(tx *sql.Tx, table string, ids []int64, ownerUserID *int64) (int, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(ids)), ",")
+	query := `DELETE FROM ` + table + ` WHERE id IN (` + placeholders + `)`
+	args := int64Args(ids)
+	if ownerUserID != nil {
+		query += ` AND owner_user_id = ?`
+		args = append(args, *ownerUserID)
+	}
+	res, err := tx.Exec(query, args...)
+	if err != nil {
+		return 0, err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if affected != int64(len(ids)) {
+		return 0, ErrNotFound
 	}
 	return int(affected), nil
 }

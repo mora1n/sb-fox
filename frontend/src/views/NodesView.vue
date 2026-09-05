@@ -76,6 +76,8 @@ const bulkDeleteDialog = ref({
   loadingPreview: false,
   previewError: '',
   affectedNames: [] as string[],
+  deleteNodes: false,
+  deleteNodeCount: 0,
   busy: false,
 })
 let nodeFormSeq = 0
@@ -388,6 +390,9 @@ async function removeSelectedGroups() {
 
 function openBulkDeleteDialog(target: BulkDeleteTarget, ids: number[], itemName = '') {
   const seq = ++bulkDeleteSeq
+  const deleteNodeCount = target === 'groups'
+    ? new Set(nodeGroups.groups.filter((group) => ids.includes(group.id)).flatMap((group) => group.node_ids)).size
+    : 0
   bulkDeleteDialog.value = {
     open: true,
     target,
@@ -396,6 +401,8 @@ function openBulkDeleteDialog(target: BulkDeleteTarget, ids: number[], itemName 
     loadingPreview: target === 'nodes',
     previewError: '',
     affectedNames: [],
+    deleteNodes: false,
+    deleteNodeCount,
     busy: false,
   }
   if (target !== 'nodes') return
@@ -436,9 +443,14 @@ async function confirmBulkDelete() {
       selected.value = removeSelectedIDs(selected.value, current.ids)
       ui.success(`已删除 ${deleted} 个节点`)
     } else {
-      const deleted = await nodeGroups.bulkDelete(current.ids)
+      const result = await nodeGroups.bulkDelete(current.ids, current.deleteNodes)
+      if (current.deleteNodes && result.deleted_node_ids?.length) {
+        nodesStore.removeManyFromLoadedState(result.deleted_node_ids)
+      }
       selectedGroups.value = removeSelectedIDs(selectedGroups.value, current.ids)
-      ui.success(`已删除 ${deleted} 个组合节点`)
+      const deletedNodes = result.deleted_nodes ?? result.deleted_node_ids?.length ?? 0
+      const nodeMessage = current.deleteNodes && deletedNodes ? `，同时删除 ${deletedNodes} 个节点` : ''
+      ui.success(`已删除 ${result.deleted} 个组合节点${nodeMessage}`)
     }
     bulkDeleteSeq++
     bulkDeleteDialog.value = { ...bulkDeleteDialog.value, open: false, itemName: '', busy: false }
@@ -803,8 +815,11 @@ async function exportLinks() {
       :loading-preview="bulkDeleteDialog.loadingPreview"
       :preview-error="bulkDeleteDialog.previewError"
       :affected-names="bulkDeleteDialog.affectedNames"
+      :delete-nodes="bulkDeleteDialog.deleteNodes"
+      :delete-node-count="bulkDeleteDialog.deleteNodeCount"
       :busy="bulkDeleteDialog.busy"
       @close="closeBulkDeleteDialog"
+      @update:delete-nodes="bulkDeleteDialog.deleteNodes = $event"
       @confirm="confirmBulkDelete"
     />
 

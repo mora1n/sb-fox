@@ -466,6 +466,62 @@ func TestBulkDeleteNodesPreviewAndDelete(t *testing.T) {
 	}
 }
 
+func TestBulkDeleteNodeGroupsCanDeleteMembers(t *testing.T) {
+	_, ts := testServer(t)
+	c := newClient(t, ts.URL)
+	c.http.Jar = login(t, ts.URL)
+
+	nodeIDs := createPreviewOrderNodes(t, c, []string{"group-a", "group-b", "keep"})
+	groupID := createPreviewOrderGroup(t, c, "group-only", nodeIDs[:2])
+	var groupOnly struct {
+		Deleted int `json:"deleted"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/node-groups/bulk-delete", map[string]any{
+		"ids": []int64{groupID},
+	}), &groupOnly)
+	if groupOnly.Deleted != 1 {
+		t.Fatalf("group-only delete = %+v", groupOnly)
+	}
+	if status, _, _ := decodeError(t, c.do(http.MethodGet, "/api/node-groups/"+itoa(groupID), nil)); status != http.StatusNotFound {
+		t.Fatalf("group-only delete status = %d, want 404", status)
+	}
+	for _, id := range nodeIDs[:2] {
+		decodeData(t, c.do(http.MethodGet, "/api/nodes/"+itoa(id), nil), nil)
+	}
+
+	groupWithNodesID := createPreviewOrderGroup(t, c, "group-with-nodes", nodeIDs[1:])
+	var withNodes struct {
+		Deleted        int     `json:"deleted"`
+		DeletedNodes   int     `json:"deleted_nodes"`
+		DeletedNodeIDs []int64 `json:"deleted_node_ids"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/node-groups/bulk-delete", map[string]any{
+		"ids":          []int64{groupWithNodesID},
+		"delete_nodes": true,
+	}), &withNodes)
+	if withNodes.Deleted != 1 || withNodes.DeletedNodes != 2 || len(withNodes.DeletedNodeIDs) != 2 {
+		t.Fatalf("group-and-node delete = %+v", withNodes)
+	}
+	for _, id := range nodeIDs[1:] {
+		if status, _, _ := decodeError(t, c.do(http.MethodGet, "/api/nodes/"+itoa(id), nil)); status != http.StatusNotFound {
+			t.Fatalf("deleted node %d status = %d, want 404", id, status)
+		}
+	}
+
+	lastNode := createPreviewOrderNodes(t, c, []string{"direct-delete"})[0]
+	directGroupID := createPreviewOrderGroup(t, c, "direct-group-delete", []int64{lastNode})
+	var direct struct {
+		DeletedNodes int `json:"deleted_nodes"`
+	}
+	decodeData(t, c.do(http.MethodDelete, "/api/node-groups/"+itoa(directGroupID)+"?delete_nodes=true", nil), &direct)
+	if direct.DeletedNodes != 1 {
+		t.Fatalf("direct group-and-node delete = %+v", direct)
+	}
+	if status, _, _ := decodeError(t, c.do(http.MethodGet, "/api/nodes/"+itoa(lastNode), nil)); status != http.StatusNotFound {
+		t.Fatalf("direct deleted node status = %d, want 404", status)
+	}
+}
+
 func TestBulkDeleteRejectsInvalidBatchWithoutPartialDelete(t *testing.T) {
 	srv, ts := testServer(t)
 	c := newClient(t, ts.URL)
