@@ -7,6 +7,7 @@ import { useI18nStore } from '../stores/i18n'
 import { errMsg } from '../utils/error'
 import type { ImportPreviewResult, ImportResult } from '../api/types'
 import { nodeSourceLabel } from '../utils/nodeSource'
+import { useScrollPreserver } from '../utils/scrollPreserver'
 import CountryFlag from './CountryFlag.vue'
 
 const emit = defineEmits<{ close: []; imported: [] }>()
@@ -27,6 +28,8 @@ const preview = ref<ImportPreviewResult | null>(null)
 const createGroup = ref(false)
 const groupName = ref('')
 const groupNameTouched = ref(false)
+const modalScroller = ref<HTMLElement | null>(null)
+const { preserveScroll } = useScrollPreserver(() => [modalScroller.value])
 
 watch(tab, () => {
   resetPreviewState()
@@ -70,6 +73,12 @@ function syncGroupName() {
 function onGroupNameInput(value: string) {
   groupNameTouched.value = true
   groupName.value = value
+}
+
+function setCreateGroup(value: boolean) {
+  preserveScroll(() => {
+    createGroup.value = value
+  })
 }
 
 watch(preview, syncGroupName)
@@ -162,7 +171,7 @@ function failedFetchCount() {
 
 <template>
   <div class="modal modal-open">
-    <div class="modal-box max-w-2xl">
+    <div ref="modalScroller" class="modal-box max-w-2xl">
       <h3 class="font-bold text-lg mb-3">{{ i18n.t('导入节点') }}</h3>
       <div role="tablist" class="tabs tabs-boxed mb-4">
         <a role="tab" class="tab" :class="{ 'tab-active': tab === 'links', 'tab-disabled': preview }" @click="setTab('links')">{{ i18n.t('分享链接') }}</a>
@@ -215,7 +224,13 @@ function failedFetchCount() {
               <div class="font-semibold text-sm">{{ i18n.t('新建组合') }}</div>
               <div class="text-xs opacity-60">{{ i18n.t('使用本次新增节点创建组合节点') }}</div>
             </div>
-            <input v-model="createGroup" type="checkbox" class="toggle toggle-sm" :disabled="busy" />
+            <input
+              type="checkbox"
+              class="toggle toggle-sm"
+              :checked="createGroup"
+              :disabled="busy"
+              @change="setCreateGroup(($event.target as HTMLInputElement).checked)"
+            />
           </div>
           <label v-if="createGroup" class="form-control">
             <span class="label-text mb-1">{{ i18n.t('组合名称') }}</span>

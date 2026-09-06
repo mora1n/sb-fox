@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18nStore } from '../stores/i18n'
+import { useScrollPreserver } from '../utils/scrollPreserver'
 
 const props = defineProps<{
   open: boolean
@@ -25,11 +26,17 @@ const emit = defineEmits<{
 const i18n = useI18nStore()
 const affected = computed(() => props.affectedNames ?? [])
 const confirmDisabled = computed(() => props.busy || props.loadingPreview || !!props.previewError)
+const modalScroller = ref<HTMLElement | null>(null)
+const { preserveScroll } = useScrollPreserver(() => [modalScroller.value])
+
+function setDeleteNodes(value: boolean) {
+  preserveScroll(() => emit('update:deleteNodes', value))
+}
 </script>
 
 <template>
   <div v-if="open" class="modal modal-open">
-    <div class="modal-box max-w-lg">
+    <div ref="modalScroller" class="modal-box max-w-lg">
       <h3 class="font-bold text-lg">{{ title }}</h3>
       <p class="py-3 text-sm opacity-80">
         <template v-if="itemName">
@@ -46,7 +53,7 @@ const confirmDisabled = computed(() => props.busy || props.loadingPreview || !!p
           class="toggle toggle-sm"
           :checked="deleteNodes"
           :disabled="busy"
-          @change="emit('update:deleteNodes', ($event.target as HTMLInputElement).checked)"
+          @change="setDeleteNodes(($event.target as HTMLInputElement).checked)"
         />
         <span class="label-text">
           {{ i18n.t('同时删除组合中的单节点') }}（{{ deleteNodeCount }} {{ i18n.t('个节点') }}）

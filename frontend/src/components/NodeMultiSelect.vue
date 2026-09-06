@@ -7,6 +7,7 @@ import { useI18nStore } from '../stores/i18n'
 import { useSettingsStore } from '../stores/settings'
 import { nodeSourceLabel } from '../utils/nodeSource'
 import { emptyNodeFilters, filterNodes, nodeCountries, nodeSources, nodeTypes } from '../utils/nodeFilters'
+import { useScrollPreserver } from '../utils/scrollPreserver'
 import { Bars3Icon, XMarkIcon } from '@heroicons/vue/24/outline'
 
 const props = defineProps<{ nodes: NodeSummary[]; modelValue: number[]; disabled?: boolean }>()
@@ -15,6 +16,7 @@ const i18n = useI18nStore()
 const settings = useSettingsStore()
 
 const filters = ref(emptyNodeFilters())
+const root = ref<HTMLElement | null>(null)
 const dragIndex = ref<number | null>(null)
 const pressedIndex = ref<number | null>(null)
 const insertIndex = ref<number | null>(null)
@@ -27,23 +29,28 @@ const selectedSet = computed(() => new Set(props.modelValue))
 const selectedItems = computed(() => {
   return props.modelValue.map((id) => ({ id, node: nodesByID.value.get(id) }))
 })
+const { preserveScroll } = useScrollPreserver(() => [root.value?.closest<HTMLElement>('.modal-box')])
+
+function emitModelValue(value: number[]) {
+  preserveScroll(() => emit('update:modelValue', value))
+}
 
 function toggle(id: number) {
   if (props.disabled) return
-  if (selectedSet.value.has(id)) emit('update:modelValue', props.modelValue.filter((item) => item !== id))
-  else emit('update:modelValue', uniqueIDs([...props.modelValue, id]))
+  if (selectedSet.value.has(id)) emitModelValue(props.modelValue.filter((item) => item !== id))
+  else emitModelValue(uniqueIDs([...props.modelValue, id]))
 }
 function selectAllFiltered() {
   if (props.disabled) return
-  emit('update:modelValue', uniqueIDs([...props.modelValue, ...filtered.value.map((n) => n.id)]))
+  emitModelValue(uniqueIDs([...props.modelValue, ...filtered.value.map((n) => n.id)]))
 }
 function clearAll() {
   if (props.disabled) return
-  emit('update:modelValue', [])
+  emitModelValue([])
 }
 function removeSelected(id: number) {
   if (props.disabled) return
-  emit('update:modelValue', props.modelValue.filter((item) => item !== id))
+  emitModelValue(props.modelValue.filter((item) => item !== id))
 }
 function uniqueIDs(ids: number[]) {
   const seen = new Set<number>()
@@ -125,13 +132,13 @@ function dropSelected(event: DragEvent) {
   const next = [...props.modelValue]
   const [item] = next.splice(source, 1)
   next.splice(target > source ? target - 1 : target, 0, item)
-  emit('update:modelValue', uniqueIDs(next))
+  emitModelValue(uniqueIDs(next))
   clearSelectedDrag()
 }
 </script>
 
 <template>
-  <div class="flex flex-col gap-2" :class="{ 'opacity-60': disabled }">
+  <div ref="root" class="flex flex-col gap-2" :class="{ 'opacity-60': disabled }">
     <div class="flex items-center gap-2 flex-wrap">
       <input v-model="filters.search" class="input input-bordered input-sm min-w-0 flex-1" :placeholder="i18n.t('搜索节点...')" :disabled="disabled" />
       <button type="button" class="btn btn-xs min-h-7 h-7 shrink-0" @click="selectAllFiltered" :disabled="disabled">{{ i18n.t('全选') }}</button>

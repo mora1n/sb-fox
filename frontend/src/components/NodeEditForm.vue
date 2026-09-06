@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/vue/24/outline'
 import type { Node, NodeSummary } from '../api/types'
 import { useNodesStore } from '../stores/nodes'
@@ -8,6 +8,7 @@ import { useUiStore } from '../stores/ui'
 import { useI18nStore } from '../stores/i18n'
 import { errMsg } from '../utils/error'
 import { COUNTRY_CODES, countryFlagEmoji, sortCountryOptions } from '../utils/countries'
+import { useScrollPreserver } from '../utils/scrollPreserver'
 
 type NodeFormMode = 'create' | 'edit' | 'copy'
 
@@ -116,41 +117,10 @@ const showDialFields = ref(false)
 const showRawJSON = ref(false)
 const rawJSONDraft = ref('')
 const formScroller = ref<HTMLElement | null>(null)
-
-type ScrollSnapshot = {
-  formTop: number
-  modalTop: number
-  activeElement: HTMLElement | null
-}
-
-function captureScrollSnapshot(): ScrollSnapshot {
+const { preserveScroll, preserveScrollAfterUpdate } = useScrollPreserver(() => {
   const form = formScroller.value
-  const modal = form?.closest<HTMLElement>('.modal-box')
-  const activeElement = document.activeElement
-  return {
-    formTop: form?.scrollTop ?? 0,
-    modalTop: modal?.scrollTop ?? 0,
-    activeElement: activeElement instanceof HTMLElement ? activeElement : null,
-  }
-}
-
-async function restoreScrollSnapshot(snapshot: ScrollSnapshot) {
-  await nextTick()
-  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
-  const form = formScroller.value
-  const modal = form?.closest<HTMLElement>('.modal-box')
-  if (form) form.scrollTop = snapshot.formTop
-  if (modal) modal.scrollTop = snapshot.modalTop
-  if (snapshot.activeElement?.isConnected && document.activeElement !== snapshot.activeElement) {
-    snapshot.activeElement.focus({ preventScroll: true })
-  }
-}
-
-function preserveScroll(action: () => void) {
-  const snapshot = captureScrollSnapshot()
-  action()
-  void restoreScrollSnapshot(snapshot)
-}
+  return [form, form?.closest<HTMLElement>('.modal-box')]
+})
 
 // manual country override
 const manualCountry = ref(false)
@@ -1033,6 +1003,9 @@ watch(
   },
   { deep: true },
 )
+watch([manualCountry, parseError], () => {
+  if (!hydrating.value) preserveScrollAfterUpdate()
+})
 </script>
 
 <template>
