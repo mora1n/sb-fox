@@ -8,6 +8,9 @@ type ScrollSnapshot = {
 }
 
 export function useScrollPreserver(getTargets: () => ScrollTarget[]) {
+  let restoreSequence = 0
+  let restoreFrame = 0
+
   function targets() {
     return getTargets().filter((target): target is HTMLElement => target instanceof HTMLElement)
   }
@@ -20,25 +23,35 @@ export function useScrollPreserver(getTargets: () => ScrollTarget[]) {
     }
   }
 
-  async function restore(snapshot: ScrollSnapshot) {
-    await nextTick()
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
-    targets().forEach((target, index) => {
-      if (snapshot.tops[index] !== undefined) target.scrollTop = snapshot.tops[index]
-    })
-    if (snapshot.activeElement?.isConnected && document.activeElement !== snapshot.activeElement) {
-      snapshot.activeElement.focus({ preventScroll: true })
+  function scheduleRestore(snapshot: ScrollSnapshot) {
+    const sequence = ++restoreSequence
+    if (restoreFrame) {
+      cancelAnimationFrame(restoreFrame)
+      restoreFrame = 0
     }
+    void nextTick().then(() => {
+      if (sequence !== restoreSequence) return
+      restoreFrame = requestAnimationFrame(() => {
+        restoreFrame = 0
+        if (sequence !== restoreSequence) return
+        targets().forEach((target, index) => {
+          if (snapshot.tops[index] !== undefined) target.scrollTop = snapshot.tops[index]
+        })
+        if (snapshot.activeElement?.isConnected && document.activeElement !== snapshot.activeElement) {
+          snapshot.activeElement.focus({ preventScroll: true })
+        }
+      })
+    })
   }
 
   function preserveScroll(action: () => void) {
     const snapshot = capture()
     action()
-    void restore(snapshot)
+    scheduleRestore(snapshot)
   }
 
   function preserveScrollAfterUpdate() {
-    void restore(capture())
+    scheduleRestore(capture())
   }
 
   return { preserveScroll, preserveScrollAfterUpdate }
