@@ -483,6 +483,38 @@ func TestParseAdditionalProtocols(t *testing.T) {
 	}
 }
 
+func TestParseAnyTLSReality(t *testing.T) {
+	out, err := Parse("anytls://secret@any.example.com:443?security=REALITY&sni=any.example.com&fp=chrome&public_key=publickeyxyz&short-id=08#AnyReality")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tls := nested(t, out, "tls")
+	if scalarField(t, tls, "enabled") != "true" || field(t, tls, "server_name") != "any.example.com" {
+		t.Fatalf("AnyTLS TLS = %+v", tls)
+	}
+	utls := nested(t, tls, "utls")
+	if field(t, utls, "fingerprint") != "chrome" {
+		t.Fatalf("AnyTLS uTLS = %+v", utls)
+	}
+	reality := nested(t, tls, "reality")
+	if field(t, reality, "public_key") != "publickeyxyz" || field(t, reality, "short_id") != "08" {
+		t.Fatalf("AnyTLS Reality = %+v", reality)
+	}
+
+	encoded, err := Encode(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	round, err := Parse(encoded)
+	if err != nil {
+		t.Fatalf("parse encoded AnyTLS Reality link %q: %v", encoded, err)
+	}
+	roundReality := nested(t, nested(t, round, "tls"), "reality")
+	if field(t, roundReality, "public_key") != "publickeyxyz" || field(t, roundReality, "short_id") != "08" {
+		t.Fatalf("round-trip AnyTLS Reality = %+v, encoded=%s", roundReality, encoded)
+	}
+}
+
 func TestDefaultPortsForCompatibleLinks(t *testing.T) {
 	tests := map[string]string{
 		"trojan://pw@tr.example.com#TR":             "443",
@@ -629,6 +661,66 @@ proxies:
 	}
 	if got := stringListField(out[5], "network"); len(got) != 2 || got[0] != "tcp" || got[1] != "udp" {
 		t.Fatalf("snell network = %v", got)
+	}
+}
+
+func TestParseAnyTLSRealityFromClashYAML(t *testing.T) {
+	text := `
+proxies:
+  - name: AnyTLS Reality
+    type: anytls
+    server: any.example.com
+    port: 443
+    password: secret
+    servername: any.example.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: publickeyxyz
+      short-id: 08
+  - name: AnyTLS Reality Map
+    type: anytls
+    server: any-map.example.com
+    port: 443
+    password: secret
+    reality:
+      public_key: map-public-key
+      short_id: 09
+`
+	out, warnings, err := ParseManyWithWarnings(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 0 || len(out) != 2 {
+		t.Fatalf("warnings=%v out=%d", warnings, len(out))
+	}
+	reality := nested(t, nested(t, out[0], "tls"), "reality")
+	if field(t, reality, "public_key") != "publickeyxyz" || field(t, reality, "short_id") != "08" {
+		t.Fatalf("Clash AnyTLS Reality = %+v", reality)
+	}
+	mapReality := nested(t, nested(t, out[1], "tls"), "reality")
+	if field(t, mapReality, "public_key") != "map-public-key" || field(t, mapReality, "short_id") != "09" {
+		t.Fatalf("Clash AnyTLS Reality map = %+v", mapReality)
+	}
+}
+
+func TestParseAnyTLSRealityFromSurge(t *testing.T) {
+	text := `
+[Proxy]
+AnyTLS = anytls, any.example.com, 443, password=secret, reality=true, public-key=publickeyxyz, short-id=08, sni=any.example.com, client-fingerprint=chrome
+`
+	out, warnings, err := ParseManyWithWarnings(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 0 || len(out) != 1 {
+		t.Fatalf("warnings=%v out=%d", warnings, len(out))
+	}
+	reality := nested(t, nested(t, out[0], "tls"), "reality")
+	if field(t, reality, "public_key") != "publickeyxyz" || field(t, reality, "short_id") != "08" {
+		t.Fatalf("Surge AnyTLS Reality = %+v", reality)
+	}
+	if field(t, nested(t, nested(t, out[0], "tls"), "utls"), "fingerprint") != "chrome" {
+		t.Fatalf("Surge AnyTLS uTLS = %+v", nested(t, out[0], "tls"))
 	}
 }
 
@@ -1166,6 +1258,7 @@ func TestParsedOutboundsValidateWithKernel(t *testing.T) {
 		"vless://b831381d-6324-4d53-ad4f-8cda48b30811@vl.example.com:443?security=tls&sni=vl.example.com&type=ws&path=/w#VL",
 		"trojan://pw@tr.example.com:443?security=tls&sni=tr.example.com#TR",
 		"anytls://pw@any.example.com?security=tls&sni=any.example.com#ANY",
+		"anytls://reality-pw@any-reality.example.com?security=reality&sni=any-reality.example.com&fp=chrome&pbk=AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE&sid=08#ANY-REALITY",
 		"shadowtls://pw@st.example.com?version=3&security=tls&sni=st.example.com#ST",
 		"hysteria://hy1.example.com?auth=secret&sni=hy1.example.com&upmbps=20&downmbps=30#HY1",
 		"hysteria2://pw@hy.example.com:8443?sni=hy.example.com#HY",

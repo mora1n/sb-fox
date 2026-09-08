@@ -44,10 +44,10 @@ func parseClashYAML(text string) ([]*merge.OrderedMap, []string, error) {
 	return out, warnings, nil
 }
 
-var clashShortIDLine = regexp.MustCompile(`(?m)^(\s*short-id:\s*)([^#\n]*?)(\s*(?:#.*)?)$`)
+var clashShortIDLine = regexp.MustCompile(`(?m)^(\s*short(?:-id|_id):\s*)([^#\n]*?)(\s*(?:#.*)?)$`)
 
 func normalizeClashYAML(text string) string {
-	if !strings.Contains(text, "short-id:") {
+	if !strings.Contains(text, "short-id:") && !strings.Contains(text, "short_id:") {
 		return text
 	}
 	return clashShortIDLine.ReplaceAllStringFunc(text, func(line string) string {
@@ -728,8 +728,8 @@ func clashTLS(p map[string]any, enabled bool) *merge.OrderedMap {
 		fingerprint: fingerprint,
 	}
 	if reality != nil {
-		params.realityPbk = clashString(reality, "public-key")
-		params.realitySid = clashString(reality, "short-id")
+		params.realityPbk = clashStringAny(reality, "public-key", "public_key", "publicKey")
+		params.realitySid = clashStringAny(reality, "short-id", "short_id", "shortId")
 	}
 	tls := buildTLS(params)
 	if tls == nil {
@@ -754,7 +754,9 @@ func clashTLS(p map[string]any, enabled bool) *merge.OrderedMap {
 	setBoolIfPresent(tls, p, "kernel_rx", "kernel-rx", "kernel_rx")
 	setClashJSONField(tls, "ech", clashAny(p, "ech"))
 	setClashJSONField(tls, "utls", clashAny(p, "utls"))
-	setClashJSONField(tls, "reality", clashAny(p, "reality"))
+	if reality == nil {
+		setClashJSONField(tls, "reality", clashAny(p, "reality"))
+	}
 	return tls
 }
 

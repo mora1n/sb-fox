@@ -2,8 +2,10 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { del, get, post, put } from '../api/client'
 import type { BulkDeleteResult, NodeGroup, NodeGroupPayload } from '../api/types'
+import { useProfilesStore } from './profiles'
 
 export const useNodeGroupsStore = defineStore('nodeGroups', () => {
+  const profiles = useProfilesStore()
   const groups = ref<NodeGroup[]>([])
   const loading = ref(false)
   const loaded = ref(false)
@@ -51,6 +53,7 @@ export const useNodeGroupsStore = defineStore('nodeGroups', () => {
     const result = await del<BulkDeleteResult & { ok?: boolean }>('/node-groups/' + id + suffix)
     groups.value = groups.value.filter((g) => g.id !== id)
     loaded.value = true
+    profiles.invalidate()
     return result
   }
 
@@ -59,6 +62,7 @@ export const useNodeGroupsStore = defineStore('nodeGroups', () => {
     const idSet = new Set(ids)
     groups.value = groups.value.filter((g) => !idSet.has(g.id))
     loaded.value = true
+    profiles.invalidate()
     return r
   }
 

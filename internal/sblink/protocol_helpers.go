@@ -124,9 +124,10 @@ func tlsFromQuery(q url.Values, enabled bool, allowReality bool) (*merge.Ordered
 		alpn:        splitALPN(queryFirst(q, "alpn")),
 		fingerprint: queryFirst(q, "fp", "fingerprint", "client-fingerprint"),
 	}
-	if allowReality && queryFirst(q, "security") == "reality" {
-		params.realityPbk = q.Get("pbk")
-		params.realitySid = q.Get("sid")
+	security := strings.ToLower(strings.TrimSpace(queryFirst(q, "security")))
+	if allowReality && (security == "reality" || boolQuery(q, "reality")) {
+		params.realityPbk = queryFirst(q, "pbk", "public-key", "public_key")
+		params.realitySid = queryFirst(q, "sid", "short-id", "short_id")
 	}
 	return buildTLS(params), nil
 }

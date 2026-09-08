@@ -226,6 +226,9 @@ func normalizeSurgeProxyOptions(p map[string]any, typ string, options map[string
 	if value := surgeOption(options, "password", "psk"); value != "" && typ == "snell" {
 		p["psk"] = value
 	}
+	if value := surgeOption(options, "password"); value != "" && typ == "anytls" {
+		p["password"] = value
+	}
 	if value := surgeOption(options, "auth", "password"); value != "" && typ == "hysteria2" {
 		p["password"] = value
 	}
@@ -253,6 +256,22 @@ func normalizeSurgeProxyOptions(p map[string]any, typ string, options map[string
 	}
 	if value := surgeOption(options, "sni", "servername"); value != "" {
 		p["sni"] = value
+	}
+	if value := surgeOption(options, "client-fingerprint", "fingerprint", "fp"); value != "" {
+		p["client-fingerprint"] = value
+	}
+	publicKey := surgeOption(options, "public-key", "public_key", "pbk")
+	shortID := surgeOption(options, "short-id", "short_id", "sid")
+	realityEnabled := surgeOption(options, "reality")
+	if publicKey != "" || shortID != "" || (realityEnabled != "" && boolParam(realityEnabled)) {
+		reality := map[string]any{}
+		if publicKey != "" {
+			reality["public-key"] = publicKey
+		}
+		if shortID != "" {
+			reality["short-id"] = shortID
+		}
+		p["reality-opts"] = reality
 	}
 }
 

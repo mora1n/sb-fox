@@ -247,6 +247,64 @@ func TestDeleteLastNodeRemovesEmptyGroupAndAllProfileGroupReferences(t *testing.
 	}
 }
 
+func TestDeleteNodeGroupCleansAllProfileReferences(t *testing.T) {
+	s := openTest(t)
+	ownerID := createTestUser(t, s)
+	templateID, err := s.CreateTemplate(&models.Template{OwnerUserID: ownerID, Name: "t", Kind: "user", Content: "{}"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodeIDs := []int64{
+		createReferenceTestNode(t, s, ownerID, "group-node-a"),
+		createReferenceTestNode(t, s, ownerID, "group-node-b"),
+	}
+	groupID, err := s.CreateNodeGroup(&models.NodeGroup{OwnerUserID: ownerID, Name: "selected", NodeIDs: nodeIDs})
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := fmt.Sprintf(`{"groupSelections":{"Proxy":{"nodeGroupIds":[%d]}},"autoCountrySelection":{"nodeGroupIds":[%d]},"chainProxySelection":{"nodeGroupIds":[%d]},"extra":null}`, groupID, groupID, groupID)
+	profileID, err := s.CreateProfile(&models.Profile{
+		OwnerUserID:  ownerID,
+		Name:         "p",
+		TemplateID:   templateID,
+		Options:      options,
+		Token:        "tok-group-only",
+		NodeGroupIDs: []int64{groupID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.DeleteNodeGroupForUser(groupID, ownerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetNodeGroupForUser(groupID, ownerID, false); err != ErrNotFound {
+		t.Fatalf("deleted group error = %v, want ErrNotFound", err)
+	}
+	for _, nodeID := range nodeIDs {
+		if _, err := s.GetNode(nodeID); err != nil {
+			t.Fatalf("member node %d error = %v, want node to remain", nodeID, err)
+		}
+	}
+
+	profile, err := s.GetProfile(profileID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(profile.NodeGroupIDs) != 0 {
+		t.Fatalf("profile relational group refs = %v, want empty", profile.NodeGroupIDs)
+	}
+	var cleaned models.ProfileOptions
+	if err := json.Unmarshal([]byte(profile.Options), &cleaned); err != nil {
+		t.Fatal(err)
+	}
+	if len(cleaned.GroupSelections["Proxy"].NodeGroupIDs) != 0 ||
+		len(cleaned.AutoCountrySelected.NodeGroupIDs) != 0 ||
+		len(cleaned.ChainProxySelected.NodeGroupIDs) != 0 {
+		t.Fatalf("profile options group refs after delete = %+v", cleaned)
+	}
+}
+
 func TestDeleteNodeGroupWithNodesCleansAllReferences(t *testing.T) {
 	s := openTest(t)
 	ownerID := createTestUser(t, s)
