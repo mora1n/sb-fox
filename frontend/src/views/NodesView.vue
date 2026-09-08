@@ -321,7 +321,7 @@ function sortIndicator(active: string, dir: SortDir, key: string) {
 function openCreateGroup() {
   editingGroup.value = null
   copyingGroupFrom.value = null
-  groupForm.value = { name: '', description: '', node_ids: [...selected.value] }
+  groupForm.value = { name: '', description: '', node_ids: [] }
   showGroupForm.value = true
 }
 
