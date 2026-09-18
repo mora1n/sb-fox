@@ -114,6 +114,7 @@ func (s *Server) mountAuthed(r chi.Router) {
 	r.Delete("/node-groups/{id}", s.handleDeleteNodeGroup)
 
 	r.Get("/sources", s.handleListSources)
+	r.Put("/sources/{id}/schedule", s.handleUpdateSourceSchedule)
 	r.Post("/sources/{id}/refresh", s.handleRefreshSource)
 	r.Delete("/sources/{id}", s.handleDeleteSource)
 

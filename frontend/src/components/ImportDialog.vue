@@ -23,6 +23,9 @@ const busy = ref(false)
 const links = ref('')
 const subName = ref('')
 const subUrl = ref('')
+const autoRefresh = ref(true)
+const refreshIntervalValue = ref(1)
+const refreshIntervalUnit = ref<'days' | 'hours' | 'minutes'>('days')
 const configText = ref('')
 const preview = ref<ImportPreviewResult | null>(null)
 const createGroup = ref(false)
@@ -49,6 +52,12 @@ function resetPreviewState() {
   createGroup.value = false
   groupName.value = ''
   groupNameTouched.value = false
+}
+
+function refreshIntervalMinutes(): number {
+  const value = Math.max(1, Number(refreshIntervalValue.value) || 1)
+  const multiplier = refreshIntervalUnit.value === 'days' ? 1440 : refreshIntervalUnit.value === 'hours' ? 60 : 1
+  return Math.round(value * multiplier)
 }
 
 function defaultGroupName() {
@@ -93,7 +102,10 @@ async function runImport(): Promise<ImportResult> {
   }
   if (tab.value === 'subscription') {
     if (!subUrl.value.trim()) throw new Error('请填写订阅 URL')
-    return nodesStore.importSubscription(subName.value, subUrl.value)
+    return nodesStore.importSubscription(subName.value, subUrl.value, {
+      auto_refresh: autoRefresh.value,
+      refresh_interval_minutes: refreshIntervalMinutes(),
+    })
   }
   if (!configText.value.trim()) throw new Error('请粘贴 config JSON')
   return nodesStore.importConfig(configText.value)
@@ -200,6 +212,21 @@ function failedFetchCount() {
         </label>
         <p class="text-xs opacity-60">{{ i18n.t('每行一个订阅 URL，可使用 #noCache、#insecure、#ua=...、#headers=...、#cacheTtl=秒 参数。') }}</p>
         <p class="text-xs opacity-60">{{ i18n.t('服务端抓取，默认拒绝私网地址。') }}</p>
+        <label class="label cursor-pointer justify-start gap-2">
+          <input v-model="autoRefresh" type="checkbox" class="toggle toggle-sm" :disabled="!!preview || busy" />
+          <span class="label-text">{{ i18n.t('自动刷新') }}</span>
+        </label>
+        <div v-if="autoRefresh" class="flex items-end gap-2">
+          <label class="form-control flex-1">
+            <span class="label-text mb-1">{{ i18n.t('刷新间隔') }}</span>
+            <input v-model.number="refreshIntervalValue" type="number" min="1" step="1" class="input input-bordered" :disabled="!!preview || busy" />
+          </label>
+          <select v-model="refreshIntervalUnit" class="select select-bordered" :disabled="!!preview || busy">
+            <option value="days">{{ i18n.t('天') }}</option>
+            <option value="hours">{{ i18n.t('小时') }}</option>
+            <option value="minutes">{{ i18n.t('分钟') }}</option>
+          </select>
+        </div>
       </div>
 
       <div v-show="tab === 'config'">

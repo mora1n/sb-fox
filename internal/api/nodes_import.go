@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,6 +12,7 @@ import (
 	"github.com/mora1n/sb-fox/internal/merge"
 	"github.com/mora1n/sb-fox/internal/models"
 	"github.com/mora1n/sb-fox/internal/sblink"
+	"github.com/mora1n/sb-fox/internal/store"
 	"github.com/mora1n/sb-fox/internal/subfetch"
 )
 
@@ -138,8 +141,10 @@ func (s *Server) handleImportSubscription(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var req struct {
-		Name string `json:"name"`
-		URL  string `json:"url"`
+		Name                   string `json:"name"`
+		URL                    string `json:"url"`
+		AutoRefresh            *bool  `json:"auto_refresh"`
+		RefreshIntervalMinutes *int   `json:"refresh_interval_minutes"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -152,6 +157,21 @@ func (s *Server) handleImportSubscription(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
+	}
+	if req.AutoRefresh != nil || req.RefreshIntervalMinutes != nil {
+		auto := true
+		if req.AutoRefresh != nil {
+			auto = *req.AutoRefresh
+		}
+		interval := 1440
+		if req.RefreshIntervalMinutes != nil {
+			interval = *req.RefreshIntervalMinutes
+		}
+		if err := s.Store.UpdateSourceSchedule(sourceID, u.ID, auto, interval); err != nil {
+			_ = s.Store.DeleteSource(sourceID)
+			respondError(w, http.StatusBadRequest, "bad_request", err.Error())
+			return
+		}
 	}
 	nodes, deduped, warnings, fetches, ferr := s.fetchSourceNodes(u, sourceID, req.URL)
 	if ferr != nil {
@@ -168,7 +188,7 @@ func (s *Server) handleImportSubscription(w http.ResponseWriter, r *http.Request
 
 // handleRefreshSource re-fetches a subscription source, replacing its nodes.
 func (s *Server) handleRefreshSource(w http.ResponseWriter, r *http.Request) {
-	u, ok := requireCurrentUser(w, r)
+	_, ok := requireCurrentUser(w, r)
 	if !ok {
 		return
 	}
@@ -179,7 +199,21 @@ func (s *Server) handleRefreshSource(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusNotFound, "not_found", "source not found")
 		return
 	}
-	nodes, deduped, warnings, fetches, ferr := s.refreshSourceNodes(u, src)
+	if !s.beginSourceRefresh(src.ID) {
+		respondError(w, http.StatusConflict, "refresh_in_progress", "source refresh is already in progress")
+		return
+	}
+	defer s.endSourceRefresh(src.ID)
+	owner, err := s.Store.GetUser(src.OwnerUserID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	nodes, deduped, warnings, fetches, ferr := s.refreshSourceNodes(owner, src)
+	if src.AutoRefresh {
+		next := time.Now().UTC().Add(time.Duration(src.RefreshIntervalMinutes) * time.Minute)
+		_ = s.Store.SetSourceNextRefresh(src.ID, &next)
+	}
 	if ferr != nil {
 		if ferr == errQuotaExceeded {
 			respondError(w, http.StatusForbidden, "quota_exceeded", "nodes limit exceeded")
@@ -214,38 +248,75 @@ func (s *Server) fetchSourceNodes(user *models.User, sourceID int64, url string)
 	} else {
 		_ = s.Store.UpdateSourceFetch(sourceID, "ok", len(created))
 	}
+	if source, getErr := s.Store.GetSource(sourceID); getErr == nil && source.AutoRefresh {
+		next := time.Now().UTC().Add(time.Duration(source.RefreshIntervalMinutes) * time.Minute)
+		_ = s.Store.SetSourceNextRefresh(sourceID, &next)
+	}
 	return created, deduped, fetched.Warnings, fetched.Fetches, err
 }
 
 func (s *Server) refreshSourceNodes(user *models.User, src *models.SubscriptionSource) ([]*models.Node, int, []string, []subfetch.BatchItem, error) {
-	fetched, err := s.fetchSourceOutbounds(src.ID, src.URL, subfetch.Options{NoCache: true})
+	return s.refreshSourceNodesContext(context.Background(), user, src)
+}
+
+func (s *Server) refreshSourceNodesContext(ctx context.Context, user *models.User, src *models.SubscriptionSource) ([]*models.Node, int, []string, []subfetch.BatchItem, error) {
+	fetched, err := s.fetchSourceOutboundsContext(ctx, src.ID, src.URL, subfetch.Options{NoCache: true}, true)
 	if err != nil {
 		return nil, 0, fetched.Warnings, fetched.Fetches, err
 	}
 	nodes := nodesFromOutbounds(src.OwnerUserID, fetched.Outbounds, "subscription", &src.ID)
-	nodes, deduped, err := s.dedupeNodesForUser(src.OwnerUserID, nodes, &src.ID)
+	existing, err := s.Store.ListNodes(store.NodeFilter{OwnerUserID: src.OwnerUserID, Source: "subscription"})
 	if err != nil {
 		return nil, 0, fetched.Warnings, fetched.Fetches, err
 	}
-	oldCount, err := s.Store.CountNodesBySource(src.ID)
+	oldSource := make([]*models.Node, 0, len(existing))
+	otherSource := make([]*models.Node, 0, len(existing))
+	for _, n := range existing {
+		if n.SourceRef == nil || *n.SourceRef != src.ID {
+			otherSource = append(otherSource, n)
+		} else {
+			oldSource = append(oldSource, n)
+		}
+	}
+	nodes, deduped, err := dedupeIncomingAgainst(nodes, otherSource)
 	if err != nil {
 		return nil, 0, fetched.Warnings, fetched.Fetches, err
 	}
-	if ok, _, err := s.quotaAllowed(user, quotaNodes, len(nodes)-oldCount); err != nil {
+	if ok, _, err := s.quotaAllowed(user, quotaNodes, len(nodes)-len(oldSource)); err != nil {
 		return nil, 0, fetched.Warnings, fetched.Fetches, err
 	} else if !ok {
 		return nil, 0, fetched.Warnings, fetched.Fetches, errQuotaExceeded
 	}
-	if err := s.Store.DeleteNodesBySourceForUser(src.ID, src.OwnerUserID); err != nil {
-		return nil, 0, fetched.Warnings, fetched.Fetches, err
+	matched, unmatchedOld, unmatchedNew := matchSourceNodes(oldSource, nodes)
+	result := make([]*models.Node, 0, len(nodes))
+	updates := make([]*models.Node, 0, len(matched))
+	for _, pair := range matched {
+		incoming := pair.incoming
+		incoming.ID, incoming.OwnerUserID, incoming.CreatedAt = pair.existing.ID, pair.existing.OwnerUserID, pair.existing.CreatedAt
+		if pair.existing.CountrySource == "manual" {
+			incoming.CountryCode, incoming.CountrySource = pair.existing.CountryCode, pair.existing.CountrySource
+		}
+		updates = append(updates, incoming)
+		result = append(result, incoming)
 	}
-	created, err := s.insertNodes(nodes)
+	deleteIDs := make([]int64, 0, len(unmatchedOld))
+	for _, old := range unmatchedOld {
+		deleteIDs = append(deleteIDs, old.ID)
+	}
+	createdIDs, err := s.Store.SyncSubscriptionNodes(src.OwnerUserID, updates, unmatchedNew, deleteIDs)
+	if err != nil {
+		return nil, deduped, fetched.Warnings, fetched.Fetches, err
+	}
+	for i, incoming := range unmatchedNew {
+		incoming.ID = createdIDs[i]
+		result = append(result, incoming)
+	}
+	status := "ok"
 	if len(fetched.Warnings) > 0 {
-		_ = s.Store.UpdateSourceFetch(src.ID, "ok with warnings", len(created))
-	} else {
-		_ = s.Store.UpdateSourceFetch(src.ID, "ok", len(created))
+		status = "ok with warnings"
 	}
-	return created, deduped, fetched.Warnings, fetched.Fetches, err
+	_ = s.Store.UpdateSourceFetch(src.ID, status, len(result))
+	return result, deduped, fetched.Warnings, fetched.Fetches, nil
 }
 
 type sourceOutboundsResult struct {
@@ -254,10 +325,97 @@ type sourceOutboundsResult struct {
 	Fetches   []subfetch.BatchItem
 }
 
+type sourceNodePair struct{ existing, incoming *models.Node }
+
+func dedupeIncomingAgainst(nodes, existing []*models.Node) ([]*models.Node, int, error) {
+	seen := make(map[string]bool, len(existing)+len(nodes))
+	for _, n := range existing {
+		fp, err := nodeFingerprint(n.Raw)
+		if err != nil {
+			return nil, 0, err
+		}
+		seen[fp] = true
+	}
+	result := make([]*models.Node, 0, len(nodes))
+	deduped := 0
+	for _, n := range nodes {
+		fp, err := nodeFingerprint(n.Raw)
+		if err != nil {
+			return nil, 0, err
+		}
+		if seen[fp] {
+			deduped++
+			continue
+		}
+		seen[fp] = true
+		result = append(result, n)
+	}
+	return result, deduped, nil
+}
+
+func matchSourceNodes(existing, incoming []*models.Node) ([]sourceNodePair, []*models.Node, []*models.Node) {
+	used := make([]bool, len(existing))
+	pairs := make([]sourceNodePair, 0, len(incoming))
+	remaining := make([]*models.Node, 0)
+	for _, n := range incoming {
+		idx := uniqueNodeMatch(existing, used, n)
+		if idx < 0 {
+			remaining = append(remaining, n)
+			continue
+		}
+		used[idx] = true
+		pairs = append(pairs, sourceNodePair{existing: existing[idx], incoming: n})
+	}
+	removed := make([]*models.Node, 0)
+	for i, n := range existing {
+		if !used[i] {
+			removed = append(removed, n)
+		}
+	}
+	return pairs, removed, remaining
+}
+
+func uniqueNodeMatch(existing []*models.Node, used []bool, incoming *models.Node) int {
+	keys := []func(*models.Node) string{func(n *models.Node) string { return mustFingerprint(n.Raw) }, func(n *models.Node) string { return mustFingerprintWithoutTag(n.Raw) }, func(n *models.Node) string { return fmt.Sprintf("%s|%s|%d", n.Type, n.Server, n.ServerPort) }}
+	for _, key := range keys {
+		match := -1
+		for i, old := range existing {
+			if used[i] || key(old) != key(incoming) {
+				continue
+			}
+			if match >= 0 {
+				match = -1
+				break
+			}
+			match = i
+		}
+		if match >= 0 {
+			return match
+		}
+	}
+	return -1
+}
+
+func mustFingerprint(raw string) string { value, _ := nodeFingerprint(raw); return value }
+
+func mustFingerprintWithoutTag(raw string) string {
+	var value map[string]any
+	if json.Unmarshal([]byte(raw), &value) != nil {
+		return ""
+	}
+	delete(value, "tag")
+	data, _ := json.Marshal(value)
+	return mustFingerprint(string(data))
+}
+
 func (s *Server) fetchSourceOutbounds(sourceID int64, url string, opts subfetch.Options) (sourceOutboundsResult, error) {
-	result, err := s.loadSourceOutbounds(url, opts)
+	return s.fetchSourceOutboundsContext(context.Background(), sourceID, url, opts, false)
+}
+
+func (s *Server) fetchSourceOutboundsContext(ctx context.Context, sourceID int64, url string, opts subfetch.Options, strict bool) (sourceOutboundsResult, error) {
+	result, err := s.loadSourceOutboundsContext(ctx, url, opts, strict)
 	if err != nil {
-		_ = s.Store.UpdateSourceFetch(sourceID, "error: "+err.Error(), 0)
+		_ = s.Store.UpdateSourceFailure(sourceID, "error: "+err.Error())
 	}
 	return result, err
 }
@@ -269,12 +427,18 @@ func (s *Server) previewSourceOutbounds(url string) (sourceOutboundsResult, erro
 func (s *Server) loadSourceOutbounds(url string, opts subfetch.Options) (sourceOutboundsResult, error) {
 	ctx, cancel := contextWithTimeout(25 * time.Second)
 	defer cancel()
+	return s.loadSourceOutboundsContext(ctx, url, opts, false)
+}
+
+func (s *Server) loadSourceOutboundsContext(ctx context.Context, url string, opts subfetch.Options, strict bool) (sourceOutboundsResult, error) {
 
 	batch, fetchErr := s.Fetcher.FetchMany(ctx, url, opts)
 	result := sourceOutboundsResult{Fetches: batch.Items}
+	failed := fetchErr != nil
 	for i := range result.Fetches {
 		item := &result.Fetches[i]
 		if !item.OK {
+			failed = true
 			if item.Error != "" {
 				result.Warnings = append(result.Warnings, fmt.Sprintf("%s: %s", item.URL, item.Error))
 			}
@@ -282,6 +446,7 @@ func (s *Server) loadSourceOutbounds(url string, opts subfetch.Options) (sourceO
 		}
 		outbounds, warnings, err := sblink.ParseManyWithWarnings(item.Body)
 		if err != nil {
+			failed = true
 			item.OK = false
 			item.Error = err.Error()
 			result.Warnings = append(result.Warnings, fmt.Sprintf("%s: %s", item.URL, err.Error()))
@@ -293,12 +458,21 @@ func (s *Server) loadSourceOutbounds(url string, opts subfetch.Options) (sourceO
 			result.Warnings = append(result.Warnings, fmt.Sprintf("%s: %s", item.URL, warning))
 		}
 	}
-	if len(result.Outbounds) == 0 {
-		if len(result.Warnings) == 0 && fetchErr != nil {
-			return result, fetchErr
-		}
+	if strict && failed {
 		if len(result.Warnings) > 0 {
 			return result, errors.New(strings.Join(result.Warnings, "; "))
+		}
+		if fetchErr != nil {
+			return result, fetchErr
+		}
+		return result, errors.New("no valid nodes were imported")
+	}
+	if len(result.Outbounds) == 0 {
+		if len(result.Warnings) > 0 {
+			return result, errors.New(strings.Join(result.Warnings, "; "))
+		}
+		if len(result.Warnings) == 0 && fetchErr != nil {
+			return result, fetchErr
 		}
 		return result, errors.New("no valid nodes were imported")
 	}

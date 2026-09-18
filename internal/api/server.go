@@ -22,10 +22,12 @@ type Server struct {
 	// Secure marks whether session cookies should set the Secure flag (https).
 	Secure bool
 	// RegistrationEnabled exposes the public registration endpoint.
-	RegistrationEnabled bool
-	registrationMu      sync.RWMutex
-	kernelProbeMu       sync.Mutex
-	kernelProbeCache    map[string]kernelProbeCacheEntry
+	RegistrationEnabled  bool
+	registrationMu       sync.RWMutex
+	sourceRefreshMu      sync.Mutex
+	sourceRefreshRunning map[int64]bool
+	kernelProbeMu        sync.Mutex
+	kernelProbeCache     map[string]kernelProbeCacheEntry
 	// DevMode skips serving the embedded frontend (API-only).
 	DevMode bool
 }

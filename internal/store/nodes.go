@@ -182,6 +182,66 @@ func (s *Store) UpdateNode(n *models.Node) error {
 		boolToInt(n.HasDetour), n.Detour, n.Raw, now(), n.ID, n.OwnerUserID))
 }
 
+// SyncSubscriptionNodes applies a source refresh atomically. Existing nodes
+// are updated in place, new nodes are inserted, and stale nodes are removed
+// with the same profile/group reference cleanup used by normal deletion.
+func (s *Store) SyncSubscriptionNodes(ownerUserID int64, updates, creates []*models.Node, deleteIDs []int64) ([]int64, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	rollback := func(err error) ([]int64, error) { _ = tx.Rollback(); return nil, err }
+	for _, n := range updates {
+		if err := requireRowsAffected(tx.Exec(`UPDATE nodes SET tag=?, type=?, server=?, server_port=?, country_code=?, country_source=?, has_detour=?, detour=?, raw=?, updated_at=? WHERE id=? AND owner_user_id=?`,
+			n.Tag, n.Type, n.Server, n.ServerPort, n.CountryCode, n.CountrySource, boolToInt(n.HasDetour), n.Detour, n.Raw, now(), n.ID, ownerUserID)); err != nil {
+			return rollback(err)
+		}
+	}
+	createdIDs := make([]int64, 0, len(creates))
+	for _, n := range creates {
+		res, err := tx.Exec(`INSERT INTO nodes (owner_user_id, tag, type, server, server_port, country_code, country_source, source, source_ref, has_detour, detour, raw, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			n.OwnerUserID, n.Tag, n.Type, n.Server, n.ServerPort, n.CountryCode, n.CountrySource, n.Source, nullableInt64(n.SourceRef), boolToInt(n.HasDetour), n.Detour, n.Raw, now(), now())
+		if err != nil {
+			return rollback(err)
+		}
+		id, err := res.LastInsertId()
+		if err != nil {
+			return rollback(err)
+		}
+		createdIDs = append(createdIDs, id)
+	}
+	if len(deleteIDs) > 0 {
+		query, args := scopedIDOwnerQuery("nodes", deleteIDs, &ownerUserID)
+		owners, err := nodeOwners(tx, query, args, len(deleteIDs))
+		if err != nil {
+			return rollback(err)
+		}
+		emptyGroups, err := emptyNodeGroups(tx, deleteIDs, &ownerUserID)
+		if err != nil {
+			return rollback(err)
+		}
+		updates, err := cleanProfileReferences(tx, owners, deleteIDs, emptyGroups)
+		if err != nil {
+			return rollback(err)
+		}
+		if err := applyProfileOptionsUpdates(tx, updates); err != nil {
+			return rollback(err)
+		}
+		if _, err := deleteIDsInTx(tx, "nodes", deleteIDs, &ownerUserID); err != nil {
+			return rollback(err)
+		}
+		if len(emptyGroups) > 0 {
+			if _, err := deleteIDsInTx(tx, "node_groups", emptyGroups, &ownerUserID); err != nil {
+				return rollback(err)
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return createdIDs, nil
+}
+
 // DeleteNode removes a node by id.
 func (s *Store) DeleteNode(id int64) error {
 	_, err := s.deleteNodesWithReferences([]int64{id}, nil)

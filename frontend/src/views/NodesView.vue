@@ -15,6 +15,7 @@ import NodeCard from '../components/NodeCard.vue'
 import NodeEditForm from '../components/NodeEditForm.vue'
 import NodeMultiSelect from '../components/NodeMultiSelect.vue'
 import ImportDialog from '../components/ImportDialog.vue'
+import SubscriptionSourcesDialog from '../components/SubscriptionSourcesDialog.vue'
 import CountryFlag from '../components/CountryFlag.vue'
 import BulkDeleteDialog from '../components/BulkDeleteDialog.vue'
 import {
@@ -48,6 +49,7 @@ const ui = useUiStore()
 const i18n = useI18nStore()
 
 const showImport = ref(false)
+const showSources = ref(false)
 const showEdit = ref(false)
 const editing = ref<Node | null>(null)
 const copyingNodeFrom = ref<Node | null>(null)
@@ -603,6 +605,9 @@ async function exportLinks() {
             <button class="btn btn-sm btn-primary" @click="showImport = true">
               <ArrowDownTrayIcon class="h-4 w-4" /> {{ i18n.t('导入') }}
             </button>
+            <button class="btn btn-sm" @click="showSources = true">
+              <ArrowPathIcon class="h-4 w-4" /> {{ i18n.t('订阅源') }}
+            </button>
             <button class="btn btn-sm btn-primary" @click="openCreate">
               <PlusIcon class="h-4 w-4" /> {{ i18n.t('新建') }}
             </button>
@@ -697,6 +702,9 @@ async function exportLinks() {
             </button>
             <button class="btn btn-sm btn-primary" @click="openCreateGroup">
               <RectangleStackIcon class="h-4 w-4" /> {{ i18n.t('新建组合') }}
+            </button>
+            <button class="btn btn-sm" @click="showSources = true">
+              <ArrowPathIcon class="h-4 w-4" /> {{ i18n.t('订阅源') }}
             </button>
           </div>
         </div>
@@ -797,6 +805,7 @@ async function exportLinks() {
     </template>
 
     <ImportDialog v-if="showImport" @close="showImport = false" />
+    <SubscriptionSourcesDialog v-if="showSources" @close="showSources = false" @changed="load" />
     <NodeEditForm
       v-if="showEdit"
       :mode="nodeFormMode"

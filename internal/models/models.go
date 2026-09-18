@@ -38,14 +38,17 @@ type Template struct {
 
 // SubscriptionSource is a remote URL from which nodes are (re)fetched.
 type SubscriptionSource struct {
-	ID          int64      `json:"id"`
-	OwnerUserID int64      `json:"owner_user_id"`
-	Name        string     `json:"name"`
-	URL         string     `json:"url"`
-	LastFetchAt *time.Time `json:"last_fetch_at,omitempty"`
-	LastStatus  string     `json:"last_status"`
-	NodeCount   int        `json:"node_count"`
-	CreatedAt   time.Time  `json:"created_at"`
+	ID                     int64      `json:"id"`
+	OwnerUserID            int64      `json:"owner_user_id"`
+	Name                   string     `json:"name"`
+	URL                    string     `json:"url"`
+	LastFetchAt            *time.Time `json:"last_fetch_at,omitempty"`
+	LastStatus             string     `json:"last_status"`
+	NodeCount              int        `json:"node_count"`
+	AutoRefresh            bool       `json:"auto_refresh"`
+	RefreshIntervalMinutes int        `json:"refresh_interval_minutes"`
+	NextRefreshAt          *time.Time `json:"next_refresh_at,omitempty"`
+	CreatedAt              time.Time  `json:"created_at"`
 }
 
 // Profile ties a template + selected nodes + generation options into a public

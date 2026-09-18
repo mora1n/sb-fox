@@ -221,8 +221,8 @@ export const useNodesStore = defineStore('nodes', () => {
     return post<ImportPreviewResult>('/nodes/import/links/preview', { links })
   }
 
-  async function importSubscription(name: string, url: string): Promise<ImportResult> {
-    const r = await post<ImportResult>('/nodes/import/subscription', { name, url })
+  async function importSubscription(name: string, url: string, schedule?: { auto_refresh: boolean; refresh_interval_minutes: number }): Promise<ImportResult> {
+    const r = await post<ImportResult>('/nodes/import/subscription', { name, url, ...schedule })
     await refreshAfterMutation()
     return r
   }

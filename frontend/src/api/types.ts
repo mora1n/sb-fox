@@ -114,6 +114,9 @@ export interface SubscriptionSource {
   last_fetch_at?: string
   last_status: string
   node_count: number
+  auto_refresh: boolean
+  refresh_interval_minutes: number
+  next_refresh_at?: string
   created_at: string
 }
 

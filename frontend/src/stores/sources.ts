@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { del, get, post } from '../api/client'
+import { del, get, post, put } from '../api/client'
 import type { ImportResult, SubscriptionSource } from '../api/types'
 
 export const useSourcesStore = defineStore('sources', () => {
@@ -24,9 +24,20 @@ export const useSourcesStore = defineStore('sources', () => {
   }
 
   async function refresh(id: number): Promise<ImportResult> {
-    const r = await post<ImportResult>('/sources/' + id + '/refresh')
-    await fetchAll(true)
-    return r
+    try {
+      return await post<ImportResult>('/sources/' + id + '/refresh')
+    } finally {
+      await fetchAll(true).catch(() => undefined)
+    }
+  }
+
+  async function updateSchedule(id: number, autoRefresh: boolean, refreshIntervalMinutes: number): Promise<void> {
+    const updated = await put<SubscriptionSource>('/sources/' + id + '/schedule', {
+      auto_refresh: autoRefresh,
+      refresh_interval_minutes: refreshIntervalMinutes,
+    })
+    const index = sources.value.findIndex((source) => source.id === id)
+    if (index >= 0) sources.value[index] = updated
   }
 
   async function remove(id: number): Promise<void> {
@@ -42,5 +53,5 @@ export const useSourcesStore = defineStore('sources', () => {
     inFlight = null
   }
 
-  return { sources, loading, fetchAll, refresh, remove, reset }
+  return { sources, loading, fetchAll, refresh, updateSchedule, remove, reset }
 })

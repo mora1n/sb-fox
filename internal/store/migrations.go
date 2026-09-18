@@ -260,5 +260,11 @@ var migrations = []string{
 		UNIQUE(rule_set_id, position)
 	);
 	CREATE INDEX idx_rule_sets_owner ON rule_sets(owner_user_id);
-	CREATE INDEX idx_rule_set_sources_parent ON rule_set_sources(rule_set_id);`,
+		CREATE INDEX idx_rule_set_sources_parent ON rule_set_sources(rule_set_id);`,
+
+	// 15: scheduled subscription source refresh settings.
+	`ALTER TABLE subscription_sources ADD COLUMN auto_refresh INTEGER NOT NULL DEFAULT 1;
+	ALTER TABLE subscription_sources ADD COLUMN refresh_interval_minutes INTEGER NOT NULL DEFAULT 1440;
+	ALTER TABLE subscription_sources ADD COLUMN next_refresh_at TEXT;
+	UPDATE subscription_sources SET next_refresh_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+1 day') WHERE auto_refresh = 1;`,
 }

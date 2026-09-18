@@ -6,6 +6,36 @@ import (
 	"github.com/mora1n/sb-fox/internal/store"
 )
 
+func (s *Server) handleUpdateSourceSchedule(w http.ResponseWriter, r *http.Request) {
+	_, ok := requireCurrentUser(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		AutoRefresh            bool `json:"auto_refresh"`
+		RefreshIntervalMinutes int  `json:"refresh_interval_minutes"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	ownerID, allOwners := ownerScope(r)
+	src, err := s.Store.GetSourceForUser(pathID(r), ownerID, allOwners)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "not_found", "source not found")
+		return
+	}
+	if err := s.Store.UpdateSourceSchedule(src.ID, src.OwnerUserID, req.AutoRefresh, req.RefreshIntervalMinutes); err != nil {
+		respondError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	updated, err := s.Store.GetSource(src.ID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	respondJSON(w, http.StatusOK, updated)
+}
+
 // handleListSources returns all subscription sources with fetch metadata.
 func (s *Server) handleListSources(w http.ResponseWriter, r *http.Request) {
 	ownerID, allOwners := ownerScope(r)
@@ -25,6 +55,11 @@ func (s *Server) handleDeleteSource(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusNotFound, "not_found", "source not found")
 		return
 	}
+	if !s.beginSourceRefresh(src.ID) {
+		respondError(w, http.StatusConflict, "refresh_in_progress", "source refresh is already in progress")
+		return
+	}
+	defer s.endSourceRefresh(src.ID)
 	if err := s.Store.DeleteSourceForUser(src.ID, src.OwnerUserID); err != nil {
 		if err == store.ErrNotFound {
 			respondError(w, http.StatusNotFound, "not_found", "source not found")

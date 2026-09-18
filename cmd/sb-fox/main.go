@@ -149,6 +149,9 @@ func run(args []string) error {
 		Handler:           srv.Router(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+	schedulerCtx, schedulerCancel := context.WithCancel(context.Background())
+	defer schedulerCancel()
+	srv.StartSourceScheduler(schedulerCtx)
 
 	uiState := "embedded UI"
 	if cfg.Dev || !assets.HasDist() {

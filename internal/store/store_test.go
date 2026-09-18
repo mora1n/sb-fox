@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/mora1n/sb-fox/internal/models"
 )
@@ -495,5 +496,41 @@ func TestSeedUserTemplate(t *testing.T) {
 	}
 	if got.Content != `{"a":1}` || got.Kind != "user" {
 		t.Errorf("got %+v", got)
+	}
+}
+
+func TestSubscriptionSourceScheduleDefaultsAndDueSelection(t *testing.T) {
+	s := openTest(t)
+	ownerID := createTestUser(t, s)
+	id, err := s.CreateSource(ownerID, "daily", "https://example.com/sub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := s.GetSource(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !source.AutoRefresh || source.RefreshIntervalMinutes != 1440 || source.NextRefreshAt == nil {
+		t.Fatalf("defaults = %+v", source)
+	}
+	if err := s.UpdateSourceSchedule(id, ownerID, false, 30); err != nil {
+		t.Fatal(err)
+	}
+	source, err = s.GetSource(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if source.AutoRefresh || source.NextRefreshAt != nil || source.RefreshIntervalMinutes != 30 {
+		t.Fatalf("disabled schedule = %+v", source)
+	}
+	if err := s.UpdateSourceSchedule(id, ownerID, true, 5); err != nil {
+		t.Fatal(err)
+	}
+	due, err := s.DueSources(time.Now().UTC().Add(6 * time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(due) != 1 || due[0].ID != id {
+		t.Fatalf("due sources = %+v", due)
 	}
 }

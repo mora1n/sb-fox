@@ -1114,7 +1114,7 @@ func TestImportSubscriptionMultiURLStoresSourceAndWarnings(t *testing.T) {
 	}
 }
 
-func TestRefreshSubscriptionMultiURLReplacesNodesWithPartialSuccess(t *testing.T) {
+func TestRefreshSubscriptionMultiURLKeepsNodesOnPartialFailure(t *testing.T) {
 	srv, ts := testServer(t)
 	srv.Fetcher.AllowPrivate = true
 	c := newClient(t, ts.URL)
@@ -1151,27 +1151,16 @@ func TestRefreshSubscriptionMultiURLReplacesNodesWithPartialSuccess(t *testing.T
 	}
 
 	atomic.StoreInt32(&phase, 1)
-	var refreshed struct {
-		Imported int `json:"imported"`
-		Fetches  []struct {
-			OK    bool `json:"ok"`
-			Nodes int  `json:"nodes"`
-		} `json:"fetches"`
-		Warnings []string `json:"warnings"`
-	}
-	decodeData(t, c.do(http.MethodPost, "/api/sources/"+itoa(imported.SourceID)+"/refresh", nil), &refreshed)
-	if refreshed.Imported != 1 || len(refreshed.Warnings) == 0 {
-		t.Fatalf("refresh result = %+v", refreshed)
-	}
-	if len(refreshed.Fetches) != 2 || refreshed.Fetches[0].OK || !refreshed.Fetches[1].OK || refreshed.Fetches[1].Nodes != 1 {
-		t.Fatalf("refresh fetches = %+v", refreshed.Fetches)
+	status, code, message := decodeError(t, c.do(http.MethodPost, "/api/sources/"+itoa(imported.SourceID)+"/refresh", nil))
+	if status != http.StatusBadGateway || code != "fetch_error" || !strings.Contains(message, "/a") {
+		t.Fatalf("refresh error = %d/%s/%s", status, code, message)
 	}
 
 	var nodes []struct {
 		Tag string `json:"tag"`
 	}
 	decodeData(t, c.do(http.MethodGet, "/api/nodes", nil), &nodes)
-	if len(nodes) != 1 || nodes[0].Tag != "refreshed-b" {
+	if len(nodes) != 2 || nodes[0].Tag != "initial-a" || nodes[1].Tag != "initial-b" {
 		t.Fatalf("nodes after refresh = %+v", nodes)
 	}
 
@@ -1181,8 +1170,46 @@ func TestRefreshSubscriptionMultiURLReplacesNodesWithPartialSuccess(t *testing.T
 		NodeCount  int    `json:"node_count"`
 	}
 	decodeData(t, c.do(http.MethodGet, "/api/sources", nil), &sources)
-	if len(sources) != 1 || sources[0].ID != imported.SourceID || sources[0].LastStatus != "ok with warnings" || sources[0].NodeCount != 1 {
+	if len(sources) != 1 || sources[0].ID != imported.SourceID || !strings.HasPrefix(sources[0].LastStatus, "error:") || sources[0].NodeCount != 2 {
 		t.Fatalf("sources after refresh = %+v", sources)
+	}
+}
+
+func TestRefreshSubscriptionPreservesMatchingNodeID(t *testing.T) {
+	srv, ts := testServer(t)
+	srv.Fetcher.AllowPrivate = true
+	c := newClient(t, ts.URL)
+	c.http.Jar = login(t, ts.URL)
+	var phase int32
+	sub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.LoadInt32(&phase) == 0 {
+			_, _ = w.Write([]byte(testSSLink("before", "6.6.6.6")))
+			return
+		}
+		_, _ = w.Write([]byte(testSSLink("after", "6.6.6.6")))
+	}))
+	t.Cleanup(sub.Close)
+	var imported struct {
+		SourceID int64 `json:"source_id"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/nodes/import/subscription", map[string]string{"name": "stable", "url": sub.URL}), &imported)
+	var before []struct {
+		ID  int64  `json:"id"`
+		Tag string `json:"tag"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/nodes", nil), &before)
+	if len(before) != 1 || before[0].Tag != "before" {
+		t.Fatalf("initial nodes = %+v", before)
+	}
+	atomic.StoreInt32(&phase, 1)
+	decodeData(t, c.do(http.MethodPost, "/api/sources/"+itoa(imported.SourceID)+"/refresh", nil), &struct{}{})
+	var after []struct {
+		ID  int64  `json:"id"`
+		Tag string `json:"tag"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/nodes", nil), &after)
+	if len(after) != 1 || after[0].ID != before[0].ID || after[0].Tag != "after" {
+		t.Fatalf("refreshed nodes = %+v, before=%+v", after, before)
 	}
 }
 
