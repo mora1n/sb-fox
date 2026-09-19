@@ -3,7 +3,7 @@
 [![Release](https://img.shields.io/github/v/release/mora1n/sb-fox?sort=semver)](https://github.com/mora1n/sb-fox/releases)
 [![sing-box](https://img.shields.io/badge/sing--box-default%201.14.0-neutral)](https://github.com/SagerNet/sing-box)
 
-`sb-fox` 是一个简洁的 sing-box Web 面板，用于管理节点、模板、规则集和公开订阅。
+`sb-fox` 是一个 sing-box Web 面板，用于管理节点、模板、规则集和公开订阅。
 
 ## 开始使用
 
@@ -34,7 +34,7 @@ sb-fox run
 
 ## CLI
 
-CLI 使用清晰的子命令；选项统一使用 `--` 长参数。旧版的 `--update`、`-u`、`--daemon`、`-P` 等形式仍可解析，便于升级已有脚本。
+管理命令使用子命令形式，选项使用 `--` 长参数。旧版的 `--update`、`-u`、`--daemon`、`-P` 等形式仍可解析。
 
 查看帮助：
 
@@ -115,7 +115,7 @@ sudo sb-fox --registration off
 
 已有守护进程时，这两个命令会通过内部 socket 更新设置，无需重启服务。
 
-成功操作会输出简洁的状态信息，例如：
+管理命令输出示例：
 
 ```text
 ✓ service enabled and restarted
@@ -138,7 +138,7 @@ daemon socket 内部使用 JSON 进行进程间通信，但不会作为用户命
 | `--dev` |  | 仅提供 API，不要求嵌入前端 |
 | `--version` |  | 显示版本 |
 
-`run` 和 `daemon` 使用监听地址、数据目录、内核、注册开关和日志级别选项；`uninstall` 只额外支持 `--purge`；`reset-admin` 只支持 `--data-dir`；`update` 和 `status` 没有业务选项。
+`run` 和 `daemon` 支持监听地址、数据目录、内核、注册开关和日志级别选项。`uninstall` 支持 `--purge`，`reset-admin` 支持 `--data-dir`，`update` 和 `status` 没有业务选项。
 
 如果需要指定首次管理员密码，可以在首次启动前设置：
 
@@ -181,4 +181,12 @@ sing-box check -c data/templates/fakeip.json
 
 远程订阅和规则集抓取默认拒绝私网、环回、链路本地、CGNAT、组播和云元数据地址。只有在可信网络环境中才建议开启私网抓取。
 
-本项目仅供个人学习、研究和合法合规用途。请在使用前确认符合所在地区的法律法规和服务商条款。
+## 免责声明
+
+本项目仅供个人学习、研究和合法合规用途。使用本项目产生的任何风险和后果均由使用者自行承担，包括但不限于配置错误、服务异常、账号或服务器被封禁、资源滥用、数据泄露、经济损失，以及违反当地法律法规、第三方服务条款或网络管理规定所产生的责任。
+
+禁止将本项目用于网络攻击、非法访问、绕过访问控制、数据窃取、滥用代理、传播恶意内容，或任何未经授权的行为。使用者应自行确认对目标系统、节点、订阅内容和网络资源拥有合法授权，并负责保护管理员密码、订阅 token、规则集链接及其他敏感信息。
+
+作者不对使用本项目造成的直接或间接损失承担责任，也不提供任何形式的安全承诺、可用性保证或持续技术支持。项目依赖的 sing-box、systemd、GitHub 及其他第三方软件和服务分别受其自身许可证、服务条款和隐私政策约束。
+
+如不同意上述内容，请停止使用本项目，并删除已安装的程序及相关数据。
