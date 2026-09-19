@@ -605,7 +605,7 @@ async function exportLinks() {
             <button class="btn btn-sm btn-primary" @click="showImport = true">
               <ArrowDownTrayIcon class="h-4 w-4" /> {{ i18n.t('导入') }}
             </button>
-            <button class="btn btn-sm" @click="showSources = true">
+            <button class="btn btn-sm btn-primary" @click="showSources = true">
               <ArrowPathIcon class="h-4 w-4" /> {{ i18n.t('订阅源') }}
             </button>
             <button class="btn btn-sm btn-primary" @click="openCreate">
@@ -703,7 +703,7 @@ async function exportLinks() {
             <button class="btn btn-sm btn-primary" @click="openCreateGroup">
               <RectangleStackIcon class="h-4 w-4" /> {{ i18n.t('新建组合') }}
             </button>
-            <button class="btn btn-sm" @click="showSources = true">
+            <button class="btn btn-sm btn-primary" @click="showSources = true">
               <ArrowPathIcon class="h-4 w-4" /> {{ i18n.t('订阅源') }}
             </button>
           </div>

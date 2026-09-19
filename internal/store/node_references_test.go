@@ -447,6 +447,9 @@ func TestDeleteNodesBySourceRemovesEmptyGroups(t *testing.T) {
 	if err := s.DeleteNodesBySourceForUser(sourceID, ownerID); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := s.GetSource(sourceID); err != ErrNotFound {
+		t.Fatalf("subscription source error = %v, want ErrNotFound", err)
+	}
 	if _, err := s.GetNodeGroupForUser(groupID, ownerID, false); err != ErrNotFound {
 		t.Fatalf("source group error = %v, want ErrNotFound", err)
 	}

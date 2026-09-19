@@ -211,6 +211,10 @@ func (s *Store) SyncSubscriptionNodes(ownerUserID int64, updates, creates []*mod
 		createdIDs = append(createdIDs, id)
 	}
 	if len(deleteIDs) > 0 {
+		sourceIDs, err := subscriptionSourceIDs(tx, deleteIDs, &ownerUserID)
+		if err != nil {
+			return rollback(err)
+		}
 		query, args := scopedIDOwnerQuery("nodes", deleteIDs, &ownerUserID)
 		owners, err := nodeOwners(tx, query, args, len(deleteIDs))
 		if err != nil {
@@ -235,11 +239,72 @@ func (s *Store) SyncSubscriptionNodes(ownerUserID int64, updates, creates []*mod
 				return rollback(err)
 			}
 		}
+		if err := cleanupSubscriptionSources(tx, sourceIDs, &ownerUserID); err != nil {
+			return rollback(err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return createdIDs, nil
+}
+
+func subscriptionSourceIDs(tx *sql.Tx, nodeIDs []int64, ownerUserID *int64) ([]int64, error) {
+	if len(nodeIDs) == 0 {
+		return nil, nil
+	}
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(nodeIDs)), ",")
+	args := int64Args(nodeIDs)
+	query := `SELECT DISTINCT source_ref FROM nodes WHERE source = 'subscription' AND source_ref IS NOT NULL AND id IN (` + placeholders + `)`
+	if ownerUserID != nil {
+		query += ` AND owner_user_id = ?`
+		args = append(args, *ownerUserID)
+	}
+	rows, err := tx.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func cleanupSubscriptionSources(tx *sql.Tx, sourceIDs []int64, ownerUserID *int64) error {
+	for _, sourceID := range sourceIDs {
+		var count int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM nodes WHERE source = 'subscription' AND source_ref = ?`, sourceID).Scan(&count); err != nil {
+			return err
+		}
+		if count == 0 {
+			query := `DELETE FROM subscription_sources WHERE id = ?`
+			args := []any{sourceID}
+			if ownerUserID != nil {
+				query += ` AND owner_user_id = ?`
+				args = append(args, *ownerUserID)
+			}
+			if _, err := tx.Exec(query, args...); err != nil {
+				return err
+			}
+			continue
+		}
+		query := `UPDATE subscription_sources SET node_count = ? WHERE id = ?`
+		args := []any{count, sourceID}
+		if ownerUserID != nil {
+			query += ` AND owner_user_id = ?`
+			args = append(args, *ownerUserID)
+		}
+		if _, err := tx.Exec(query, args...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // DeleteNode removes a node by id.

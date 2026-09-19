@@ -35,6 +35,11 @@ func (s *Store) deleteNodesWithReferences(ids []int64, ownerUserID *int64) (int,
 	if err != nil {
 		return 0, err
 	}
+	sourceIDs, err := subscriptionSourceIDs(tx, ids, ownerUserID)
+	if err != nil {
+		_ = tx.Rollback()
+		return 0, err
+	}
 	owners, err := nodeOwners(tx, query, args, len(ids))
 	if err != nil {
 		_ = tx.Rollback()
@@ -84,6 +89,10 @@ func (s *Store) deleteNodesWithReferences(ids []int64, ownerUserID *int64) (int,
 			_ = tx.Rollback()
 			return 0, err
 		}
+	}
+	if err := cleanupSubscriptionSources(tx, sourceIDs, ownerUserID); err != nil {
+		_ = tx.Rollback()
+		return 0, err
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, err
@@ -169,6 +178,11 @@ func (s *Store) deleteNodeGroupsWithNodes(ids []int64, ownerUserID *int64) (Node
 		_ = tx.Rollback()
 		return result, err
 	}
+	sourceIDs, err := subscriptionSourceIDs(tx, memberIDs, ownerUserID)
+	if err != nil {
+		_ = tx.Rollback()
+		return result, err
+	}
 	emptyGroups, err := emptyNodeGroups(tx, memberIDs, ownerUserID)
 	if err != nil {
 		_ = tx.Rollback()
@@ -191,6 +205,10 @@ func (s *Store) deleteNodeGroupsWithNodes(ids []int64, ownerUserID *int64) (Node
 	}
 	deletedNodes, err := deleteIDsInTx(tx, "nodes", memberIDs, ownerUserID)
 	if err != nil {
+		_ = tx.Rollback()
+		return result, err
+	}
+	if err := cleanupSubscriptionSources(tx, sourceIDs, ownerUserID); err != nil {
 		_ = tx.Rollback()
 		return result, err
 	}
