@@ -258,7 +258,7 @@ func TestResetAdminPasswordWithExplicitDataDir(t *testing.T) {
 func TestResetAdminDataDirErrorHasActionableHints(t *testing.T) {
 	err := resetAdminDataDirError("/var/lib/sb-fox", os.ErrPermission)
 	msg := err.Error()
-	if !strings.Contains(msg, "-D ./data") || !strings.Contains(msg, "sudo sb-fox -P") {
+	if !strings.Contains(msg, "reset-admin --data-dir ./data") || !strings.Contains(msg, "sudo sb-fox reset-admin") {
 		t.Fatalf("error lacks reset hints: %s", msg)
 	}
 }

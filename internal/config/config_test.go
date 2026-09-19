@@ -37,6 +37,9 @@ func TestParseServeDefaults(t *testing.T) {
 	if cfg.Action != ActionServe {
 		t.Fatalf("action = %q, want serve", cfg.Action)
 	}
+	if !cfg.ShowHelp {
+		t.Fatal("no-argument invocation should show help")
+	}
 	if cfg.Addr != defaultAddr {
 		t.Fatalf("addr = %q, want %q", cfg.Addr, defaultAddr)
 	}
@@ -168,6 +171,23 @@ func TestParseSubcommandsAndLongOptions(t *testing.T) {
 	}
 	if cfg.Action != ActionInstallDaemon || cfg.DaemonCommand != DaemonRestart || cfg.Addr != "127.0.0.1:9999" || !cfg.RegistrationEnabled || cfg.LogLevel != "debug" {
 		t.Fatalf("daemon config = %+v", cfg)
+	}
+}
+
+func TestParseStatusAndCommandOptionValidation(t *testing.T) {
+	clearEnv(t)
+	cfg, err := Parse([]string{"status"})
+	if err != nil {
+		t.Fatalf("Parse status: %v", err)
+	}
+	if cfg.Action != ActionStatus {
+		t.Fatalf("status action = %q", cfg.Action)
+	}
+	if _, err := Parse([]string{"update", "--data-dir", "/tmp/sb-fox"}); err == nil {
+		t.Fatal("update should reject runtime options")
+	}
+	if _, err := Parse([]string{"status", "--addr", "127.0.0.1:9999"}); err == nil {
+		t.Fatal("status should reject runtime options")
 	}
 }
 

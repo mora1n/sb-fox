@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,6 +37,7 @@ const (
 	ActionUpdate        Action = "update"
 	ActionUninstall     Action = "uninstall"
 	ActionResetAdmin    Action = "reset-admin"
+	ActionStatus        Action = "status"
 )
 
 // DaemonCommand is the systemd operation requested through the daemon command.
@@ -68,10 +70,13 @@ type Config struct {
 	RegistrationEnabled bool
 	Dev                 bool // dev mode: serve API only, skip embedded frontend requirement
 	ShowVersion         bool // print version and exit
+	ShowHelp            bool // print command help and exit
+	Command             string
 }
 
 // Parse reads flags (with env fallbacks) and returns the config.
 func Parse(args []string) (*Config, error) {
+	showDefaultHelp := len(args) == 0 && os.Getenv("SB_FOX_DAEMON") != "1"
 	var command, daemonCommandArg string
 	var err error
 	args, command, daemonCommandArg, err = normalizeCommand(args)
@@ -129,30 +134,7 @@ func Parse(args []string) (*Config, error) {
 		args = append(args, daemonCommandArg)
 	}
 	fs.Usage = func() {
-		out := fs.Output()
-		fmt.Fprintln(out, "用法:")
-		fmt.Fprintln(out, "  sb-fox [run] [选项]")
-		fmt.Fprintln(out, "  sb-fox daemon [enable|start|stop|restart|disable] [选项]")
-		fmt.Fprintln(out, "  sb-fox update [选项]")
-		fmt.Fprintln(out, "  sb-fox uninstall [--purge] [选项]")
-		fmt.Fprintln(out, "  sb-fox reset-admin [选项]")
-		fmt.Fprintln(out, "\n选项:")
-		fmt.Fprintln(out, "  --addr string")
-		fmt.Fprintf(out, "\t监听地址（默认 %q）\n", addr)
-		fmt.Fprintln(out, "  --data-dir string")
-		fmt.Fprintf(out, "\t数据目录（SQLite 和临时文件，默认 %q）\n", dataDir)
-		fmt.Fprintln(out, "  --kernel string")
-		fmt.Fprintf(out, "\t用于配置校验的 sing-box 路径（默认 %q）\n", kernel)
-		fmt.Fprintln(out, "  --registration on|off")
-		fmt.Fprintf(out, "\t公开注册开关（默认 %q）\n", reg)
-		fmt.Fprintln(out, "  --log-level error|warn|info|debug")
-		fmt.Fprintf(out, "\t日志级别（默认 %q）\n", logLevel)
-		fmt.Fprintln(out, "  --purge")
-		fmt.Fprintln(out, "\t卸载时同时删除配置和数据")
-		fmt.Fprintln(out, "  --dev")
-		fmt.Fprintln(out, "\t开发模式（仅提供 API）")
-		fmt.Fprintln(out, "  --version")
-		fmt.Fprintln(out, "\t显示版本并退出")
+		printHelp(fs.Output(), command, addr, dataDir, kernel, reg, logLevel)
 	}
 	fs.StringVar(&addr, "addr", addr, "listen address")
 	fs.StringVar(&addr, "a", addr, "listen address")
@@ -196,6 +178,9 @@ func Parse(args []string) (*Config, error) {
 	case "version":
 		showVersion = true
 	}
+	if err := validateCommandOptions(command, fs); err != nil {
+		return nil, err
+	}
 	daemonCommand, err := resolveDaemonCommand(installDaemon, fs.Args())
 	if err != nil {
 		return nil, err
@@ -206,6 +191,12 @@ func Parse(args []string) (*Config, error) {
 	action, err := resolveAction(installDaemon, update, uninstall, resetAdmin, purge)
 	if err != nil {
 		return nil, err
+	}
+	if command == "status" {
+		if action != ActionServe {
+			return nil, errors.New("status cannot be combined with another management command")
+		}
+		action = ActionStatus
 	}
 	regMode, err := normalizeReg(reg)
 	if err != nil {
@@ -236,6 +227,8 @@ func Parse(args []string) (*Config, error) {
 		RegistrationEnabled: regMode == "on",
 		Dev:                 dev,
 		ShowVersion:         showVersion,
+		ShowHelp:            showDefaultHelp,
+		Command:             command,
 	}
 	if c.Mode == ModeDaemon {
 		c.SocketPath = defaultDaemonSocket
@@ -288,8 +281,8 @@ func normalizeCommand(args []string) ([]string, string, string, error) {
 	args = args[1:]
 	switch command {
 	case "run", "serve":
-		return args, "", "", nil
-	case "update", "uninstall", "reset-admin", "version":
+		return args, "run", "", nil
+	case "update", "uninstall", "reset-admin", "status", "version":
 		return args, command, "", nil
 	case "daemon":
 		var daemonCommand string
@@ -300,6 +293,102 @@ func normalizeCommand(args []string) ([]string, string, string, error) {
 		return args, command, daemonCommand, nil
 	default:
 		return nil, "", "", fmt.Errorf("未知命令 %q；使用 sb-fox --help 查看帮助", command)
+	}
+}
+
+func validateCommandOptions(command string, fs *flag.FlagSet) error {
+	if command == "" {
+		return nil
+	}
+	allowed := map[string]bool{}
+	switch command {
+	case "run":
+		allowed = map[string]bool{"addr": true, "a": true, "address": true, "data-dir": true, "D": true, "kernel": true, "k": true, "registration": true, "reg": true, "r": true, "log-level": true, "log": true, "l": true, "dev": true}
+	case "daemon":
+		allowed = map[string]bool{"addr": true, "a": true, "address": true, "data-dir": true, "D": true, "kernel": true, "k": true, "registration": true, "reg": true, "r": true, "log-level": true, "log": true, "l": true}
+	case "uninstall":
+		allowed = map[string]bool{"purge": true, "p": true, "data-dir": true, "D": true}
+	case "reset-admin":
+		allowed = map[string]bool{"data-dir": true, "D": true}
+	case "update", "status", "version":
+		allowed = map[string]bool{}
+	default:
+		return nil
+	}
+	var invalid string
+	fs.Visit(func(f *flag.Flag) {
+		if invalid == "" && !allowed[f.Name] {
+			invalid = f.Name
+		}
+	})
+	if invalid != "" {
+		return fmt.Errorf("命令 %s 不支持参数 --%s", command, invalid)
+	}
+	return nil
+}
+
+// PrintHelp prints the help for the command selected in cfg.
+func PrintHelp(w io.Writer, cfg *Config) {
+	if cfg == nil {
+		printHelp(w, "", defaultAddr, defaultDaemonDataDir, "sing-box", "off", defaultLogLevel)
+		return
+	}
+	printHelp(w, cfg.Command, cfg.Addr, cfg.DataDir, cfg.KernelPath, cfg.RegMode, cfg.LogLevel)
+}
+
+func printHelp(w io.Writer, command, addr, dataDir, kernel, reg, logLevel string) {
+	switch command {
+	case "update":
+		fmt.Fprintln(w, "用法:\n  sb-fox update\n\n说明:\n  更新已安装的 sb-fox。更新版本和 GitHub 凭据通过环境变量或当前安装环境确定。")
+		return
+	case "status":
+		fmt.Fprintln(w, "用法:\n  sb-fox status\n\n说明:\n  显示正在运行的 sb-fox daemon 状态。")
+		return
+	case "version":
+		fmt.Fprintln(w, "用法:\n  sb-fox version\n\n说明:\n  显示当前 sb-fox 版本。")
+		return
+	case "uninstall":
+		fmt.Fprintln(w, "用法:\n  sb-fox uninstall [--purge]\n\n选项:\n  --purge\n\t同时删除配置和数据。")
+		return
+	case "reset-admin":
+		fmt.Fprintf(w, "用法:\n  sb-fox reset-admin [--data-dir <目录>]\n\n选项:\n  --data-dir string\n\t数据库和配置目录（默认 %q）。\n", dataDir)
+		return
+	case "run", "serve":
+		fmt.Fprintln(w, "用法:")
+		fmt.Fprintln(w, "  sb-fox run [选项]")
+		fmt.Fprintln(w, "\n选项:")
+		printRunOptions(w, addr, dataDir, kernel, reg, logLevel, true)
+		return
+	case "daemon":
+		fmt.Fprintln(w, "用法:")
+		fmt.Fprintln(w, "  sb-fox daemon [enable|start|stop|restart|disable] [选项]")
+		fmt.Fprintln(w, "\n选项:")
+		printRunOptions(w, addr, dataDir, kernel, reg, logLevel, false)
+		return
+	}
+	fmt.Fprintln(w, "用法:")
+	fmt.Fprintln(w, "  sb-fox run [选项]")
+	fmt.Fprintln(w, "  sb-fox daemon [enable|start|stop|restart|disable] [选项]")
+	fmt.Fprintln(w, "  sb-fox update")
+	fmt.Fprintln(w, "  sb-fox status")
+	fmt.Fprintln(w, "  sb-fox uninstall [--purge]")
+	fmt.Fprintln(w, "  sb-fox reset-admin [--data-dir <目录>]")
+	fmt.Fprintln(w, "\n运行 sb-fox --help 查看此帮助，运行各子命令的 -h/--help 查看命令帮助。")
+}
+
+func printRunOptions(w io.Writer, addr, dataDir, kernel, reg, logLevel string, includeDev bool) {
+	fmt.Fprintln(w, "  --addr string")
+	fmt.Fprintf(w, "\t监听地址（默认 %q）\n", addr)
+	fmt.Fprintln(w, "  --data-dir string")
+	fmt.Fprintf(w, "\t数据目录（默认 %q）\n", dataDir)
+	fmt.Fprintln(w, "  --kernel string")
+	fmt.Fprintf(w, "\t用于配置校验的 sing-box 路径（默认 %q）\n", kernel)
+	fmt.Fprintln(w, "  --registration on|off")
+	fmt.Fprintf(w, "\t公开注册开关（默认 %q）\n", reg)
+	fmt.Fprintln(w, "  --log-level error|warn|info|debug")
+	fmt.Fprintf(w, "\t日志级别（默认 %q）\n", logLevel)
+	if includeDev {
+		fmt.Fprintln(w, "  --dev\n\t开发模式（仅提供 API）")
 	}
 }
 

@@ -21,7 +21,7 @@ sb-fox run
 
 然后打开 <http://127.0.0.1:7878>。首次启动会在终端显示一次性 admin 密码。
 
-也可以直接运行 `sb-fox`，它等同于 `sb-fox run`。
+直接运行 `sb-fox` 会显示帮助；需要启动服务时请使用 `sb-fox run`。
 
 ## 功能
 
@@ -40,6 +40,12 @@ CLI 使用清晰的子命令；选项统一使用 `--` 长参数。旧版的 `--
 
 ```sh
 sb-fox --help
+sb-fox run --help
+sb-fox daemon --help
+sb-fox update --help
+sb-fox status --help
+sb-fox uninstall --help
+sb-fox reset-admin --help
 ```
 
 启动前台服务：
@@ -72,6 +78,14 @@ templates: /var/lib/sb-fox/templates
 
 ```sh
 sudo sb-fox update
+```
+
+`update` 不接受运行参数；更新所需的 GitHub 凭据通过 `SB_FOX_GITHUB_TOKEN` 或 `GITHUB_TOKEN` 提供。
+
+查看守护进程状态：
+
+```sh
+sb-fox status
 ```
 
 卸载服务和二进制，保留数据：
@@ -123,6 +137,8 @@ daemon socket 内部使用 JSON 进行进程间通信，但不会作为用户命
 | `--purge` |  | 仅用于 `uninstall`，删除配置和数据 |
 | `--dev` |  | 仅提供 API，不要求嵌入前端 |
 | `--version` |  | 显示版本 |
+
+`run` 和 `daemon` 使用监听地址、数据目录、内核、注册开关和日志级别选项；`uninstall` 只额外支持 `--purge`；`reset-admin` 只支持 `--data-dir`；`update` 和 `status` 没有业务选项。
 
 如果需要指定首次管理员密码，可以在首次启动前设置：
 

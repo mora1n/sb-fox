@@ -52,7 +52,8 @@ func main() {
 		if errors.Is(err, flag.ErrHelp) {
 			return
 		}
-		log.Fatalf("sb-fox: %v", err)
+		fmt.Fprintf(os.Stderr, "✗ %v\n", err)
+		os.Exit(1)
 	}
 }
 
@@ -62,11 +63,22 @@ func run(args []string) error {
 		return err
 	}
 	setLogLevel(cfg.LogLevel)
+	if cfg.ShowHelp {
+		config.PrintHelp(os.Stdout, cfg)
+		return nil
+	}
 	if cfg.ShowVersion {
 		fmt.Printf("sb-fox %s\n", version)
 		return nil
 	}
 	switch cfg.Action {
+	case config.ActionStatus:
+		status, err := queryDaemonStatus(daemonControlSocketPath)
+		if err != nil {
+			return errors.New("daemon is not running; start it with sb-fox daemon")
+		}
+		printDaemonStatus(status)
+		return nil
 	case config.ActionInstallDaemon:
 		opts := manage.Options{
 			Addr:       cfg.Addr,
@@ -364,7 +376,7 @@ func resetAdminPassword(cfg *config.Config) error {
 }
 
 func resetAdminDataDirError(dataDir string, err error) error {
-	return fmt.Errorf("create data dir %s: %w; local data: ./sb-fox -P -D ./data; daemon data: sudo sb-fox -P", dataDir, err)
+	return fmt.Errorf("create data dir %s: %w; local data: ./sb-fox reset-admin --data-dir ./data; daemon data: sudo sb-fox reset-admin", dataDir, err)
 }
 
 func registrationEnabledFromSettings(db *store.Store, initial bool) (bool, error) {
