@@ -27,8 +27,7 @@ const (
 
 var currentEUID = os.Geteuid
 
-// Action is a one-shot management operation requested by a CLI command or a
-// legacy flag.
+// Action is a one-shot management operation requested by a CLI command.
 type Action string
 
 const (
@@ -63,9 +62,9 @@ type Config struct {
 	DaemonCommand       DaemonCommand
 	Purge               bool   // uninstall removes config/data without prompting
 	RegMode             string // on or off
-	RegExplicit         bool   // --reg/-r was provided
-	AddrExplicit        bool   // --addr/-a was provided
-	DataDirExplicit     bool   // --data-dir/-D was provided
+	RegExplicit         bool   // --registration was provided
+	AddrExplicit        bool   // --addr/--address was provided
+	DataDirExplicit     bool   // --data-dir was provided
 	LogLevel            string // error, warn, info or debug
 	RegistrationEnabled bool
 	Dev                 bool // dev mode: serve API only, skip embedded frontend requirement
@@ -90,9 +89,9 @@ func Parse(args []string) (*Config, error) {
 
 	name := "sb-fox"
 	dataDirEnv, hasDataDirEnv := os.LookupEnv("SB_FOX_DATA_DIR")
-	hasDataDirFlag := flagPresent(args, "--data-dir", "-D")
-	addrExplicit := flagPresent(args, "--addr", "-a", "--address")
-	daemonRequested := command == "daemon" || flagPresent(args, "--daemon", "-d")
+	hasDataDirFlag := flagPresent(args, "--data-dir")
+	addrExplicit := flagPresent(args, "--addr", "--address")
+	daemonRequested := command == "daemon"
 
 	dataDirDefault, err := defaultServeDataDir()
 	if err != nil {
@@ -122,13 +121,13 @@ func Parse(args []string) (*Config, error) {
 	reg := envOr("SB_FOX_REG", "off")
 	logLevel := envOr("SB_FOX_LOG", defaultLogLevel)
 	args = fillMissingStringFlagValues(args, map[string]string{
-		"--addr": addr, "-a": addr, "--address": addr,
-		"--data-dir": dataDir, "-D": dataDir,
-		"--kernel": kernel, "-k": kernel,
-		"--reg": reg, "-r": reg, "--registration": reg,
-		"--log": logLevel, "-l": logLevel, "--log-level": logLevel,
+		"--addr": addr, "--address": addr,
+		"--data-dir":     dataDir,
+		"--kernel":       kernel,
+		"--registration": reg,
+		"--log-level":    logLevel,
 	})
-	regExplicit := flagPresent(args, "--reg", "-r", "--registration")
+	regExplicit := flagPresent(args, "--registration")
 	var installDaemon, update, uninstall, resetAdmin, purge, dev, showVersion bool
 	if command == "daemon" && daemonCommandArg != "" {
 		args = append(args, daemonCommandArg)
@@ -137,31 +136,14 @@ func Parse(args []string) (*Config, error) {
 		printHelp(fs.Output(), command, addr, dataDir, kernel, reg, logLevel)
 	}
 	fs.StringVar(&addr, "addr", addr, "listen address")
-	fs.StringVar(&addr, "a", addr, "listen address")
 	fs.StringVar(&addr, "address", addr, "listen address")
 	fs.StringVar(&dataDir, "data-dir", dataDir, "data directory (sqlite + temp)")
-	fs.StringVar(&dataDir, "D", dataDir, "data directory (sqlite + temp)")
 	fs.StringVar(&kernel, "kernel", kernel, "sing-box binary path for config validation")
-	fs.StringVar(&kernel, "k", kernel, "sing-box binary path for config validation")
-	fs.BoolVar(&installDaemon, "daemon", false, "manage the system daemon")
-	fs.BoolVar(&installDaemon, "d", false, "manage the system daemon")
-	fs.BoolVar(&update, "update", false, "update installed binary")
-	fs.BoolVar(&update, "u", false, "update installed binary")
-	fs.BoolVar(&uninstall, "uninstall", false, "uninstall service and binary")
-	fs.BoolVar(&uninstall, "U", false, "uninstall service and binary")
 	fs.BoolVar(&purge, "purge", false, "remove config and data during uninstall")
-	fs.BoolVar(&purge, "p", false, "remove config and data during uninstall")
-	fs.StringVar(&reg, "reg", reg, "public registration switch (on|off)")
-	fs.StringVar(&reg, "r", reg, "public registration switch (on|off)")
 	fs.StringVar(&reg, "registration", reg, "public registration switch (on|off)")
-	fs.StringVar(&logLevel, "log", logLevel, "log level (error|warn|info|debug)")
-	fs.StringVar(&logLevel, "l", logLevel, "log level (error|warn|info|debug)")
 	fs.StringVar(&logLevel, "log-level", logLevel, "log level (error|warn|info|debug)")
-	fs.BoolVar(&resetAdmin, "reset-admin", false, "reset admin password and print a new random password")
-	fs.BoolVar(&resetAdmin, "P", false, "reset admin password and print a new random password")
 	fs.BoolVar(&dev, "dev", false, "dev mode (serve API only)")
 	fs.BoolVar(&showVersion, "version", false, "print version and exit")
-	fs.BoolVar(&showVersion, "v", false, "print version and exit")
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -270,9 +252,7 @@ func envOr(key, def string) string {
 	return def
 }
 
-// normalizeCommand converts the user-facing subcommand syntax into the
-// existing flag-based representation. Legacy flags remain accepted so older
-// service scripts and operators can upgrade without a breaking transition.
+// normalizeCommand extracts the user-facing subcommand before flag parsing.
 func normalizeCommand(args []string) ([]string, string, string, error) {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return args, "", "", nil
@@ -303,13 +283,13 @@ func validateCommandOptions(command string, fs *flag.FlagSet) error {
 	allowed := map[string]bool{}
 	switch command {
 	case "run":
-		allowed = map[string]bool{"addr": true, "a": true, "address": true, "data-dir": true, "D": true, "kernel": true, "k": true, "registration": true, "reg": true, "r": true, "log-level": true, "log": true, "l": true, "dev": true}
+		allowed = map[string]bool{"addr": true, "address": true, "data-dir": true, "kernel": true, "registration": true, "log-level": true, "dev": true}
 	case "daemon":
-		allowed = map[string]bool{"addr": true, "a": true, "address": true, "data-dir": true, "D": true, "kernel": true, "k": true, "registration": true, "reg": true, "r": true, "log-level": true, "log": true, "l": true}
+		allowed = map[string]bool{"addr": true, "address": true, "data-dir": true, "kernel": true, "registration": true, "log-level": true}
 	case "uninstall":
-		allowed = map[string]bool{"purge": true, "p": true, "data-dir": true, "D": true}
+		allowed = map[string]bool{"purge": true, "data-dir": true}
 	case "reset-admin":
-		allowed = map[string]bool{"data-dir": true, "D": true}
+		allowed = map[string]bool{"data-dir": true}
 	case "update", "status", "version":
 		allowed = map[string]bool{}
 	default:
@@ -450,27 +430,13 @@ func resolveDaemonCommand(enabled bool, args []string) (DaemonCommand, error) {
 		return DaemonEnable, nil
 	}
 	if len(args) > 1 {
-		for _, arg := range args[1:] {
-			if isManagementArg(arg) {
-				return "", errors.New("only one management flag can be used at a time")
-			}
-		}
 		return "", fmt.Errorf("unknown argument %q", args[1])
 	}
 	switch DaemonCommand(args[0]) {
 	case DaemonEnable, DaemonStart, DaemonStop, DaemonRestart, DaemonDisable:
 		return DaemonCommand(args[0]), nil
 	default:
-		return "", fmt.Errorf("--daemon command must be one of enable, start, stop, restart or disable")
-	}
-}
-
-func isManagementArg(arg string) bool {
-	switch arg {
-	case "--daemon", "-d", "--update", "-u", "--uninstall", "-U", "--purge", "-p", "--reset-admin", "-P":
-		return true
-	default:
-		return false
+		return "", fmt.Errorf("daemon command must be one of enable, start, stop, restart or disable")
 	}
 }
 
@@ -497,7 +463,7 @@ func resolveAction(installDaemon, update, uninstall, resetAdmin, purge bool) (Ac
 		return "", errors.New("only one management flag can be used at a time")
 	}
 	if purge && !uninstall {
-		return "", errors.New("--purge can only be used with --uninstall")
+		return "", errors.New("--purge can only be used with uninstall")
 	}
 	return action, nil
 }

@@ -61,10 +61,10 @@ func TestParseServeDefaults(t *testing.T) {
 	}
 }
 
-func TestParseShortOptions(t *testing.T) {
+func TestParseLongOptions(t *testing.T) {
 	clearEnv(t)
 
-	cfg, err := Parse([]string{"-a", "localhost:18080", "-D", "/tmp/sb-data", "-k", "/bin/sing-box", "-v"})
+	cfg, err := Parse([]string{"run", "--addr", "localhost:18080", "--data-dir", "/tmp/sb-data", "--kernel", "/bin/sing-box"})
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -77,18 +77,19 @@ func TestParseShortOptions(t *testing.T) {
 	if cfg.KernelPath != "/bin/sing-box" {
 		t.Fatalf("kernel path = %q", cfg.KernelPath)
 	}
-	if !cfg.ShowVersion {
-		t.Fatal("version flag not set")
-	}
 	if !cfg.AddrExplicit || !cfg.DataDirExplicit {
 		t.Fatalf("explicit flags = addr:%v data:%v", cfg.AddrExplicit, cfg.DataDirExplicit)
+	}
+	versionCfg, err := Parse([]string{"version"})
+	if err != nil || !versionCfg.ShowVersion {
+		t.Fatalf("version command config = %+v, err=%v", versionCfg, err)
 	}
 }
 
 func TestParseDaemonInstallDefaults(t *testing.T) {
 	clearEnv(t)
 
-	cfg, err := Parse([]string{"--daemon"})
+	cfg, err := Parse([]string{"daemon"})
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -111,12 +112,8 @@ func TestParseDaemonInstallDefaults(t *testing.T) {
 		t.Fatalf("socket path = %q, want empty", cfg.SocketPath)
 	}
 
-	cfg, err = Parse([]string{"--daemon=true"})
-	if err != nil {
-		t.Fatalf("Parse daemon bool form: %v", err)
-	}
-	if cfg.DaemonCommand != DaemonEnable || cfg.DataDir != defaultDaemonDataDir {
-		t.Fatalf("daemon bool form command=%q data dir=%q", cfg.DaemonCommand, cfg.DataDir)
+	if _, err := Parse([]string{"--daemon"}); err == nil {
+		t.Fatal("legacy --daemon flag should be rejected")
 	}
 }
 
@@ -127,12 +124,11 @@ func TestParseDaemonCommands(t *testing.T) {
 		args []string
 		want DaemonCommand
 	}{
-		{[]string{"--daemon", "enable"}, DaemonEnable},
-		{[]string{"--daemon", "start"}, DaemonStart},
-		{[]string{"--daemon", "stop"}, DaemonStop},
-		{[]string{"--daemon", "restart"}, DaemonRestart},
-		{[]string{"--daemon", "disable"}, DaemonDisable},
-		{[]string{"-d", "stop"}, DaemonStop},
+		{[]string{"daemon", "enable"}, DaemonEnable},
+		{[]string{"daemon", "start"}, DaemonStart},
+		{[]string{"daemon", "stop"}, DaemonStop},
+		{[]string{"daemon", "restart"}, DaemonRestart},
+		{[]string{"daemon", "disable"}, DaemonDisable},
 	} {
 		cfg, err := Parse(tc.args)
 		if err != nil {
@@ -191,10 +187,24 @@ func TestParseStatusAndCommandOptionValidation(t *testing.T) {
 	}
 }
 
+func TestParseRejectsLegacyManagementFlags(t *testing.T) {
+	clearEnv(t)
+	for _, args := range [][]string{
+		{"--update"}, {"-u"}, {"--daemon"}, {"-d"},
+		{"--uninstall"}, {"-U"}, {"--reset-admin"}, {"-P"},
+		{"--reg", "on"}, {"-r", "on"}, {"--log", "debug"}, {"-l", "debug"},
+		{"-a", "127.0.0.1:9999"}, {"-D", "/tmp/sb-fox"}, {"-k", "sing-box"},
+	} {
+		if _, err := Parse(args); err == nil {
+			t.Fatalf("legacy flag %v should be rejected", args)
+		}
+	}
+}
+
 func TestParseDaemonRejectsInvalidCommand(t *testing.T) {
 	clearEnv(t)
 
-	if _, err := Parse([]string{"--daemon", "reload"}); err == nil {
+	if _, err := Parse([]string{"daemon", "reload"}); err == nil {
 		t.Fatal("expected invalid daemon command error")
 	}
 }
@@ -232,13 +242,10 @@ func TestParseSocketFlagRemoved(t *testing.T) {
 func TestParseManagementConflicts(t *testing.T) {
 	clearEnv(t)
 
-	if _, err := Parse([]string{"--daemon", "--update"}); err == nil {
-		t.Fatal("expected management conflict")
+	if _, err := Parse([]string{"daemon", "restart", "update"}); err == nil {
+		t.Fatal("expected invalid extra daemon command")
 	}
-	if _, err := Parse([]string{"--daemon", "restart", "--update"}); err == nil {
-		t.Fatal("expected management conflict after daemon command")
-	}
-	if _, err := Parse([]string{"--daemon", "stop", "--purge"}); err == nil {
+	if _, err := Parse([]string{"daemon", "stop", "--purge"}); err == nil {
 		t.Fatal("expected purge conflict after daemon command")
 	}
 	if _, err := Parse([]string{"--purge"}); err == nil {
@@ -249,7 +256,7 @@ func TestParseManagementConflicts(t *testing.T) {
 func TestParseRegistrationSwitch(t *testing.T) {
 	clearEnv(t)
 
-	cfg, err := Parse([]string{"--reg", "on"})
+	cfg, err := Parse([]string{"--registration", "on"})
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -257,23 +264,23 @@ func TestParseRegistrationSwitch(t *testing.T) {
 		t.Fatalf("registration config = mode:%q enabled:%v explicit:%v", cfg.RegMode, cfg.RegistrationEnabled, cfg.RegExplicit)
 	}
 
-	cfg, err = Parse([]string{"-r", "off"})
+	cfg, err = Parse([]string{"--registration", "off"})
 	if err != nil {
-		t.Fatalf("Parse short: %v", err)
+		t.Fatalf("Parse off: %v", err)
 	}
 	if cfg.RegistrationEnabled || cfg.RegMode != "off" || !cfg.RegExplicit {
 		t.Fatalf("registration config = mode:%q enabled:%v explicit:%v", cfg.RegMode, cfg.RegistrationEnabled, cfg.RegExplicit)
 	}
 
-	if _, err := Parse([]string{"--reg", "maybe"}); err == nil {
-		t.Fatal("expected invalid --reg value")
+	if _, err := Parse([]string{"--registration", "maybe"}); err == nil {
+		t.Fatal("expected invalid --registration value")
 	}
 }
 
 func TestParseLogLevel(t *testing.T) {
 	clearEnv(t)
 
-	cfg, err := Parse([]string{"--log", "debug"})
+	cfg, err := Parse([]string{"run", "--log-level", "debug"})
 	if err != nil {
 		t.Fatalf("Parse long: %v", err)
 	}
@@ -281,7 +288,7 @@ func TestParseLogLevel(t *testing.T) {
 		t.Fatalf("log level = %q, want debug", cfg.LogLevel)
 	}
 
-	cfg, err = Parse([]string{"-l", "warn"})
+	cfg, err = Parse([]string{"run", "--log-level", "warn"})
 	if err != nil {
 		t.Fatalf("Parse short: %v", err)
 	}
@@ -299,17 +306,17 @@ func TestParseLogLevel(t *testing.T) {
 		t.Fatalf("env log level = %q, want error", cfg.LogLevel)
 	}
 
-	if _, err := Parse([]string{"--log", "noisy"}); err == nil {
+	if _, err := Parse([]string{"run", "--log-level", "noisy"}); err == nil {
 		t.Fatal("expected invalid --log value")
 	}
 }
 
-func TestParseStringFlagsUseDefaultsWithoutValues(t *testing.T) {
+func TestParseLongOptionsUseDefaultsWithoutValues(t *testing.T) {
 	clearEnv(t)
 	setEUID(t, 1000)
 	t.Setenv("HOME", "/home/tester")
 
-	cfg, err := Parse([]string{"-l"})
+	cfg, err := Parse([]string{"run", "--log-level"})
 	if err != nil {
 		t.Fatalf("Parse log default: %v", err)
 	}
@@ -321,7 +328,7 @@ func TestParseStringFlagsUseDefaultsWithoutValues(t *testing.T) {
 	setEUID(t, 1000)
 	t.Setenv("HOME", "/home/tester")
 	t.Setenv("SB_FOX_LOG", "debug")
-	cfg, err = Parse([]string{"-l"})
+	cfg, err = Parse([]string{"run", "--log-level"})
 	if err != nil {
 		t.Fatalf("Parse log env default: %v", err)
 	}
@@ -332,7 +339,7 @@ func TestParseStringFlagsUseDefaultsWithoutValues(t *testing.T) {
 	clearEnv(t)
 	setEUID(t, 1000)
 	t.Setenv("HOME", "/home/tester")
-	cfg, err = Parse([]string{"-a", "-D", "-k", "-r"})
+	cfg, err = Parse([]string{"run", "--addr", "--data-dir", "--kernel", "--registration"})
 	if err != nil {
 		t.Fatalf("Parse string defaults: %v", err)
 	}
@@ -350,7 +357,7 @@ func TestParseResetAdminDefaultsToServeDataDirWithoutRoot(t *testing.T) {
 	setEUID(t, 1000)
 	t.Setenv("HOME", "/home/tester")
 
-	cfg, err := Parse([]string{"-P"})
+	cfg, err := Parse([]string{"reset-admin"})
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -367,7 +374,7 @@ func TestParseResetAdminDefaultsToDaemonDataDirWithRoot(t *testing.T) {
 	clearEnv(t)
 	setEUID(t, 0)
 
-	cfg, err := Parse([]string{"-P"})
+	cfg, err := Parse([]string{"reset-admin"})
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -380,7 +387,7 @@ func TestParseResetAdminDataDirOverrides(t *testing.T) {
 	clearEnv(t)
 	setEUID(t, 0)
 
-	cfg, err := Parse([]string{"-P", "-D", "/tmp/sb-fox"})
+	cfg, err := Parse([]string{"reset-admin", "--data-dir", "/tmp/sb-fox"})
 	if err != nil {
 		t.Fatalf("Parse explicit: %v", err)
 	}
@@ -391,7 +398,7 @@ func TestParseResetAdminDataDirOverrides(t *testing.T) {
 	clearEnv(t)
 	setEUID(t, 0)
 	t.Setenv("SB_FOX_DATA_DIR", "/tmp/sb-fox-env")
-	cfg, err = Parse([]string{"-P"})
+	cfg, err = Parse([]string{"reset-admin"})
 	if err != nil {
 		t.Fatalf("Parse env: %v", err)
 	}

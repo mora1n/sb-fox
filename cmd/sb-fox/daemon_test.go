@@ -215,7 +215,7 @@ func TestRegistrationEnabledFromSettingsPersists(t *testing.T) {
 }
 
 func TestResetAdminPasswordWithExplicitDataDir(t *testing.T) {
-	cfg, err := config.Parse([]string{"-P", "-D", t.TempDir()})
+	cfg, err := config.Parse([]string{"reset-admin", "--data-dir", t.TempDir()})
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
