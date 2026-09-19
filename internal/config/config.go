@@ -26,7 +26,8 @@ const (
 
 var currentEUID = os.Geteuid
 
-// Action is a one-shot management operation requested by CLI flags.
+// Action is a one-shot management operation requested by a CLI command or a
+// legacy flag.
 type Action string
 
 const (
@@ -37,7 +38,7 @@ const (
 	ActionResetAdmin    Action = "reset-admin"
 )
 
-// DaemonCommand is the systemd operation requested through --daemon.
+// DaemonCommand is the systemd operation requested through the daemon command.
 type DaemonCommand string
 
 const (
@@ -71,6 +72,12 @@ type Config struct {
 
 // Parse reads flags (with env fallbacks) and returns the config.
 func Parse(args []string) (*Config, error) {
+	var command, daemonCommandArg string
+	var err error
+	args, command, daemonCommandArg, err = normalizeCommand(args)
+	if err != nil {
+		return nil, err
+	}
 	mode := ModeServe
 	if os.Getenv("SB_FOX_DAEMON") == "1" {
 		mode = ModeDaemon
@@ -79,8 +86,8 @@ func Parse(args []string) (*Config, error) {
 	name := "sb-fox"
 	dataDirEnv, hasDataDirEnv := os.LookupEnv("SB_FOX_DATA_DIR")
 	hasDataDirFlag := flagPresent(args, "--data-dir", "-D")
-	addrExplicit := flagPresent(args, "--addr", "-a")
-	daemonRequested := flagPresent(args, "--daemon", "-d")
+	addrExplicit := flagPresent(args, "--addr", "-a", "--address")
+	daemonRequested := command == "daemon" || flagPresent(args, "--daemon", "-d")
 
 	dataDirDefault, err := defaultServeDataDir()
 	if err != nil {
@@ -110,49 +117,46 @@ func Parse(args []string) (*Config, error) {
 	reg := envOr("SB_FOX_REG", "off")
 	logLevel := envOr("SB_FOX_LOG", defaultLogLevel)
 	args = fillMissingStringFlagValues(args, map[string]string{
-		"--addr":     addr,
-		"-a":         addr,
-		"--data-dir": dataDir,
-		"-D":         dataDir,
-		"--kernel":   kernel,
-		"-k":         kernel,
-		"--reg":      reg,
-		"-r":         reg,
-		"--log":      logLevel,
-		"-l":         logLevel,
+		"--addr": addr, "-a": addr, "--address": addr,
+		"--data-dir": dataDir, "-D": dataDir,
+		"--kernel": kernel, "-k": kernel,
+		"--reg": reg, "-r": reg, "--registration": reg,
+		"--log": logLevel, "-l": logLevel, "--log-level": logLevel,
 	})
-	regExplicit := flagPresent(args, "--reg", "-r")
+	regExplicit := flagPresent(args, "--reg", "-r", "--registration")
 	var installDaemon, update, uninstall, resetAdmin, purge, dev, showVersion bool
+	if command == "daemon" && daemonCommandArg != "" {
+		args = append(args, daemonCommandArg)
+	}
 	fs.Usage = func() {
 		out := fs.Output()
-		fmt.Fprintf(out, "Usage of %s:\n", name)
-		fmt.Fprintln(out, "  --addr, -a string")
-		fmt.Fprintf(out, "\tlisten address (default %q)\n", addr)
-		fmt.Fprintln(out, "  --data-dir, -D string")
-		fmt.Fprintf(out, "\tdata directory (sqlite + temp) (default %q)\n", dataDir)
-		fmt.Fprintln(out, "  --kernel, -k string")
-		fmt.Fprintf(out, "\tsing-box binary path for config validation (default %q)\n", kernel)
-		fmt.Fprintln(out, "  --daemon, -d [enable|start|stop|restart|disable]")
-		fmt.Fprintln(out, "\tmanage the system daemon (default enable)")
-		fmt.Fprintln(out, "  --update, -u")
-		fmt.Fprintln(out, "\tupdate installed binary")
-		fmt.Fprintln(out, "  --uninstall, -U")
-		fmt.Fprintln(out, "\tuninstall service and binary")
-		fmt.Fprintln(out, "  --purge, -p")
-		fmt.Fprintln(out, "\tremove config and data during uninstall")
-		fmt.Fprintln(out, "  --reg, -r on|off")
-		fmt.Fprintf(out, "\tpublic registration switch (default %q)\n", reg)
-		fmt.Fprintln(out, "  --log, -l error|warn|info|debug")
-		fmt.Fprintf(out, "\tlog level (default %q)\n", logLevel)
-		fmt.Fprintln(out, "  --reset-admin, -P")
-		fmt.Fprintln(out, "\treset admin password and print a new random password")
+		fmt.Fprintln(out, "用法:")
+		fmt.Fprintln(out, "  sb-fox [run] [选项]")
+		fmt.Fprintln(out, "  sb-fox daemon [enable|start|stop|restart|disable] [选项]")
+		fmt.Fprintln(out, "  sb-fox update [选项]")
+		fmt.Fprintln(out, "  sb-fox uninstall [--purge] [选项]")
+		fmt.Fprintln(out, "  sb-fox reset-admin [选项]")
+		fmt.Fprintln(out, "\n选项:")
+		fmt.Fprintln(out, "  --addr string")
+		fmt.Fprintf(out, "\t监听地址（默认 %q）\n", addr)
+		fmt.Fprintln(out, "  --data-dir string")
+		fmt.Fprintf(out, "\t数据目录（SQLite 和临时文件，默认 %q）\n", dataDir)
+		fmt.Fprintln(out, "  --kernel string")
+		fmt.Fprintf(out, "\t用于配置校验的 sing-box 路径（默认 %q）\n", kernel)
+		fmt.Fprintln(out, "  --registration on|off")
+		fmt.Fprintf(out, "\t公开注册开关（默认 %q）\n", reg)
+		fmt.Fprintln(out, "  --log-level error|warn|info|debug")
+		fmt.Fprintf(out, "\t日志级别（默认 %q）\n", logLevel)
+		fmt.Fprintln(out, "  --purge")
+		fmt.Fprintln(out, "\t卸载时同时删除配置和数据")
 		fmt.Fprintln(out, "  --dev")
-		fmt.Fprintln(out, "\tdev mode (serve API only)")
-		fmt.Fprintln(out, "  --version, -v")
-		fmt.Fprintln(out, "\tprint version and exit")
+		fmt.Fprintln(out, "\t开发模式（仅提供 API）")
+		fmt.Fprintln(out, "  --version")
+		fmt.Fprintln(out, "\t显示版本并退出")
 	}
 	fs.StringVar(&addr, "addr", addr, "listen address")
 	fs.StringVar(&addr, "a", addr, "listen address")
+	fs.StringVar(&addr, "address", addr, "listen address")
 	fs.StringVar(&dataDir, "data-dir", dataDir, "data directory (sqlite + temp)")
 	fs.StringVar(&dataDir, "D", dataDir, "data directory (sqlite + temp)")
 	fs.StringVar(&kernel, "kernel", kernel, "sing-box binary path for config validation")
@@ -167,8 +171,10 @@ func Parse(args []string) (*Config, error) {
 	fs.BoolVar(&purge, "p", false, "remove config and data during uninstall")
 	fs.StringVar(&reg, "reg", reg, "public registration switch (on|off)")
 	fs.StringVar(&reg, "r", reg, "public registration switch (on|off)")
+	fs.StringVar(&reg, "registration", reg, "public registration switch (on|off)")
 	fs.StringVar(&logLevel, "log", logLevel, "log level (error|warn|info|debug)")
 	fs.StringVar(&logLevel, "l", logLevel, "log level (error|warn|info|debug)")
+	fs.StringVar(&logLevel, "log-level", logLevel, "log level (error|warn|info|debug)")
 	fs.BoolVar(&resetAdmin, "reset-admin", false, "reset admin password and print a new random password")
 	fs.BoolVar(&resetAdmin, "P", false, "reset admin password and print a new random password")
 	fs.BoolVar(&dev, "dev", false, "dev mode (serve API only)")
@@ -177,6 +183,18 @@ func Parse(args []string) (*Config, error) {
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
+	}
+	switch command {
+	case "daemon":
+		installDaemon = true
+	case "update":
+		update = true
+	case "uninstall":
+		uninstall = true
+	case "reset-admin":
+		resetAdmin = true
+	case "version":
+		showVersion = true
 	}
 	daemonCommand, err := resolveDaemonCommand(installDaemon, fs.Args())
 	if err != nil {
@@ -259,6 +277,32 @@ func envOr(key, def string) string {
 	return def
 }
 
+// normalizeCommand converts the user-facing subcommand syntax into the
+// existing flag-based representation. Legacy flags remain accepted so older
+// service scripts and operators can upgrade without a breaking transition.
+func normalizeCommand(args []string) ([]string, string, string, error) {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return args, "", "", nil
+	}
+	command := args[0]
+	args = args[1:]
+	switch command {
+	case "run", "serve":
+		return args, "", "", nil
+	case "update", "uninstall", "reset-admin", "version":
+		return args, command, "", nil
+	case "daemon":
+		var daemonCommand string
+		if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+			daemonCommand = args[0]
+			args = args[1:]
+		}
+		return args, command, daemonCommand, nil
+	default:
+		return nil, "", "", fmt.Errorf("未知命令 %q；使用 sb-fox --help 查看帮助", command)
+	}
+}
+
 func flagPresent(args []string, names ...string) bool {
 	for _, arg := range args {
 		for _, name := range names {
@@ -290,7 +334,7 @@ func normalizeReg(value string) (string, error) {
 	case "on", "off":
 		return value, nil
 	default:
-		return "", fmt.Errorf("--reg must be on or off")
+		return "", fmt.Errorf("--registration must be on or off")
 	}
 }
 
@@ -305,7 +349,7 @@ func normalizeLogLevel(value string) (string, error) {
 	case "debug":
 		return "debug", nil
 	default:
-		return "", fmt.Errorf("--log must be one of error, warn, info or debug")
+		return "", fmt.Errorf("--log-level must be one of error, warn, info or debug")
 	}
 }
 

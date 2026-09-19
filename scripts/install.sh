@@ -169,12 +169,13 @@ cp -R "${archive_root}/data/templates/." "${data_dir}/templates/"
 info "installed ${BINARY} ${version} to ${dir}/${BINARY}"
 info "installed seed templates to ${data_dir}/templates"
 info "next steps:"
-printf '  %s\n' "enable daemon: sb-fox --daemon"
-printf '  %s\n' "restart daemon: sb-fox --daemon restart"
+printf '  %s\n' "enable daemon: sb-fox daemon"
+printf '  %s\n' "restart daemon: sb-fox daemon restart"
 printf '  %s\n' "open panel:   http://127.0.0.1:7878"
 printf '  %s\n' "logs:         journalctl -u sb-fox -f"
-printf '  %s\n' "registration: sb-fox --reg on|off"
-printf '  %s\n' "foreground:   sb-fox --addr 127.0.0.1:7879"
+printf '  %s\n' "registration on:  sb-fox daemon --registration on"
+printf '  %s\n' "registration off: sb-fox daemon --registration off"
+printf '  %s\n' "foreground:   sb-fox run --addr 127.0.0.1:7879"
 case ":$PATH:" in
   *":$dir:"*) ;;
   *) printf '\033[1;33mnote:\033[0m %s is not in your PATH; add it or move the binary.\n' "$dir" ;;

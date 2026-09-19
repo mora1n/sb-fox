@@ -271,10 +271,10 @@ func TestControlDaemonPrintsInitialAdminPassword(t *testing.T) {
 		t.Fatalf("ControlDaemon second: %v", err)
 	}
 	second := output.String()
-	if strings.Contains(second, "password:") {
+	if strings.Contains(second, "  password:") {
 		t.Fatalf("second daemon command should not print password:\n%s", second)
 	}
-	if !strings.Contains(second, "admin already exists") || !strings.Contains(second, "sudo sb-fox -P") {
+	if !strings.Contains(second, "admin already exists") || !strings.Contains(second, "sudo sb-fox reset-admin") {
 		t.Fatalf("existing admin reset hint missing:\n%s", second)
 	}
 
@@ -537,7 +537,7 @@ func TestUpdateAlreadyLatestIsNoop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
-	if got := strings.TrimSpace(output.String()); got != "already up to date: v9.9.9" {
+	if got := strings.TrimSpace(output.String()); got != "✓ already up to date\n  version: v9.9.9" {
 		t.Fatalf("output = %q", got)
 	}
 	if len(paths) != 1 || paths[0] != "/latest" {
@@ -594,7 +594,7 @@ func TestUpdateMetadataHTTPErrorDoesNotExposeSourceURL(t *testing.T) {
 	if !strings.Contains(msg, "release metadata unavailable; private repository requires SB_FOX_GITHUB_TOKEN") {
 		t.Fatalf("metadata error = %q", msg)
 	}
-	for _, want := range []string{"export SB_FOX_GITHUB_TOKEN=...", "sb-fox -u"} {
+	for _, want := range []string{"export SB_FOX_GITHUB_TOKEN=...", "sb-fox update"} {
 		if !strings.Contains(msg, want) {
 			t.Fatalf("metadata error missing %q: %q", want, msg)
 		}
@@ -637,7 +637,7 @@ func TestUpdateMetadataTokenErrorDoesNotExposeToken(t *testing.T) {
 	if !strings.Contains(msg, "check SB_FOX_GITHUB_TOKEN permission or release availability") {
 		t.Fatalf("metadata error = %q", msg)
 	}
-	for _, want := range []string{"export SB_FOX_GITHUB_TOKEN=...", "sb-fox -u"} {
+	for _, want := range []string{"export SB_FOX_GITHUB_TOKEN=...", "sb-fox update"} {
 		if !strings.Contains(msg, want) {
 			t.Fatalf("metadata error missing %q: %q", want, msg)
 		}

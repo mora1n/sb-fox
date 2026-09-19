@@ -15,7 +15,7 @@ import (
 const (
 	defaultLatestURL      = "https://api.github.com/repos/mora1n/sb-fox/releases/latest"
 	defaultDownloadBase   = "https://api.github.com/repos/mora1n/sb-fox/releases/assets"
-	privateRepoUpdateHint = "hint: export SB_FOX_GITHUB_TOKEN=...\n      sb-fox -u"
+	privateRepoUpdateHint = "hint: export SB_FOX_GITHUB_TOKEN=...\n      sb-fox update"
 )
 
 type releaseInfo struct {

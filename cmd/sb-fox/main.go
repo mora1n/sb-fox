@@ -350,7 +350,7 @@ func resetAdminPassword(cfg *config.Config) error {
 		if _, err := db.CreateUser(&models.User{Username: "admin", PasswordHash: hash, Role: models.RoleAdmin}); err != nil {
 			return err
 		}
-		fmt.Printf("admin password created\nusername: admin\npassword: %s\n", password)
+		fmt.Printf("✓ admin password created\n  username: admin\n  password: %s\n", password)
 		return nil
 	}
 	if err != nil {
@@ -359,7 +359,7 @@ func resetAdminPassword(cfg *config.Config) error {
 	if err := db.SetUserPassword(admin.ID, hash); err != nil {
 		return err
 	}
-	fmt.Printf("admin password reset\nusername: %s\npassword: %s\n", admin.Username, password)
+	fmt.Printf("✓ admin password reset\n  username: %s\n  password: %s\n", admin.Username, password)
 	return nil
 }
 

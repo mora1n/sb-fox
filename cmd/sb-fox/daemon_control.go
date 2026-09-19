@@ -148,12 +148,12 @@ func daemonSocketExists(path string) bool {
 }
 
 func printDaemonStatus(status daemonControlStatus) {
-	fmt.Printf("sb-fox daemon is running\naddr: %s\ndata-dir: %s\nregistration: %s\npid: %d\n",
+	fmt.Printf("✓ daemon is running\n  address: %s\n  data directory: %s\n  registration: %s\n  pid: %d\n",
 		status.Addr, status.DataDir, regStatus(status.RegistrationEnabled), status.PID)
 }
 
 func printDaemonRegistration(status daemonControlStatus) {
-	fmt.Printf("sb-fox daemon registration: %s\naddr: %s\ndata-dir: %s\n",
+	fmt.Printf("✓ registration: %s\n  address: %s\n  data directory: %s\n",
 		regStatus(status.RegistrationEnabled), status.Addr, status.DataDir)
 }
 

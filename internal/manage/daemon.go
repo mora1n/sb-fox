@@ -21,7 +21,7 @@ func InstallDaemon(opts Options) error {
 }
 
 // ControlDaemon manages the systemd service. The empty command defaults to
-// enable for compatibility with the original --daemon behavior.
+// enable for compatibility with the original flag-based CLI.
 func ControlDaemon(opts Options, command string) error {
 	opts = opts.withDefaults()
 	if err := requireLinuxRoot(opts.Root); err != nil {
@@ -71,13 +71,13 @@ func ControlDaemon(opts Options, command string) error {
 		if err := runSystemctl(opts, "stop", ServiceName); err != nil {
 			return err
 		}
-		fmt.Fprintln(opts.Stdout, "sb-fox service stopped")
+		fmt.Fprintln(opts.Stdout, "✓ service stopped")
 		return nil
 	case "disable":
 		if err := runSystemctl(opts, "disable", "--now", ServiceName); err != nil {
 			return err
 		}
-		fmt.Fprintln(opts.Stdout, "sb-fox service disabled and stopped")
+		fmt.Fprintln(opts.Stdout, "✓ service disabled and stopped")
 		return nil
 	default:
 		return fmt.Errorf("unsupported daemon command %q", command)
@@ -128,23 +128,23 @@ func printAdminInit(w io.Writer, result *bootstrap.AdminInit, printExistingHint 
 	}
 	if !result.Created {
 		if printExistingHint {
-			fmt.Fprintln(w, "admin already exists; existing password cannot be shown")
-			fmt.Fprintln(w, "reset admin: sudo sb-fox -P")
+			fmt.Fprintln(w, "✓ admin already exists; the current password cannot be shown")
+			fmt.Fprintln(w, "  reset password: sudo sb-fox reset-admin")
 		}
 		return
 	}
 	if result.Generated {
-		fmt.Fprintf(w, "initial admin created\nusername: %s\npassword: %s\n", result.Username, result.Password)
+		fmt.Fprintf(w, "✓ initial admin created\n  username: %s\n  password: %s\n", result.Username, result.Password)
 		return
 	}
-	fmt.Fprintf(w, "initial admin created from SB_FOX_ADMIN_PASSWORD\nusername: %s\n", result.Username)
+	fmt.Fprintf(w, "✓ initial admin created from SB_FOX_ADMIN_PASSWORD\n  username: %s\n", result.Username)
 }
 
 func finishDaemonStart(opts Options, message string) error {
 	if err := HealthCheck(opts, envAddr(opts)); err != nil {
 		return fmt.Errorf("health-check failed: %w", err)
 	}
-	fmt.Fprintln(opts.Stdout, message)
+	fmt.Fprintf(opts.Stdout, "✓ %s\n  address: %s\n  data directory: %s\n", message, opts.Addr, opts.DataDir)
 	return nil
 }
 

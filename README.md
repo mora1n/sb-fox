@@ -3,93 +3,131 @@
 [![Release](https://img.shields.io/github/v/release/mora1n/sb-fox?sort=semver)](https://github.com/mora1n/sb-fox/releases)
 [![sing-box](https://img.shields.io/badge/sing--box-default%201.14.0-neutral)](https://github.com/SagerNet/sing-box)
 
-`sb-fox` 是一个轻量的 sing-box Web 面板，用于管理节点、模板、规则集和公开订阅。
+`sb-fox` 是一个简洁的 sing-box Web 面板，用于管理节点、模板、规则集和公开订阅。
 
-它围绕日常使用流程设计：导入节点，按国家整理，选择模板，然后发布带共享 token 的 sing-box 订阅链接。
+## 开始使用
 
-## 功能
-
-- 从分享链接、远程订阅或已有 sing-box 配置导入节点
-- 自动识别节点国家，也支持手动修正
-- 按可自定义的国家热度顺序生成国家 selector
-- 在设置页通过拖拽调整国家优先级
-- 在简洁的 Web UI 中管理模板、节点和订阅
-- 聚合手工 source JSON、远程 JSON/SRS 规则源，发布 JSON/SRS 下载链接
-- 支持多用户，管理员可管理用户、重置密码并设置资源上限
-- 生成可轮换共享 token 的公开订阅链接，并按订阅名称区分
-- 调用本机 sing-box 校验和格式化生成配置，未安装内核时相关按钮会置灰提示
-
-## 使用路径
-
-1. 安装最新 release，或从源码构建 `sb-fox`。
-2. 启动 `sb-fox`，也可以通过 `sb-fox --daemon` 启用守护进程。
-3. 打开 `http://127.0.0.1:7878`，使用首次打印的 admin 密码登录。
-4. 在“节点”中导入分享链接、远程订阅或 sing-box 配置。
-5. 在“订阅”中选择模板、配置出口分组，并生成预览。
-6. 开启分享订阅后，复制订阅链接到 sing-box 客户端使用。
-7. 如需自托管规则集，在“规则集”中添加规则源并把生成的远程规则集片段加入模板。
-
-## 安装
-
-安装最新 GitHub Release：
+安装最新版本：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/mora1n/sb-fox/main/scripts/install.sh | sh
 ```
 
-安装脚本会下载匹配当前系统的 release 包，安装 `sb-fox` 二进制，并把种子模板复制到默认数据目录的 `templates` 子目录。安装完成后不会自动启用守护进程，只会打印下一步命令。
-
-root 用户安装时，种子模板默认复制到 `/var/lib/sb-fox/templates`；普通用户安装时默认复制到 `~/.local/share/sb-fox/templates`。
-
-## 运行
+启动面板：
 
 ```sh
-sb-fox
+sb-fox run
 ```
 
-启动后打开 `http://127.0.0.1:7878`。
+然后打开 <http://127.0.0.1:7878>。首次启动会在终端显示一次性 admin 密码。
 
-首次运行时，`sb-fox` 会创建管理员账号，并在终端打印一次性密码。默认用户名是 `admin`。
+也可以直接运行 `sb-fox`，它等同于 `sb-fox run`。
 
-如果已有守护进程在运行，直接执行 `sb-fox` 会显示 daemon 状态并退出，不会再启动第二个同地址服务。
+## 功能
 
-如需开放用户自行注册：
+- 导入分享链接、远程订阅、Mihomo/Surge YAML 和 sing-box 配置
+- 自动识别国家，支持手动指定国家和自定义国家排序
+- 管理节点、组合节点、模板、规则集和公开订阅
+- 订阅源支持自动刷新，默认每 1 天抓取一次，也可以设置自定义间隔
+- 使用本机 sing-box 校验、格式化并生成配置
+- 支持多用户、资源上限和可轮换的共享订阅 token
+
+## CLI
+
+CLI 使用清晰的子命令；选项统一使用 `--` 长参数。旧版的 `--update`、`-u`、`--daemon`、`-P` 等形式仍可解析，便于升级已有脚本。
+
+查看帮助：
 
 ```sh
-sudo sb-fox --reg on
+sb-fox --help
 ```
 
-关闭注册：
+启动前台服务：
 
 ```sh
-sudo sb-fox --reg off
+sb-fox run
+sb-fox run --addr 127.0.0.1:7879 --data-dir ./data
 ```
 
-没有守护进程时，`--reg on|off` 仍可作为前台启动参数使用。
-
-## 守护进程模式
+管理 systemd 守护进程：
 
 ```sh
-sudo sb-fox --daemon
-sudo sb-fox --daemon restart
+sudo sb-fox daemon
+sudo sb-fox daemon start
+sudo sb-fox daemon restart
+sudo sb-fox daemon stop
+sudo sb-fox daemon disable
 ```
 
-`--daemon` 默认等同 `--daemon enable`，会生成 systemd service，执行 `systemctl enable sb-fox` 后重启服务，并使用以下默认位置。可用命令为 `enable`、`start`、`stop`、`restart`、`disable`，其中 `enable` 会启用并重启当前服务，`disable` 会停止并禁用服务。
+`sb-fox daemon` 默认执行 `enable`：写入服务、启用服务并重启。默认守护进程位置为：
 
-首次启用守护进程时，命令会在当前终端显示一次性 admin 密码。若 admin 已存在，旧密码无法再次显示，可用 `sudo sb-fox -P` 重置。
+```text
+socket:    /var/run/sb-fox.sock
+data:      /var/lib/sb-fox
+database:  /var/lib/sb-fox/sb-fox.db
+templates: /var/lib/sb-fox/templates
+```
 
-- 单实例 socket：`/var/run/sb-fox.sock`
-- 数据目录：`/var/lib/sb-fox`
-- 数据库：`/var/lib/sb-fox/sb-fox.db`
-- 模板目录：`/var/lib/sb-fox/templates`
-
-如果已有守护进程在运行，新的服务启动会直接失败。socket 是内部单实例锁，不提供命令行参数。
-
-守护进程启动后，可通过命令修改注册开关，无需重启服务：
+更新已安装版本：
 
 ```sh
-sudo sb-fox --reg on
-sudo sb-fox --reg off
+sudo sb-fox update
+```
+
+卸载服务和二进制，保留数据：
+
+```sh
+sudo sb-fox uninstall
+```
+
+同时删除配置和数据：
+
+```sh
+sudo sb-fox uninstall --purge
+```
+
+重置 admin 密码：
+
+```sh
+sudo sb-fox reset-admin
+```
+
+开启或关闭公开注册：
+
+```sh
+sudo sb-fox --registration on
+sudo sb-fox --registration off
+```
+
+已有守护进程时，这两个命令会通过内部 socket 更新设置，无需重启服务。
+
+成功操作会输出简洁的状态信息，例如：
+
+```text
+✓ service enabled and restarted
+  address: 127.0.0.1:7878
+  data directory: /var/lib/sb-fox
+```
+
+daemon socket 内部使用 JSON 进行进程间通信，但不会作为用户命令的输出格式展示。
+
+## 常用选项
+
+| 选项 | 环境变量 | 默认值 |
+| --- | --- | --- |
+| `--addr` | `SB_FOX_ADDR` | `127.0.0.1:7878` |
+| `--data-dir` | `SB_FOX_DATA_DIR` | root: `/var/lib/sb-fox`；普通用户: `~/.local/share/sb-fox` |
+| `--kernel` | `SB_FOX_KERNEL` | `sing-box` |
+| `--registration on\|off` | `SB_FOX_REG` | `off` |
+| `--log-level error\|warn\|info\|debug` | `SB_FOX_LOG` | `info` |
+| `--purge` |  | 仅用于 `uninstall`，删除配置和数据 |
+| `--dev` |  | 仅提供 API，不要求嵌入前端 |
+| `--version` |  | 显示版本 |
+
+如果需要指定首次管理员密码，可以在首次启动前设置：
+
+```sh
+SB_FOX_ADMIN_PASSWORD='change-me' sb-fox run
 ```
 
 查看守护进程日志：
@@ -98,105 +136,33 @@ sudo sb-fox --reg off
 journalctl -u sb-fox -f
 ```
 
-更新已安装版本：
+## 模板和规则集
 
-```sh
-sudo sb-fox -u
-```
+随包提供的模板位于 `data/templates/fakeip.json`，默认适配 sing-box `1.14.0`。模板会作为普通可编辑模板写入数据库，已有同名模板不会被启动时覆盖。
 
-## 卸载
-
-保留配置和数据：
-
-```sh
-sudo sb-fox --uninstall
-```
-
-同时删除配置和数据：
-
-```sh
-sudo sb-fox --uninstall --purge
-```
-
-## 模板
-
-随包提供的模板是：
-
-```text
-data/templates/fakeip.json
-```
-
-它会以普通可编辑模板的形式写入数据库，模板名为 `fakeip`。如果数据库中已经存在同名模板，重启时不会覆盖用户修改。
-
-该模板默认适配 sing-box `1.14.0`，并以该版本进行兼容性检查；`sb-fox` 运行时不锁定 sing-box 版本。
-
-## 规则集
-
-规则集模块支持按顺序聚合以下来源：
-
-- 手工输入的 sing-box source-format JSON
-- 远程 source JSON
-- 远程 binary SRS
-
-保存或手动刷新时，`sb-fox` 会使用当前用户选择的 sing-box 内核完成校验、SRS 反编译、结构去重和重新编译。任一来源失败都会中止本次发布，已经发布的旧快照不会被覆盖。
-
-发布成功后可在面板复制 source JSON、binary SRS 链接，或直接复制 `route.rule_set` 配置片段。规则集和订阅复用同一个用户级共享 token；轮换 token 会同时撤销两类旧链接。
-
-## 配置
-
-常用选项：
-
-| 选项 | 环境变量 | 默认值 |
-|---|---|---|
-| `--addr`, `-a` | `SB_FOX_ADDR` | `127.0.0.1:7878` |
-| `--data-dir`, `-D` | `SB_FOX_DATA_DIR` | root: `/var/lib/sb-fox`；普通用户: `~/.local/share/sb-fox` |
-| `--kernel`, `-k` | `SB_FOX_KERNEL` | `sing-box` |
-| `--daemon [enable\|start\|stop\|restart\|disable]`, `-d ...` |  | 管理 systemd 服务，默认 `enable` |
-| `--update`, `-u` |  | 更新已安装版本 |
-| `--uninstall`, `-U` |  | 卸载服务和二进制 |
-| `--purge`, `-p` |  | 卸载时同时删除配置和数据 |
-| `--reg on\|off`, `-r on\|off` | `SB_FOX_REG` | `off` |
-| `--log error\|warn\|info\|debug`, `-l ...` | `SB_FOX_LOG` | `info` |
-| `--reset-admin`, `-P` |  | 重置 admin 密码并打印新随机密码 |
-
-带默认值的字符串参数可以省略值，例如 `sb-fox -l` 会使用当前默认日志级别。
-
-如果希望自行指定首次启动的管理员密码，可以在启动前设置 `SB_FOX_ADMIN_PASSWORD`。
-
-忘记 admin 密码时：
-
-```sh
-sb-fox -P                # 当前用户默认数据目录
-sudo sb-fox -P           # daemon /var/lib/sb-fox
-sb-fox -P -D ./data      # 指定数据目录
-```
+规则集支持手工 source JSON、远程 source JSON 和 binary SRS。发布时会使用当前选择的 sing-box 内核校验和编译；发布失败不会覆盖已发布的旧快照。
 
 ## 从源码构建
 
 ```sh
 make frontend
 make build
-./sb-fox --addr 127.0.0.1:7878 --data-dir ./data
+./sb-fox run --addr 127.0.0.1:7878 --data-dir ./data
 ```
 
-常用检查：
+检查项目：
 
 ```sh
 make test
 make parity
+make build
 sing-box check -c data/templates/fakeip.json
 ```
 
-模板兼容性检查默认使用 sing-box `1.14.0` 二进制。未安装 sing-box 时，配置生成仍可使用，校验和格式化功能会在前端置灰提示。
+## 安全提示
 
-## 安全
+`/sub/{token}/{订阅名称}` 和 `/rules/{token}/{规则集名称}.{json|srs}` 是公开入口。完整链接包含用户级共享凭据，泄露后请在设置中轮换 token。
 
-`/sub/{token}/{订阅名称}` 和 `/rules/{token}/{规则集名称}.{json|srs}` 是公开入口。token 是用户级共享凭据，任何拿到完整链接的人都可以获取对应配置或规则集；如果 token 泄露，应及时轮换。
+远程订阅和规则集抓取默认拒绝私网、环回、链路本地、CGNAT、组播和云元数据地址。只有在可信网络环境中才建议开启私网抓取。
 
-远程订阅和规则集抓取默认拒绝私网、环回和云元数据地址。规则集单源限制为 64 MiB，单次聚合原始输入总计限制为 256 MiB。只有在可信网络环境中才建议开启私网地址抓取。
-
-## 免责声明
-
-本项目仅供个人学习、研究和合法合规用途。使用本项目产生的任何风险和后果均由使用者自行承担，包括但不限于配置错误、服务异常、账号或服务器被封禁、资源滥用、数据泄露、经济损失以及违反当地法律法规所产生的责任。
-
-禁止将本项目用于网络攻击、非法访问、数据窃取、滥用代理或任何未经授权的行为。作者不对使用本项目造成的直接或间接损失承担责任，也不提供任何形式的担保、承诺或技术支持。如不同意上述内容，请停止使用本项目。
+本项目仅供个人学习、研究和合法合规用途。请在使用前确认符合所在地区的法律法规和服务商条款。

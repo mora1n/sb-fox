@@ -141,6 +141,36 @@ func TestParseDaemonCommands(t *testing.T) {
 	}
 }
 
+func TestParseSubcommandsAndLongOptions(t *testing.T) {
+	clearEnv(t)
+	setEUID(t, 1000)
+	t.Setenv("HOME", "/home/tester")
+	cases := []struct {
+		args []string
+		want Action
+	}{
+		{[]string{"update"}, ActionUpdate},
+		{[]string{"uninstall", "--purge"}, ActionUninstall},
+		{[]string{"reset-admin"}, ActionResetAdmin},
+	}
+	for _, tc := range cases {
+		cfg, err := Parse(tc.args)
+		if err != nil {
+			t.Fatalf("Parse(%v): %v", tc.args, err)
+		}
+		if cfg.Action != tc.want {
+			t.Fatalf("Parse(%v) action=%q, want %q", tc.args, cfg.Action, tc.want)
+		}
+	}
+	cfg, err := Parse([]string{"daemon", "restart", "--address", "127.0.0.1:9999", "--registration", "on", "--log-level", "debug"})
+	if err != nil {
+		t.Fatalf("Parse daemon subcommand: %v", err)
+	}
+	if cfg.Action != ActionInstallDaemon || cfg.DaemonCommand != DaemonRestart || cfg.Addr != "127.0.0.1:9999" || !cfg.RegistrationEnabled || cfg.LogLevel != "debug" {
+		t.Fatalf("daemon config = %+v", cfg)
+	}
+}
+
 func TestParseDaemonRejectsInvalidCommand(t *testing.T) {
 	clearEnv(t)
 

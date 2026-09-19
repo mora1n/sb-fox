@@ -53,10 +53,10 @@ func Uninstall(opts Options) error {
 		if err := removeIfExists(opts.rooted(DefaultSocketPath)); err != nil {
 			return err
 		}
-		fmt.Fprintln(opts.Stdout, "sb-fox uninstalled and data removed")
+		fmt.Fprintf(opts.Stdout, "✓ sb-fox uninstalled\n  data removed: %s\n", opts.DataDir)
 		return nil
 	}
-	fmt.Fprintln(opts.Stdout, "sb-fox uninstalled; config and data preserved")
+	fmt.Fprintln(opts.Stdout, "✓ sb-fox uninstalled; config and data preserved")
 	return nil
 }
 

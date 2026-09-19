@@ -35,7 +35,7 @@ func Update(opts Options) error {
 		return err
 	}
 	if sameReleaseVersion(opts.Version, latest.TagName) {
-		fmt.Fprintf(opts.Stdout, "already up to date: %s\n", latest.TagName)
+		fmt.Fprintf(opts.Stdout, "✓ already up to date\n  version: %s\n", latest.TagName)
 		return nil
 	}
 	archiveName, err := releaseArchiveName(latest.TagName)
@@ -48,7 +48,7 @@ func Update(opts Options) error {
 	}
 	defer os.RemoveAll(tmp)
 
-	fmt.Fprintf(opts.Stdout, "latest version: %s\n", latest.TagName)
+	fmt.Fprintf(opts.Stdout, "→ latest version: %s\n", latest.TagName)
 	archivePath := filepath.Join(tmp, archiveName)
 	sumPath := filepath.Join(tmp, "SHA256SUMS")
 	archiveAsset, err := releaseAssetByName(latest.Assets, archiveName)
@@ -68,7 +68,7 @@ func Update(opts Options) error {
 	if err := verifySHA256(archivePath, sumPath, archiveName); err != nil {
 		return err
 	}
-	fmt.Fprintln(opts.Stdout, "checksum verified")
+	fmt.Fprintln(opts.Stdout, "✓ checksum verified")
 	if err := extractTarGz(archivePath, tmp); err != nil {
 		return err
 	}
@@ -80,14 +80,14 @@ func Update(opts Options) error {
 	if err := copyFile(target, backup, 0o755); err != nil {
 		return fmt.Errorf("backup current binary: %w", err)
 	}
-	fmt.Fprintf(opts.Stdout, "backup created: %s\n", filepath.Base(backup))
+	fmt.Fprintf(opts.Stdout, "✓ backup created: %s\n", filepath.Base(backup))
 	if err := replaceBinary(target, newBinary); err != nil {
 		return fmt.Errorf("replace binary: %w", err)
 	}
-	fmt.Fprintln(opts.Stdout, "binary replaced")
+	fmt.Fprintln(opts.Stdout, "✓ binary replaced")
 
 	if err := restartAndCheck(opts); err != nil {
-		fmt.Fprintln(opts.Stdout, "health-check failed, rolling back")
+		fmt.Fprintln(opts.Stdout, "! health-check failed; rolling back")
 		if rbErr := replaceBinary(target, backup); rbErr != nil {
 			return fmt.Errorf("rollback failed after update error: %v; rollback: %w", err, rbErr)
 		}
@@ -99,7 +99,7 @@ func Update(opts Options) error {
 	if err := os.Remove(backup); err != nil {
 		return fmt.Errorf("remove update backup: %w", err)
 	}
-	fmt.Fprintln(opts.Stdout, "update completed")
+	fmt.Fprintln(opts.Stdout, "✓ update completed")
 	return nil
 }
 
