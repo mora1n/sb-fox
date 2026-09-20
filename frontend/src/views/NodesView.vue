@@ -4,6 +4,7 @@ import { useNodesStore } from '../stores/nodes'
 import { useNodeGroupsStore } from '../stores/nodeGroups'
 import { useUiStore } from '../stores/ui'
 import { useI18nStore } from '../stores/i18n'
+import { useSourcesStore } from '../stores/sources'
 import { errMsg } from '../utils/error'
 import { downloadPost } from '../api/client'
 import type { Node, NodeGroup, NodeSummary } from '../api/types'
@@ -47,6 +48,7 @@ const nodesStore = useNodesStore()
 const nodeGroups = useNodeGroupsStore()
 const ui = useUiStore()
 const i18n = useI18nStore()
+const sourcesStore = useSourcesStore()
 
 const showImport = ref(false)
 const showSources = ref(false)
@@ -441,9 +443,10 @@ async function confirmBulkDelete() {
   busy.value = true
   try {
     if (current.target === 'nodes') {
-      const deleted = await nodesStore.bulkDelete(current.ids)
+      const result = await nodesStore.bulkDelete(current.ids)
       selected.value = removeSelectedIDs(selected.value, current.ids)
-      ui.success(`已删除 ${deleted} 个节点`)
+      ui.success(`已删除 ${result.deleted} 个节点`)
+      await offerEmptySources(result.empty_source_ids)
     } else {
       const result = await nodeGroups.bulkDelete(current.ids, current.deleteNodes)
       if (current.deleteNodes && result.deleted_node_ids?.length) {
@@ -453,6 +456,7 @@ async function confirmBulkDelete() {
       const deletedNodes = result.deleted_nodes ?? result.deleted_node_ids?.length ?? 0
       const nodeMessage = current.deleteNodes && deletedNodes ? `，同时删除 ${deletedNodes} 个节点` : ''
       ui.success(`已删除 ${result.deleted} 个组合节点${nodeMessage}`)
+      if (current.deleteNodes) await offerEmptySources(result.empty_source_ids)
     }
     bulkDeleteSeq++
     bulkDeleteDialog.value = { ...bulkDeleteDialog.value, open: false, itemName: '', busy: false }
@@ -461,6 +465,22 @@ async function confirmBulkDelete() {
     bulkDeleteDialog.value = { ...bulkDeleteDialog.value, busy: false }
   } finally {
     busy.value = false
+  }
+}
+
+async function offerEmptySources(ids?: number[]) {
+  if (!ids?.length) return
+  await sourcesStore.fetchAll(true)
+  for (const id of ids) {
+    const source = sourcesStore.sources.find((item) => item.id === id)
+    if (!source) continue
+    if (!confirm(`订阅源「${source.name || source.url}」已没有节点，是否删除该订阅源？`)) continue
+    try {
+      await sourcesStore.remove(id)
+      ui.success('订阅源已删除')
+    } catch (e) {
+      ui.error(errMsg(e))
+    }
   }
 }
 

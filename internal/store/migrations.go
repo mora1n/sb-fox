@@ -267,4 +267,12 @@ var migrations = []string{
 	ALTER TABLE subscription_sources ADD COLUMN refresh_interval_minutes INTEGER NOT NULL DEFAULT 1440;
 	ALTER TABLE subscription_sources ADD COLUMN next_refresh_at TEXT;
 	UPDATE subscription_sources SET next_refresh_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+1 day') WHERE auto_refresh = 1;`,
+
+	// 16: nodes explicitly removed from a source stay excluded on refresh.
+	`CREATE TABLE subscription_source_exclusions (
+		source_id INTEGER NOT NULL REFERENCES subscription_sources(id) ON DELETE CASCADE,
+		raw       TEXT NOT NULL,
+		PRIMARY KEY (source_id, raw)
+	);
+	CREATE INDEX idx_source_exclusions_source ON subscription_source_exclusions(source_id);`,
 }

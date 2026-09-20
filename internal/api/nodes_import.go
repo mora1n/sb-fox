@@ -278,6 +278,22 @@ func (s *Server) refreshSourceNodesContext(ctx context.Context, user *models.Use
 			oldSource = append(oldSource, n)
 		}
 	}
+	excludedRaw, err := s.Store.ListSubscriptionSourceExclusions(src.ID)
+	if err != nil {
+		return nil, 0, fetched.Warnings, fetched.Fetches, err
+	}
+	if len(oldSource) == 0 && len(excludedRaw) > 0 {
+		if err := s.Store.ClearSubscriptionSourceExclusions(src.ID); err != nil {
+			return nil, 0, fetched.Warnings, fetched.Fetches, err
+		}
+		excludedRaw = nil
+	}
+	if len(excludedRaw) > 0 {
+		nodes, err = filterExcludedSourceNodes(nodes, excludedRaw)
+		if err != nil {
+			return nil, 0, fetched.Warnings, fetched.Fetches, err
+		}
+	}
 	nodes, deduped, err := dedupeIncomingAgainst(nodes, otherSource)
 	if err != nil {
 		return nil, 0, fetched.Warnings, fetched.Fetches, err
@@ -317,6 +333,28 @@ func (s *Server) refreshSourceNodesContext(ctx context.Context, user *models.Use
 	}
 	_ = s.Store.UpdateSourceFetch(src.ID, status, len(result))
 	return result, deduped, fetched.Warnings, fetched.Fetches, nil
+}
+
+func filterExcludedSourceNodes(nodes []*models.Node, excludedRaw []string) ([]*models.Node, error) {
+	excluded := make(map[string]struct{}, len(excludedRaw))
+	for _, raw := range excludedRaw {
+		fp, err := nodeFingerprint(raw)
+		if err != nil {
+			return nil, err
+		}
+		excluded[fp] = struct{}{}
+	}
+	filtered := make([]*models.Node, 0, len(nodes))
+	for _, node := range nodes {
+		fp, err := nodeFingerprint(node.Raw)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := excluded[fp]; !ok {
+			filtered = append(filtered, node)
+		}
+	}
+	return filtered, nil
 }
 
 type sourceOutboundsResult struct {

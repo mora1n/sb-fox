@@ -1119,8 +1119,8 @@ func TestRefreshSubscriptionMultiURLKeepsNodesOnPartialFailure(t *testing.T) {
 	srv.Fetcher.AllowPrivate = true
 	c := newClient(t, ts.URL)
 	c.http.Jar = login(t, ts.URL)
-
 	var phase int32
+
 	sub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if atomic.LoadInt32(&phase) == 0 {
 			if r.URL.Path == "/a" {
@@ -1210,6 +1210,58 @@ func TestRefreshSubscriptionPreservesMatchingNodeID(t *testing.T) {
 	decodeData(t, c.do(http.MethodGet, "/api/nodes", nil), &after)
 	if len(after) != 1 || after[0].ID != before[0].ID || after[0].Tag != "after" {
 		t.Fatalf("refreshed nodes = %+v, before=%+v", after, before)
+	}
+}
+
+func TestRefreshSubscriptionRespectsDeletedNodesAndResetsEmptySource(t *testing.T) {
+	srv, ts := testServer(t)
+	srv.Fetcher.AllowPrivate = true
+	c := newClient(t, ts.URL)
+	c.http.Jar = login(t, ts.URL)
+	sub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(testSSLink("keep", "7.7.7.7") + "\n" + testSSLink("remove", "8.8.8.8")))
+	}))
+	t.Cleanup(sub.Close)
+	var imported struct {
+		SourceID int64 `json:"source_id"`
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/nodes/import/subscription", map[string]string{"name": "delete-refresh", "url": sub.URL}), &imported)
+	var nodes []struct {
+		ID  int64  `json:"id"`
+		Tag string `json:"tag"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/nodes", nil), &nodes)
+	if len(nodes) != 2 {
+		t.Fatalf("initial nodes = %+v", nodes)
+	}
+	var removeID int64
+	for _, node := range nodes {
+		if node.Tag == "remove" {
+			removeID = node.ID
+		}
+	}
+	if removeID == 0 {
+		t.Fatalf("remove node missing: %+v", nodes)
+	}
+	decodeData(t, c.do(http.MethodDelete, "/api/nodes/"+itoa(removeID), nil), &struct{}{})
+	decodeData(t, c.do(http.MethodPost, "/api/sources/"+itoa(imported.SourceID)+"/refresh", nil), &struct{}{})
+	decodeData(t, c.do(http.MethodGet, "/api/nodes", nil), &nodes)
+	if len(nodes) != 1 || nodes[0].Tag != "keep" {
+		t.Fatalf("refresh reimported deleted node: %+v", nodes)
+	}
+	decodeData(t, c.do(http.MethodDelete, "/api/nodes/"+itoa(nodes[0].ID), nil), &struct{}{})
+	var sources []struct {
+		ID        int64 `json:"id"`
+		NodeCount int   `json:"node_count"`
+	}
+	decodeData(t, c.do(http.MethodGet, "/api/sources", nil), &sources)
+	if len(sources) != 1 || sources[0].ID != imported.SourceID || sources[0].NodeCount != 0 {
+		t.Fatalf("empty source = %+v", sources)
+	}
+	decodeData(t, c.do(http.MethodPost, "/api/sources/"+itoa(imported.SourceID)+"/refresh", nil), &struct{}{})
+	decodeData(t, c.do(http.MethodGet, "/api/nodes", nil), &nodes)
+	if len(nodes) != 2 {
+		t.Fatalf("empty source refresh nodes = %+v", nodes)
 	}
 }
 

@@ -145,7 +145,8 @@ func (s *Server) handleDeleteNode(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	if err := s.Store.DeleteNodeForUser(n.ID, n.OwnerUserID); err != nil {
+	result, err := s.Store.DeleteNodeForUserDetailed(n.ID, n.OwnerUserID)
+	if err != nil {
 		if err == store.ErrNotFound {
 			respondError(w, http.StatusNotFound, "not_found", "node not found")
 			return
@@ -153,7 +154,7 @@ func (s *Server) handleDeleteNode(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	respondJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	respondJSON(w, http.StatusOK, map[string]any{"ok": true, "empty_source_ids": result.EmptySourceIDs})
 }
 
 func (s *Server) handleNodeUsage(w http.ResponseWriter, r *http.Request) {

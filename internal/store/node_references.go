@@ -17,11 +17,23 @@ type NodeGroupDeleteResult struct {
 	DeletedGroups  int
 	DeletedNodes   int
 	DeletedNodeIDs []int64
+	EmptySourceIDs []int64
+}
+
+type NodeDeleteResult struct {
+	Deleted        int
+	EmptySourceIDs []int64
 }
 
 func (s *Store) deleteNodesWithReferences(ids []int64, ownerUserID *int64) (int, error) {
+	result, err := s.deleteNodesWithReferencesDetailed(ids, ownerUserID)
+	return result.Deleted, err
+}
+
+func (s *Store) deleteNodesWithReferencesDetailed(ids []int64, ownerUserID *int64) (NodeDeleteResult, error) {
+	result := NodeDeleteResult{}
 	if len(ids) == 0 {
-		return 0, nil
+		return result, nil
 	}
 	placeholders := strings.TrimRight(strings.Repeat("?,", len(ids)), ",")
 	args := int64Args(ids)
@@ -33,34 +45,39 @@ func (s *Store) deleteNodesWithReferences(ids []int64, ownerUserID *int64) (int,
 
 	tx, err := s.db.Begin()
 	if err != nil {
-		return 0, err
+		return result, err
 	}
-	sourceIDs, err := subscriptionSourceIDs(tx, ids, ownerUserID)
+	deletions, err := subscriptionSourceDeletions(tx, ids, ownerUserID)
 	if err != nil {
 		_ = tx.Rollback()
-		return 0, err
+		return result, err
 	}
+	sourceIDs := sourceIDsFromDeletions(deletions)
 	owners, err := nodeOwners(tx, query, args, len(ids))
 	if err != nil {
 		_ = tx.Rollback()
-		return 0, err
+		return result, err
 	}
 	emptyGroups, err := emptyNodeGroups(tx, ids, ownerUserID)
 	if err != nil {
 		_ = tx.Rollback()
-		return 0, err
+		return result, err
 	}
 	updates, err := cleanProfileReferences(tx, owners, ids, emptyGroups)
 	if err != nil {
 		_ = tx.Rollback()
-		return 0, err
+		return result, err
 	}
 	for _, update := range updates {
 		if err := requireRowsAffected(tx.Exec(`UPDATE profiles SET options = ?, updated_at = ? WHERE id = ?`,
 			update.options, now(), update.id)); err != nil {
 			_ = tx.Rollback()
-			return 0, err
+			return result, err
 		}
+	}
+	if err := recordSubscriptionDeletions(tx, deletions); err != nil {
+		_ = tx.Rollback()
+		return result, err
 	}
 
 	deleteQuery := `DELETE FROM nodes WHERE id IN (` + placeholders + `)`
@@ -72,32 +89,39 @@ func (s *Store) deleteNodesWithReferences(ids []int64, ownerUserID *int64) (int,
 	res, err := tx.Exec(deleteQuery, deleteArgs...)
 	if err != nil {
 		_ = tx.Rollback()
-		return 0, err
+		return result, err
 	}
 	affected, err := res.RowsAffected()
 	if err != nil {
 		_ = tx.Rollback()
-		return 0, err
+		return result, err
 	}
 	if affected != int64(len(ids)) {
 		_ = tx.Rollback()
-		return 0, ErrNotFound
+		return result, ErrNotFound
 	}
 	if len(emptyGroups) > 0 {
 		groupPlaceholders := strings.TrimRight(strings.Repeat("?,", len(emptyGroups)), ",")
 		if _, err := tx.Exec(`DELETE FROM node_groups WHERE id IN (`+groupPlaceholders+`)`, int64Args(emptyGroups)...); err != nil {
 			_ = tx.Rollback()
-			return 0, err
+			return result, err
 		}
 	}
-	if err := cleanupSubscriptionSources(tx, sourceIDs, ownerUserID); err != nil {
+	emptySources, err := cleanupSubscriptionSources(tx, sourceIDs, ownerUserID)
+	if err != nil {
 		_ = tx.Rollback()
-		return 0, err
+		return result, err
+	}
+	if err := clearSubscriptionSourceExclusions(tx, emptySources); err != nil {
+		_ = tx.Rollback()
+		return result, err
 	}
 	if err := tx.Commit(); err != nil {
-		return 0, err
+		return result, err
 	}
-	return int(affected), nil
+	result.Deleted = int(affected)
+	result.EmptySourceIDs = emptySources
+	return result, nil
 }
 
 func (s *Store) deleteNodeGroupsWithReferences(ids []int64, ownerUserID *int64) (int, error) {
@@ -178,11 +202,12 @@ func (s *Store) deleteNodeGroupsWithNodes(ids []int64, ownerUserID *int64) (Node
 		_ = tx.Rollback()
 		return result, err
 	}
-	sourceIDs, err := subscriptionSourceIDs(tx, memberIDs, ownerUserID)
+	deletions, err := subscriptionSourceDeletions(tx, memberIDs, ownerUserID)
 	if err != nil {
 		_ = tx.Rollback()
 		return result, err
 	}
+	sourceIDs := sourceIDsFromDeletions(deletions)
 	emptyGroups, err := emptyNodeGroups(tx, memberIDs, ownerUserID)
 	if err != nil {
 		_ = tx.Rollback()
@@ -198,6 +223,10 @@ func (s *Store) deleteNodeGroupsWithNodes(ids []int64, ownerUserID *int64) (Node
 		_ = tx.Rollback()
 		return result, err
 	}
+	if err := recordSubscriptionDeletions(tx, deletions); err != nil {
+		_ = tx.Rollback()
+		return result, err
+	}
 	deletedGroups, err := deleteIDsInTx(tx, "node_groups", deletedGroupIDs, ownerUserID)
 	if err != nil {
 		_ = tx.Rollback()
@@ -208,7 +237,12 @@ func (s *Store) deleteNodeGroupsWithNodes(ids []int64, ownerUserID *int64) (Node
 		_ = tx.Rollback()
 		return result, err
 	}
-	if err := cleanupSubscriptionSources(tx, sourceIDs, ownerUserID); err != nil {
+	emptySources, err := cleanupSubscriptionSources(tx, sourceIDs, ownerUserID)
+	if err != nil {
+		_ = tx.Rollback()
+		return result, err
+	}
+	if err := clearSubscriptionSourceExclusions(tx, emptySources); err != nil {
 		_ = tx.Rollback()
 		return result, err
 	}
@@ -218,6 +252,7 @@ func (s *Store) deleteNodeGroupsWithNodes(ids []int64, ownerUserID *int64) (Node
 	result.DeletedGroups = deletedGroups
 	result.DeletedNodes = deletedNodes
 	result.DeletedNodeIDs = memberIDs
+	result.EmptySourceIDs = emptySources
 	return result, nil
 }
 

@@ -22,6 +22,7 @@ type bulkDeleteResponse struct {
 	Deleted        int     `json:"deleted"`
 	DeletedNodes   int     `json:"deleted_nodes,omitempty"`
 	DeletedNodeIDs []int64 `json:"deleted_node_ids,omitempty"`
+	EmptySourceIDs []int64 `json:"empty_source_ids,omitempty"`
 }
 
 type bulkNodeUsageResponse struct {
@@ -149,7 +150,7 @@ func (s *Server) handleBulkDeleteNodes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	deleted, err := s.Store.DeleteNodesByIDs(ids)
+	result, err := s.Store.DeleteNodesByIDsDetailed(ids)
 	if err == store.ErrNotFound {
 		respondError(w, http.StatusNotFound, "not_found", "node not found")
 		return
@@ -158,7 +159,7 @@ func (s *Server) handleBulkDeleteNodes(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	respondJSON(w, http.StatusOK, bulkDeleteResponse{Deleted: deleted})
+	respondJSON(w, http.StatusOK, bulkDeleteResponse{Deleted: result.Deleted, EmptySourceIDs: result.EmptySourceIDs})
 }
 
 func (s *Server) handleBulkDeleteNodeGroups(w http.ResponseWriter, r *http.Request) {
@@ -190,6 +191,7 @@ func (s *Server) handleBulkDeleteNodeGroups(w http.ResponseWriter, r *http.Reque
 			Deleted:        result.DeletedGroups,
 			DeletedNodes:   result.DeletedNodes,
 			DeletedNodeIDs: result.DeletedNodeIDs,
+			EmptySourceIDs: result.EmptySourceIDs,
 		})
 		return
 	}

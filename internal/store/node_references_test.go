@@ -419,7 +419,7 @@ func TestDeleteNodeGroupWithNodesRollsBackOnInvalidProfileOptions(t *testing.T) 
 	}
 }
 
-func TestDeleteNodesBySourceRemovesEmptyGroups(t *testing.T) {
+func TestDeleteNodesBySourceKeepsEmptySourceAndRemovesGroups(t *testing.T) {
 	s := openTest(t)
 	ownerID := createTestUser(t, s)
 	templateID, err := s.CreateTemplate(&models.Template{OwnerUserID: ownerID, Name: "t", Kind: "user", Content: "{}"})
@@ -447,8 +447,9 @@ func TestDeleteNodesBySourceRemovesEmptyGroups(t *testing.T) {
 	if err := s.DeleteNodesBySourceForUser(sourceID, ownerID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.GetSource(sourceID); err != ErrNotFound {
-		t.Fatalf("subscription source error = %v, want ErrNotFound", err)
+	source, err := s.GetSource(sourceID)
+	if err != nil || source.NodeCount != 0 {
+		t.Fatalf("subscription source = %+v err=%v, want retained empty source", source, err)
 	}
 	if _, err := s.GetNodeGroupForUser(groupID, ownerID, false); err != ErrNotFound {
 		t.Fatalf("source group error = %v, want ErrNotFound", err)

@@ -239,7 +239,11 @@ func (s *Store) SyncSubscriptionNodes(ownerUserID int64, updates, creates []*mod
 				return rollback(err)
 			}
 		}
-		if err := cleanupSubscriptionSources(tx, sourceIDs, &ownerUserID); err != nil {
+		emptySources, err := cleanupSubscriptionSources(tx, sourceIDs, &ownerUserID)
+		if err != nil {
+			return rollback(err)
+		}
+		if err := clearSubscriptionSourceExclusions(tx, emptySources); err != nil {
 			return rollback(err)
 		}
 	}
@@ -276,23 +280,68 @@ func subscriptionSourceIDs(tx *sql.Tx, nodeIDs []int64, ownerUserID *int64) ([]i
 	return ids, rows.Err()
 }
 
-func cleanupSubscriptionSources(tx *sql.Tx, sourceIDs []int64, ownerUserID *int64) error {
+type subscriptionSourceDeletion struct {
+	sourceID int64
+	raw      string
+}
+
+func subscriptionSourceDeletions(tx *sql.Tx, nodeIDs []int64, ownerUserID *int64) ([]subscriptionSourceDeletion, error) {
+	if len(nodeIDs) == 0 {
+		return nil, nil
+	}
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(nodeIDs)), ",")
+	args := int64Args(nodeIDs)
+	query := `SELECT source_ref, raw FROM nodes WHERE source = 'subscription' AND source_ref IS NOT NULL AND id IN (` + placeholders + `)`
+	if ownerUserID != nil {
+		query += ` AND owner_user_id = ?`
+		args = append(args, *ownerUserID)
+	}
+	rows, err := tx.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []subscriptionSourceDeletion
+	for rows.Next() {
+		var item subscriptionSourceDeletion
+		if err := rows.Scan(&item.sourceID, &item.raw); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func sourceIDsFromDeletions(items []subscriptionSourceDeletion) []int64 {
+	seen := make(map[int64]bool, len(items))
+	var out []int64
+	for _, item := range items {
+		if !seen[item.sourceID] {
+			seen[item.sourceID] = true
+			out = append(out, item.sourceID)
+		}
+	}
+	return out
+}
+
+func recordSubscriptionDeletions(tx *sql.Tx, items []subscriptionSourceDeletion) error {
+	for _, item := range items {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO subscription_source_exclusions (source_id, raw) VALUES (?, ?)`, item.sourceID, item.raw); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func cleanupSubscriptionSources(tx *sql.Tx, sourceIDs []int64, ownerUserID *int64) ([]int64, error) {
+	var empty []int64
 	for _, sourceID := range sourceIDs {
 		var count int
 		if err := tx.QueryRow(`SELECT COUNT(*) FROM nodes WHERE source = 'subscription' AND source_ref = ?`, sourceID).Scan(&count); err != nil {
-			return err
+			return nil, err
 		}
 		if count == 0 {
-			query := `DELETE FROM subscription_sources WHERE id = ?`
-			args := []any{sourceID}
-			if ownerUserID != nil {
-				query += ` AND owner_user_id = ?`
-				args = append(args, *ownerUserID)
-			}
-			if _, err := tx.Exec(query, args...); err != nil {
-				return err
-			}
-			continue
+			empty = append(empty, sourceID)
 		}
 		query := `UPDATE subscription_sources SET node_count = ? WHERE id = ?`
 		args := []any{count, sourceID}
@@ -301,6 +350,38 @@ func cleanupSubscriptionSources(tx *sql.Tx, sourceIDs []int64, ownerUserID *int6
 			args = append(args, *ownerUserID)
 		}
 		if _, err := tx.Exec(query, args...); err != nil {
+			return nil, err
+		}
+	}
+	return empty, nil
+}
+
+// ListSubscriptionSourceExclusions returns raw outbounds explicitly removed by the user.
+func (s *Store) ListSubscriptionSourceExclusions(sourceID int64) ([]string, error) {
+	rows, err := s.db.Query(`SELECT raw FROM subscription_source_exclusions WHERE source_id = ?`, sourceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		out = append(out, raw)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) ClearSubscriptionSourceExclusions(sourceID int64) error {
+	_, err := s.db.Exec(`DELETE FROM subscription_source_exclusions WHERE source_id = ?`, sourceID)
+	return err
+}
+
+func clearSubscriptionSourceExclusions(tx *sql.Tx, sourceIDs []int64) error {
+	for _, sourceID := range sourceIDs {
+		if _, err := tx.Exec(`DELETE FROM subscription_source_exclusions WHERE source_id = ?`, sourceID); err != nil {
 			return err
 		}
 	}
@@ -316,6 +397,10 @@ func (s *Store) DeleteNode(id int64) error {
 func (s *Store) DeleteNodeForUser(id, ownerUserID int64) error {
 	_, err := s.deleteNodesWithReferences([]int64{id}, &ownerUserID)
 	return err
+}
+
+func (s *Store) DeleteNodeForUserDetailed(id, ownerUserID int64) (NodeDeleteResult, error) {
+	return s.deleteNodesWithReferencesDetailed([]int64{id}, &ownerUserID)
 }
 
 func (s *Store) ListNodeUsage(id, ownerUserID int64, allOwners bool) ([]*models.NodeUsage, error) {

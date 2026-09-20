@@ -8,6 +8,10 @@ func (s *Store) DeleteNodesByIDs(ids []int64) (int, error) {
 	return s.deleteNodesWithReferences(ids, nil)
 }
 
+func (s *Store) DeleteNodesByIDsDetailed(ids []int64) (NodeDeleteResult, error) {
+	return s.deleteNodesWithReferencesDetailed(ids, nil)
+}
+
 func (s *Store) DeleteNodeGroupsByIDs(ids []int64) (int, error) {
 	return s.deleteNodeGroupsWithReferences(ids, nil)
 }

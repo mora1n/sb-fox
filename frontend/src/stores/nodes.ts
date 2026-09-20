@@ -169,10 +169,10 @@ export const useNodesStore = defineStore('nodes', () => {
     return post<BulkNodeUsageResult>('/nodes/bulk-delete/preview', { ids })
   }
 
-  async function bulkDelete(ids: number[]): Promise<number> {
+  async function bulkDelete(ids: number[]): Promise<BulkDeleteResult> {
     const r = await post<BulkDeleteResult>('/nodes/bulk-delete', { ids })
     removeManyFromLoadedState(ids)
-    return r.deleted
+    return r
   }
 
   async function refreshAfterMutation(): Promise<void> {
