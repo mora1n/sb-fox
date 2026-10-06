@@ -26,7 +26,7 @@ func TestCustomCountryGroupMembershipAndReferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	nodes := []*Node{customCountryTestNode("mystery-one", ""), customCountryTestNode("plain-node", "JP"), customCountryTestNode("mystery-two", "")}
+	nodes := []*Node{customCountryTestNode("🇺🇸 mystery-one", "CUSTOM"), customCountryTestNode("plain-node", "JP"), customCountryTestNode("mystery-two", "CUSTOM"), customCountryTestNode("unknown-node", "")}
 	out, err := Generate(cfg, nodes, Options{AutoCountryGroups: true, ChainProxy: true})
 	if err != nil {
 		t.Fatal(err)
@@ -35,13 +35,14 @@ func TestCustomCountryGroupMembershipAndReferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertCustomCountryTags(t, outbounds, "🏳️‍🌈Custom", []string{"mystery-one", "mystery-two"})
+	assertCustomCountryTags(t, outbounds, "🏳️‍🌈Custom", []string{"🇺🇸 mystery-one", "mystery-two"})
+	assertCustomCountryTags(t, outbounds, "🏳️‍🌈Others", []string{"unknown-node"})
 	assertCustomCountryTags(t, outbounds, "🇯🇵Japan", []string{"plain-node"})
 	for _, tag := range []string{"Fallback", "Checks", ChainProxyTag} {
-		assertCustomCountryTags(t, outbounds, tag, []string{"🇯🇵Japan", "🏳️‍🌈Custom"})
+		assertCustomCountryTags(t, outbounds, tag, []string{"🇯🇵Japan", "🏳️‍🌈Custom", "🏳️‍🌈Others"})
 	}
 	for _, tag := range []string{"Proxy", "Auto"} {
-		assertCustomCountryTags(t, outbounds, tag, []string{"🇯🇵Japan", "🏳️‍🌈Custom", ChainProxyTag})
+		assertCustomCountryTags(t, outbounds, tag, []string{"🇯🇵Japan", "🏳️‍🌈Custom", "🏳️‍🌈Others", ChainProxyTag})
 	}
 	for _, tag := range []string{"Others", "Mainland"} {
 		assertCustomCountryTags(t, outbounds, tag, []string{"Direct"})
@@ -64,7 +65,8 @@ func TestCustomCountryGroupSourceAndToggle(t *testing.T) {
 		opts Options
 		want []string
 	}{
-		{"unknown-only", Options{AutoCountryGroups: true}, []string{"mystery-one", "mystery-two"}},
+		{"custom-only", Options{AutoCountryGroups: true}, []string{"mystery-one", "mystery-two"}},
+		{"unknown-only", Options{AutoCountryGroups: true}, nil},
 		{"known-only", Options{AutoCountryGroups: true}, nil},
 		{"selected-source", Options{AutoCountryGroups: true, CountryGroupSourceTags: []string{"mystery-two"}}, []string{"mystery-two"}},
 		{"empty-source", Options{AutoCountryGroups: true, CountryGroupSourceTags: []string{}}, nil},
@@ -76,7 +78,10 @@ func TestCustomCountryGroupSourceAndToggle(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			nodes := []*Node{customCountryTestNode("mystery-one", ""), customCountryTestNode("mystery-two", "")}
+			nodes := []*Node{customCountryTestNode("mystery-one", "CUSTOM"), customCountryTestNode("mystery-two", "CUSTOM")}
+			if tc.name == "unknown-only" {
+				nodes = []*Node{customCountryTestNode("mystery-one", ""), customCountryTestNode("🏳️‍🌈Custom node", "")}
+			}
 			if tc.name == "known-only" {
 				nodes = []*Node{customCountryTestNode("plain-node", "JP")}
 			}
@@ -100,9 +105,28 @@ func TestCustomCountryGroupSourceAndToggle(t *testing.T) {
 			assertCustomCountryTags(t, outbounds, "🏳️‍🌈Custom", tc.want)
 			assertCustomCountryTags(t, outbounds, "Fallback", []string{"🏳️‍🌈Custom"})
 			if findTestOutbound(outbounds, "🏳️‍🌈Others") != nil {
-				t.Fatal("legacy generated Others selector remains")
+				t.Fatal("unexpected unrecognized-node selector for explicitly assigned countries")
 			}
 		})
+	}
+}
+
+func TestCustomCountryRequiresExplicitSelection(t *testing.T) {
+	for _, tag := range []string{"Custom", "🏳️‍🌈Custom node", "自定义"} {
+		if info := DetectCountry(tag); info != nil {
+			t.Fatalf("custom category inferred from name %q: %+v", tag, info)
+		}
+	}
+	node := customCountryTestNode("🇯🇵 Japan", " custom ")
+	node.Source = "protocol"
+	node.Raw.Set("server", "example.com#US")
+	node.applySourceTagging()
+	info := node.resolveCountry()
+	if info == nil || info.Code != CustomCountryCode || info.Emoji != "🏳️‍🌈" || info.Name != "Custom" {
+		t.Fatalf("manual custom override not honored: %+v", info)
+	}
+	if node.server() != "example.com" {
+		t.Fatalf("country annotation remains in server: %q", node.server())
 	}
 }
 

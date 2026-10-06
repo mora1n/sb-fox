@@ -16,12 +16,13 @@ func TestGenerateConfigCustomCountryGroupSelection(t *testing.T) {
 		{"type":"selector","tag":"Skip","outbounds":[]},
 		{"type":"selector","tag":"Outside","outbounds":[]},
 		{"type":"direct","tag":"Direct"}],"route":{"final":"Proxy"}}`
-	unknown := testNode(1, "mystery-one", "")
+	custom := testNode(1, "🇺🇸 mystery-one", "CUSTOM")
+	custom.CountrySource = "manual"
 	known := testNode(2, "plain-node", "JP")
 	outside := testNode(3, "mystery-outside", "")
 	config, err := generateConfigWithGroupSelections(template, map[string][]*models.Node{
-		"Proxy": {unknown, known}, "Skip": {unknown}, "Outside": {outside},
-	}, []*models.Node{unknown, known}, nil, models.ProfileOptions{
+		"Proxy": {custom, known}, "Skip": {custom}, "Outside": {outside},
+	}, []*models.Node{custom, known}, nil, models.ProfileOptions{
 		AutoCountryGroups: true,
 		GroupSelections: map[string]models.NodeSelection{
 			"Proxy": {NodeIDs: []int64{1, 2}}, "Skip": {NodeIDs: []int64{1}, SkipCountryGroups: true}, "Outside": {NodeIDs: []int64{3}},
@@ -33,9 +34,9 @@ func TestGenerateConfigCustomCountryGroupSelection(t *testing.T) {
 	}
 	outbounds := generatedOutboundMap(t, config)
 	for tag, want := range map[string][]string{
-		"🏳️‍🌈Custom": {"mystery-one"}, "🇯🇵Japan": {"plain-node"},
+		"🏳️‍🌈Custom": {"🇺🇸 mystery-one"}, "🇯🇵Japan": {"plain-node"},
 		"Proxy": {"🇯🇵Japan", "🏳️‍🌈Custom"}, "Rule": {"🇯🇵Japan", "🏳️‍🌈Custom"},
-		"Skip": {"mystery-one"}, "Outside": {"mystery-outside"},
+		"Skip": {"🇺🇸 mystery-one"}, "Outside": {"mystery-outside"},
 	} {
 		if got := stringSliceValue(t, outbounds[tag]["outbounds"]); !sameStrings(got, want) {
 			t.Fatalf("%s outbounds = %v, want %v", tag, got, want)
@@ -48,6 +49,11 @@ func TestCustomCountryGroupPreviewAndSubscription(t *testing.T) {
 	c := newClient(t, ts.URL)
 	c.http.Jar = login(t, ts.URL)
 	profileID, nodeID, profileName := createSavedPreviewProfileWithNode(t, c)
+	var node models.Node
+	decodeData(t, c.do(http.MethodGet, "/api/nodes/"+itoa(nodeID), nil), &node)
+	decodeData(t, c.do(http.MethodPut, "/api/nodes/"+itoa(nodeID), map[string]any{
+		"raw": node.Raw, "country_code": "CUSTOM", "country_source": "manual",
+	}), nil)
 	profile, err := srv.Store.GetProfile(profileID)
 	if err != nil {
 		t.Fatal(err)

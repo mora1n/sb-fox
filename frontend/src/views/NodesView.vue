@@ -10,6 +10,7 @@ import { downloadPost } from '../api/client'
 import type { Node, NodeGroup, NodeSummary } from '../api/types'
 import { nodeSourceLabel } from '../utils/nodeSource'
 import { NODE_SOURCES } from '../utils/nodeFilters'
+import { CUSTOM_COUNTRY } from '../utils/countries'
 import { readViewPref, writeViewPref } from '../utils/viewPrefs'
 import { formatDateTime, timeSortValue } from '../utils/time'
 import NodeCard from '../components/NodeCard.vue'
@@ -559,7 +560,7 @@ async function exportLinks() {
         </select>
         <select v-model="nodesStore.filters.country" class="select select-bordered select-sm">
           <option value="">{{ i18n.t('全部国家') }}</option>
-          <option v-for="c in nodesStore.countries" :key="c" :value="c">{{ c }}</option>
+          <option v-for="c in nodesStore.countries" :key="c" :value="c">{{ c === CUSTOM_COUNTRY.code ? '🏳️‍🌈 ' + i18n.t(CUSTOM_COUNTRY.name) : c }}</option>
         </select>
         <select v-model="nodesStore.filters.type" class="select select-bordered select-sm">
           <option value="">{{ i18n.t('全部协议') }}</option>

@@ -92,7 +92,7 @@
       "outbounds": [
         "🎯 Direct",
         "🇨🇳China",
-        "🏳️‍🌈Custom"
+        "🏳️‍🌈Others"
       ]
     },
     {
@@ -104,7 +104,7 @@
     },
     {
       "type": "selector",
-      "tag": "🏳️‍🌈Custom",
+      "tag": "🏳️‍🌈Others",
       "outbounds": [
         "Tokyo-1",
         "Mystery-1"

@@ -10,7 +10,7 @@ func TestExtractCountry(t *testing.T) {
 		want string // "" means no match (unrecognized)
 	}{
 		// ranking edge cases (from country-edge-linux)
-		{"HKHK", ""},          // no boundary match -> Custom
+		{"HKHK", ""},          // no boundary match -> Others
 		{"HongKong HK", "HK"}, // "hongkong" alias
 		{"CN2-US", "US"},      // US matched (boundary), CN2 not a CN boundary
 		{"Tokyo JP 01", "JP"}, // "jp" code with boundaries
@@ -112,6 +112,7 @@ func TestServerCountryOverride(t *testing.T) {
 	}{
 		{"relay.example.com#CN", "relay.example.com", "CN", false},
 		{"1.2.3.4#us", "1.2.3.4", "US", false},
+		{"relay.example.com#custom", "relay.example.com", "CUSTOM", false},
 		{"plain.example.com", "", "", true},
 		{"#CN", "", "", true},      // empty server part
 		{"host#ABC", "", "", true}, // 3 letters, not a 2-letter code

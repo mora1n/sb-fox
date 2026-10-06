@@ -103,6 +103,9 @@ func createCountrySelectors(info *nodeInfo, countryHeatOrder []string) []*Ordere
 
 	sort.SliceStable(codes, func(i, j int) bool {
 		a, b := getCountrySortInfo(sortCache, codes[i]), getCountrySortInfo(sortCache, codes[j])
+		if codes[i] == CustomCountryCode || codes[j] == CustomCountryCode {
+			return codes[j] == CustomCountryCode && codes[i] != CustomCountryCode
+		}
 		if a.bucket != b.bucket {
 			return a.bucket < b.bucket
 		}
@@ -131,7 +134,7 @@ func createCountrySelectors(info *nodeInfo, countryHeatOrder []string) []*Ordere
 	if len(info.unrecognizedTags) > 0 {
 		sel := NewOrderedMap()
 		sel.Set("type", "selector")
-		sel.Set("tag", "🏳️‍🌈Custom")
+		sel.Set("tag", "🏳️‍🌈Others")
 		sel.Set("outbounds", toAnySlice(info.unrecognizedTags))
 		selectors = append(selectors, sel)
 	}

@@ -7,7 +7,7 @@ import { useSettingsStore } from '../stores/settings'
 import { useUiStore } from '../stores/ui'
 import { useI18nStore } from '../stores/i18n'
 import { errMsg } from '../utils/error'
-import { COUNTRY_CODES, countryFlagEmoji, sortCountryOptions } from '../utils/countries'
+import { COUNTRY_CODES, CUSTOM_COUNTRY, countryFlagEmoji, sortCountryOptions } from '../utils/countries'
 import { useScrollPreserver } from '../utils/scrollPreserver'
 
 type NodeFormMode = 'create' | 'edit' | 'copy'
@@ -1912,6 +1912,7 @@ watch([manualCountry, parseError], () => {
         </label>
         <select v-if="manualCountry" v-model="countryCode" class="select select-bordered select-sm">
           <option value="">{{ i18n.t('未指定') }}</option>
+          <option :value="CUSTOM_COUNTRY.code">{{ countryFlagEmoji(CUSTOM_COUNTRY.code) }} {{ i18n.t(CUSTOM_COUNTRY.name) }}</option>
           <option v-for="c in countryOptions" :key="c.code" :value="c.code">
             {{ countryFlagEmoji(c.code) }}{{ c.code }} — {{ c.name }}
           </option>

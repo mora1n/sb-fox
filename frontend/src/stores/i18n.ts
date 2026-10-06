@@ -95,6 +95,7 @@ const en: Record<string, string> = {
   '来源': 'Source',
   '手动指定国家': 'Set Country Manually',
   '未指定': 'Unspecified',
+  '自定义': 'Custom',
   '输入': 'Input',
   '选择模板': 'Select Template',
   '自动国家分组': 'Auto Country Groups',

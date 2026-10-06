@@ -34,7 +34,9 @@ func (n *Node) applySourceTagging() {
 	if n.Source == "protocol" {
 		if ov := ExtractServerCountryOverride(n.server()); ov != nil {
 			n.Raw.Set("server", ov.Server)
-			n.CountryOverride = ov.CountryCode
+			if n.CountryOverride == "" {
+				n.CountryOverride = ov.CountryCode
+			}
 		}
 	}
 }

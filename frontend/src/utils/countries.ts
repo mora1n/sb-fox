@@ -4,6 +4,9 @@ import type { CountryOption } from './countryCatalog'
 export { COUNTRY_CODES }
 export type { CountryOption } from './countryCatalog'
 
+// A manual category kept separate from the two-letter country catalog.
+export const CUSTOM_COUNTRY: CountryOption = { code: 'CUSTOM', name: '自定义', region: 'other' }
+
 export const DEFAULT_COUNTRY_HEAT_ORDER = ['JP', 'CN', 'HK', 'US', 'TW', 'SG']
 
 const EUROPE_PRIORITY = ['GB', 'NL', 'FR', 'DE', 'CH']
@@ -24,11 +27,13 @@ interface SortInfo {
 }
 
 export function countryName(code: string): string {
+  if (code === CUSTOM_COUNTRY.code) return CUSTOM_COUNTRY.name
   return COUNTRY_NAME.get(code) || code
 }
 
 export function countryFlagEmoji(code: string): string {
   const normalized = code.trim().toUpperCase()
+  if (normalized === CUSTOM_COUNTRY.code) return '🏳️‍🌈'
   if (!/^[A-Z]{2}$/.test(normalized)) return '🏳️'
   const regionalIndicatorA = 0x1f1e6
   return String.fromCodePoint(
@@ -80,6 +85,8 @@ function compareCountryCodesWithCache(a: string, b: string, cache: Map<string, S
   if (a === b) return 0
   if (a === '??') return 1
   if (b === '??') return -1
+  if (a === CUSTOM_COUNTRY.code) return 1
+  if (b === CUSTOM_COUNTRY.code) return -1
   const ai = cache.get(a) || { bucket: 999, priority: 999 }
   const bi = cache.get(b) || { bucket: 999, priority: 999 }
   if (ai.bucket !== bi.bucket) return ai.bucket - bi.bucket

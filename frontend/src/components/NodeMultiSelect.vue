@@ -6,6 +6,7 @@ import VirtualNodeList from './VirtualNodeList.vue'
 import { useI18nStore } from '../stores/i18n'
 import { useSettingsStore } from '../stores/settings'
 import { nodeSourceLabel } from '../utils/nodeSource'
+import { CUSTOM_COUNTRY } from '../utils/countries'
 import { emptyNodeFilters, filterNodes, nodeCountries, nodeSources, nodeTypes } from '../utils/nodeFilters'
 import { useScrollPreserver } from '../utils/scrollPreserver'
 import { Bars3Icon, XMarkIcon } from '@heroicons/vue/24/outline'
@@ -154,7 +155,7 @@ function dropSelected(event: DragEvent) {
       </select>
       <select v-model="filters.country" class="select select-bordered select-sm min-w-0" :disabled="disabled">
         <option value="">{{ i18n.t('全部国家') }}</option>
-        <option v-for="country in countryOptions" :key="country" :value="country">{{ country }}</option>
+        <option v-for="country in countryOptions" :key="country" :value="country">{{ country === CUSTOM_COUNTRY.code ? '🏳️‍🌈 ' + i18n.t(CUSTOM_COUNTRY.name) : country }}</option>
       </select>
       <select v-model="filters.type" class="select select-bordered select-sm min-w-0" :disabled="disabled">
         <option value="">{{ i18n.t('全部协议') }}</option>
