@@ -693,8 +693,8 @@ func TestGenerateConfigUsesStoredAutoCountryForGrouping(t *testing.T) {
 	if got := stringSliceValue(t, outbounds["🇯🇵Japan"]["outbounds"]); !sameStrings(got, []string{"plain-node"}) {
 		t.Fatalf("JP selector outbounds = %v", got)
 	}
-	if _, ok := outbounds["🏳️‍🌈Others"]; ok {
-		t.Fatalf("plain-node with stored country should not be placed in Others")
+	if _, ok := outbounds["🏳️‍🌈Custom"]; ok {
+		t.Fatalf("plain-node with stored country should not be placed in Custom")
 	}
 }
 

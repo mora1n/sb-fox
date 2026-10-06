@@ -10,7 +10,7 @@ func TestExtractCountry(t *testing.T) {
 		want string // "" means no match (unrecognized)
 	}{
 		// ranking edge cases (from country-edge-linux)
-		{"HKHK", ""},          // no boundary match -> Others
+		{"HKHK", ""},          // no boundary match -> Custom
 		{"HongKong HK", "HK"}, // "hongkong" alias
 		{"CN2-US", "US"},      // US matched (boundary), CN2 not a CN boundary
 		{"Tokyo JP 01", "JP"}, // "jp" code with boundaries

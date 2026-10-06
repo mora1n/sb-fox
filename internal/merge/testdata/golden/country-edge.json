@@ -95,7 +95,7 @@
         "🇭🇰Hong Kong",
         "🇺🇸United States",
         "🇩🇪Germany",
-        "🏳️‍🌈Others"
+        "🏳️‍🌈Custom"
       ]
     },
     {
@@ -129,7 +129,7 @@
     },
     {
       "type": "selector",
-      "tag": "🏳️‍🌈Others",
+      "tag": "🏳️‍🌈Custom",
       "outbounds": [
         "HKHK"
       ]

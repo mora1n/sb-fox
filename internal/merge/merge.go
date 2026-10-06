@@ -41,7 +41,7 @@ func DefaultOptions() Options {
 }
 
 // Generate ports merge.js main(): given a parsed template config and a set of
-// nodes, it injects the nodes, builds country/others selectors, wires up the
+// nodes, it injects the nodes, builds country selectors including Custom, wires up the
 // Proxy/Auto/Relay/Mainland groups and returns the final config. The template
 // is mutated in place.
 func Generate(config *OrderedMap, nodes []*Node, opts Options) (*OrderedMap, error) {
@@ -102,34 +102,29 @@ func Generate(config *OrderedMap, nodes []*Node, opts Options) (*OrderedMap, err
 		countryTags[i] = s.GetString("tag")
 	}
 
-	var othersSelector *OrderedMap
-	if len(countryInfo.unrecognizedTags) > 0 {
-		othersSelector = NewOrderedMap()
-		othersSelector.Set("type", "selector")
-		othersSelector.Set("tag", "🏳️‍🌈Others")
-		othersSelector.Set("outbounds", toAnySlice(countryInfo.unrecognizedTags))
-	}
-
-	selectableTags := append([]string{}, countryTags...)
-	if othersSelector != nil {
-		selectableTags = append(selectableTags, othersSelector.GetString("tag"))
-	}
 	var chainSelector *OrderedMap
 	if opts.ChainProxy {
 		tags := opts.ChainProxyOutbounds
 		if len(tags) == 0 {
-			tags = selectableTags
+			tags = countryTags
 		}
 		chainSelector = createChainProxySelector(tags)
 	}
-	appendUniqueTags(groups.proxy, selectableTags)
-	appendUniqueTags(groups.auto, selectableTags)
+	appendUniqueTags(groups.proxy, countryTags)
+	appendUniqueTags(groups.auto, countryTags)
 	if chainSelector != nil {
 		appendUniqueTags(groups.proxy, []string{chainSelector.GetString("tag")})
 		appendUniqueTags(groups.auto, []string{chainSelector.GetString("tag")})
 	}
 
-	outbounds = insertCountrySelectors(outbounds, groups.directIdx, countrySelectors, othersSelector, chainSelector)
+	inserts := make([]any, 0, len(countrySelectors)+1)
+	for _, selector := range countrySelectors {
+		inserts = append(inserts, selector)
+	}
+	if chainSelector != nil {
+		inserts = append(inserts, chainSelector)
+	}
+	outbounds = insertAdditionalOutbounds(outbounds, groups.directIdx, inserts)
 	config.Set("outbounds", outbounds)
 
 	chinaTag := chinaSelectorTag(countrySelectors)
@@ -140,39 +135,6 @@ func Generate(config *OrderedMap, nodes []*Node, opts Options) (*OrderedMap, err
 	}
 	finalizeConfig(config)
 	return config, nil
-}
-
-// insertCountrySelectors ports the splice logic: insert country selectors (and
-// Others) before the Direct outbound, or append when Direct is absent.
-func insertCountrySelectors(outbounds []any, directIdx int, selectors []*OrderedMap, others, chain *OrderedMap) []any {
-	inserts := make([]any, 0, len(selectors)+1)
-	for _, s := range selectors {
-		inserts = append(inserts, s)
-	}
-	if chain != nil {
-		inserts = append(inserts, chain)
-	}
-
-	if directIdx != -1 {
-		// merge.js splices Others first, then country selectors, both at
-		// directIndex — producing [countrySelectors..., Others] before Direct.
-		block := make([]any, 0, len(inserts)+1)
-		block = append(block, inserts...)
-		if others != nil {
-			block = append(block, others)
-		}
-		result := make([]any, 0, len(outbounds)+len(block))
-		result = append(result, outbounds[:directIdx]...)
-		result = append(result, block...)
-		result = append(result, outbounds[directIdx:]...)
-		return result
-	}
-
-	outbounds = append(outbounds, inserts...)
-	if others != nil {
-		outbounds = append(outbounds, others)
-	}
-	return outbounds
 }
 
 func insertAdditionalOutbounds(outbounds []any, directIdx int, inserts []any) []any {

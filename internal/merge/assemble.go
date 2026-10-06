@@ -95,7 +95,7 @@ func appendUniqueTags(group *OrderedMap, tags []string) {
 }
 
 // createCountrySelectors sorts country groups by the hot/europe/region ranking
-// and builds a selector outbound for each.
+// and builds a selector outbound for each, followed by unrecognized nodes.
 func createCountrySelectors(info *nodeInfo, countryHeatOrder []string) []*OrderedMap {
 	codes := make([]string, len(info.countryOrder))
 	copy(codes, info.countryOrder)
@@ -126,6 +126,13 @@ func createCountrySelectors(info *nodeInfo, countryHeatOrder []string) []*Ordere
 			tags[i] = t
 		}
 		sel.Set("outbounds", tags)
+		selectors = append(selectors, sel)
+	}
+	if len(info.unrecognizedTags) > 0 {
+		sel := NewOrderedMap()
+		sel.Set("type", "selector")
+		sel.Set("tag", "🏳️‍🌈Custom")
+		sel.Set("outbounds", toAnySlice(info.unrecognizedTags))
 		selectors = append(selectors, sel)
 	}
 	return selectors
