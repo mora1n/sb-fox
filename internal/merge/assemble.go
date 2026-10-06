@@ -134,7 +134,7 @@ func createCountrySelectors(info *nodeInfo, countryHeatOrder []string) []*Ordere
 	if len(info.unrecognizedTags) > 0 {
 		sel := NewOrderedMap()
 		sel.Set("type", "selector")
-		sel.Set("tag", "🏳️‍🌈Others")
+		sel.Set("tag", "🏴‍☠️Others")
 		sel.Set("outbounds", toAnySlice(info.unrecognizedTags))
 		selectors = append(selectors, sel)
 	}

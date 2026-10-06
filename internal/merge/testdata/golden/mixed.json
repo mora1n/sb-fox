@@ -94,7 +94,7 @@
         "🇨🇳China",
         "🇺🇸United States",
         "🇸🇬Singapore",
-        "🏳️‍🌈Others"
+        "🏴‍☠️Others"
       ]
     },
     {
@@ -121,7 +121,7 @@
     },
     {
       "type": "selector",
-      "tag": "🏳️‍🌈Others",
+      "tag": "🏴‍☠️Others",
       "outbounds": [
         "Tokyo-1",
         "Mystery-1",

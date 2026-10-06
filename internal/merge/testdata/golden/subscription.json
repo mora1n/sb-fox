@@ -93,7 +93,7 @@
         "🎯 Direct",
         "🇺🇸United States",
         "🇸🇬Singapore",
-        "🏳️‍🌈Others"
+        "🏴‍☠️Others"
       ]
     },
     {
@@ -112,7 +112,7 @@
     },
     {
       "type": "selector",
-      "tag": "🏳️‍🌈Others",
+      "tag": "🏴‍☠️Others",
       "outbounds": [
         "Others-1"
       ]

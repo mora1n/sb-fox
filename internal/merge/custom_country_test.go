@@ -36,13 +36,13 @@ func TestCustomCountryGroupMembershipAndReferences(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertCustomCountryTags(t, outbounds, "🏳️‍🌈Custom", []string{"🇺🇸 mystery-one", "mystery-two"})
-	assertCustomCountryTags(t, outbounds, "🏳️‍🌈Others", []string{"unknown-node"})
+	assertCustomCountryTags(t, outbounds, "🏴‍☠️Others", []string{"unknown-node"})
 	assertCustomCountryTags(t, outbounds, "🇯🇵Japan", []string{"plain-node"})
 	for _, tag := range []string{"Fallback", "Checks", ChainProxyTag} {
-		assertCustomCountryTags(t, outbounds, tag, []string{"🇯🇵Japan", "🏳️‍🌈Custom", "🏳️‍🌈Others"})
+		assertCustomCountryTags(t, outbounds, tag, []string{"🇯🇵Japan", "🏳️‍🌈Custom", "🏴‍☠️Others"})
 	}
 	for _, tag := range []string{"Proxy", "Auto"} {
-		assertCustomCountryTags(t, outbounds, tag, []string{"🇯🇵Japan", "🏳️‍🌈Custom", "🏳️‍🌈Others", ChainProxyTag})
+		assertCustomCountryTags(t, outbounds, tag, []string{"🇯🇵Japan", "🏳️‍🌈Custom", "🏴‍☠️Others", ChainProxyTag})
 	}
 	for _, tag := range []string{"Others", "Mainland"} {
 		assertCustomCountryTags(t, outbounds, tag, []string{"Direct"})
@@ -104,7 +104,7 @@ func TestCustomCountryGroupSourceAndToggle(t *testing.T) {
 			}
 			assertCustomCountryTags(t, outbounds, "🏳️‍🌈Custom", tc.want)
 			assertCustomCountryTags(t, outbounds, "Fallback", []string{"🏳️‍🌈Custom"})
-			if findTestOutbound(outbounds, "🏳️‍🌈Others") != nil {
+			if findTestOutbound(outbounds, "🏴‍☠️Others") != nil {
 				t.Fatal("unexpected unrecognized-node selector for explicitly assigned countries")
 			}
 		})
